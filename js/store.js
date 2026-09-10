@@ -3,7 +3,7 @@
    نفس نماذج البيانات المستخدمة في تطبيق أندرويد "بيتنا"
    ============================================================ */
 
-import { nextId, uid, todayStart, startOfDay } from './util.js';
+import { nextId, uid, todayStart, startOfDay, fmtDate } from './util.js';
 
 const KEY = 'beitna:state:v1';
 
@@ -66,6 +66,40 @@ function blankState() {
   };
 }
 
+/* ============================================================
+   جسر السحابة — يُفعَّل عند تسجيل الدخول بحساب
+   ============================================================ */
+let mode = 'local';               // local | cloud
+let householdId = null;
+let bridge = null;                // { save, patch, remove, profile }
+let cloudUid = null;
+
+export function setCloudUid(u) { cloudUid = u; }
+
+export const getMode = () => mode;
+export const isCloud = () => mode === 'cloud';
+export const getHouseholdId = () => householdId;
+
+export function setCloudBridge(b, hid) {
+  bridge = b; householdId = hid; mode = b ? 'cloud' : 'local';
+}
+
+function push(op, col, ...args) {
+  if (mode !== 'cloud' || !bridge) return;
+  try { bridge[op]?.(col, ...args); } catch (e) { console.warn('تعذّرت المزامنة', e); }
+}
+
+/** معرّف رقمي شبه فريد يتوافق مع نوع Int في تطبيق الأندرويد */
+export function newId() {
+  const minutes = Math.floor((Date.now() - Date.UTC(2020, 0, 1)) / 60000);
+  return minutes * 100 + Math.floor(Math.random() * 100);
+}
+
+/** يستبدل مجموعة قادمة من السحابة دون إعادة إرسالها */
+export function applyRemote(collection, items) {
+  update((s) => { s[collection] = items; });
+}
+
 /* ---------- التحميل والحفظ ---------- */
 let state = load();
 const listeners = new Set();
@@ -124,27 +158,40 @@ export function generateInviteCode() {
 }
 
 /* ---------- التهيئة الأولى ---------- */
-export function setupHousehold({ householdName, memberName, email = '', joinCode = '' }) {
+export function setupHousehold({ householdName, memberName, email = '', joinCode = '',
+  inviteCode = '', isOwner = null, cloud = false }) {
+  const owner = isOwner === null ? !joinCode : isOwner;
   update((s) => {
     s.onboarded = true;
     s.profile.name = memberName;
     s.profile.email = email;
     s.profile.joinedAt = Date.now();
-    s.profile.isOwner = !joinCode;
-    s.profile.role = joinCode ? 'عضو' : 'مالك البيت';
+    s.profile.isOwner = owner;
+    s.profile.role = owner ? 'مالك البيت' : 'عضو';
     s.household.name = householdName || `بيت ${memberName}`;
-    s.household.inviteCode = joinCode || generateInviteCode();
+    s.household.inviteCode = inviteCode || joinCode || generateInviteCode();
     s.household.createdAt = Date.now();
-    s.members = [{
-      id: 1, name: memberName, role: s.profile.role, phone: '',
-      isOnline: true, isOwner: s.profile.isOwner,
-    }];
-    logActivity(joinCode ? `انضم ${memberName} إلى البيت` : `تم إنشاء ${s.household.name}`);
+    s.household.cloud = cloud;
+    if (!cloud) {
+      s.members = [{
+        id: 1, name: memberName, role: s.profile.role, phone: '',
+        isOnline: true, isOwner: owner,
+      }];
+    }
+    if (cloud) { s.shopping = []; s.faults = []; s.occasions = []; s.favoriteLists = []; }
+    logActivity(joinCode || !owner ? `انضم ${memberName} إلى البيت` : `تم إنشاء ${s.household.name}`);
   });
 }
 
+let logoutHook = null;
+export function setLogoutHook(fn) { logoutHook = fn; }
+
 export function signOut() {
-  update((s) => { s.onboarded = false; });
+  try { logoutHook?.(); } catch (e) { console.warn(e); }
+  const keepSettings = { ...state.settings };
+  state = blankState();
+  state.settings = keepSettings;
+  emit();
 }
 
 /* ============================================================
@@ -154,11 +201,11 @@ export function addShopping({ name, quantity = '', category = '', priority = 'ع
   let created;
   update((s) => {
     created = {
-      id: nextId(s.shopping),
+      id: newId(),
       name, quantity, category, priority, note,
       status: 'ناقص',
       owner: s.profile.name || 'أنا',
-      ownerUid: 'local',
+      ownerUid: cloudUid || 'local',
       price: String(price ?? ''),
       priceValue: parseFloat(price) || 0,
       createdAt: Date.now(),
@@ -166,6 +213,7 @@ export function addShopping({ name, quantity = '', category = '', priority = 'ع
     s.shopping.unshift(created);
     logActivity(`تمت إضافة عنصر: ${name}`);
   });
+  push('save', 'shopping', created);
   return created;
 }
 
@@ -176,6 +224,7 @@ export function updateShopping(id, patch) {
     Object.assign(it, patch);
     if (patch.price !== undefined) it.priceValue = parseFloat(patch.price) || 0;
     if (patch.status) logActivity('تم تحديث عنصر مشتريات');
+    push('patch', 'shopping', id, { ...patch, priceValue: it.priceValue });
   });
 }
 
@@ -186,6 +235,7 @@ export function setShoppingStatus(id, status) {
     it.status = status;
     if (status === 'تم الشراء') it.purchasedAt = Date.now();
     logActivity(`${status}: ${it.name}`);
+    push('patch', 'shopping', id, { status });
   });
 }
 
@@ -193,22 +243,26 @@ export function deleteShopping(id) {
   update((s) => {
     s.shopping = s.shopping.filter((x) => x.id !== id);
     logActivity('تم حذف عنصر');
+    push('remove', 'shopping', id);
   });
 }
 
 export function saveFavoriteList(name, icon, items) {
+  const list = {
+    id: newId(), name, icon: icon || '⭐',
+    items: items.map((i) => ({ name: i.name, quantity: i.quantity, category: i.category })),
+    updatedAt: Date.now(),
+  };
   update((s) => {
-    s.favoriteLists.unshift({
-      id: nextId(s.favoriteLists), name, icon: icon || '⭐',
-      items: items.map((i) => ({ name: i.name, quantity: i.quantity, category: i.category })),
-      updatedAt: Date.now(),
-    });
+    s.favoriteLists.unshift(list);
     logActivity(`تم حفظ قائمة مفضلة: ${name}`);
   });
+  push('save', 'favoriteLists', list);
 }
 
 export function deleteFavoriteList(id) {
   update((s) => { s.favoriteLists = s.favoriteLists.filter((x) => x.id !== id); });
+  push('remove', 'favoriteLists', id);
 }
 
 export function applyFavoriteList(id) {
@@ -225,12 +279,12 @@ export function addFault({ title, location = '', priority = 'متوسط', note =
   let created;
   update((s) => {
     created = {
-      id: nextId(s.faults),
+      id: newId(),
       title, location, priority, note,
       status: 'جديد',
       linkedItems: [],
       photoUrl,
-      ownerUid: 'local',
+      ownerUid: cloudUid || 'local',
       estimatedCost: Number(estimatedCost) || 0,
       actualCost: 0,
       createdAt: Date.now(),
@@ -238,6 +292,7 @@ export function addFault({ title, location = '', priority = 'متوسط', note =
     s.faults.unshift(created);
     logActivity(`تم تسجيل عطل: ${title}`);
   });
+  push('save', 'faults', created);
   return created;
 }
 
@@ -250,6 +305,7 @@ export function updateFault(id, patch) {
       logActivity('تم تحديث حالة عطل');
       if (patch.status === 'تم الإصلاح') it.fixedAt = Date.now();
     }
+    push('patch', 'faults', id, patch);
   });
 }
 
@@ -257,6 +313,7 @@ export function deleteFault(id) {
   update((s) => {
     s.faults = s.faults.filter((x) => x.id !== id);
     logActivity('تم حذف عطل');
+    push('remove', 'faults', id);
   });
 }
 
@@ -268,9 +325,10 @@ export function addOccasion({ title, type = 'مناسبة عامة', dateMillis,
   let created;
   update((s) => {
     created = {
-      id: nextId(s.occasions),
+      id: newId(),
       title, type,
       dateMillis: startOfDay(dateMillis),
+      date: fmtDate(dateMillis),
       note, recurring,
       reminder: reminderOffsets.length ? 'مفعّل' : 'بدون تذكير',
       reminderTime,
@@ -282,6 +340,7 @@ export function addOccasion({ title, type = 'مناسبة عامة', dateMillis,
     s.occasions.unshift(created);
     logActivity(`تمت إضافة مناسبة: ${title}`);
   });
+  push('save', 'occasions', created);
   return created;
 }
 
@@ -290,6 +349,8 @@ export function updateOccasion(id, patch) {
     const it = s.occasions.find((x) => x.id === id);
     if (!it) return;
     Object.assign(it, patch);
+    if (patch.dateMillis) { it.date = fmtDate(patch.dateMillis); patch = { ...patch, date: it.date }; }
+    push('patch', 'occasions', id, patch);
   });
 }
 
@@ -302,10 +363,12 @@ export function completeOccasion(id) {
       d.setFullYear(d.getFullYear() + 1);
       it.dateMillis = startOfDay(d.getTime());
       logActivity(`تم تجديد مناسبة سنوية: ${it.title}`);
+      push('patch', 'occasions', id, { dateMillis: it.dateMillis });
     } else {
       it.done = true;
       it.doneAt = Date.now();
       logActivity('تم إنهاء مناسبة');
+      push('patch', 'occasions', id, { done: true });
     }
   });
 }
@@ -314,6 +377,7 @@ export function deleteOccasion(id) {
   update((s) => {
     s.occasions = s.occasions.filter((x) => x.id !== id);
     logActivity('تم حذف مناسبة');
+    push('remove', 'occasions', id);
   });
 }
 
@@ -322,16 +386,18 @@ export function deleteOccasion(id) {
    ============================================================ */
 export function addMember({ name, role = 'عضو', phone = '' }) {
   update((s) => {
-    s.members.push({ id: nextId(s.members), name, role, phone, isOnline: false, isOwner: false });
+    s.members.push({ id: nextId(s.members), name, role, phone, isOnline: false, isOwner: false, local: true });
     logActivity(`تمت إضافة عضو: ${name}`);
   });
 }
 
 export function removeMember(id) {
+  const target = state.members.find((m) => m.id === id);
   update((s) => {
     s.members = s.members.filter((m) => m.id !== id || m.isOwner);
     logActivity('تم إزالة عضو');
   });
+  if (target?.uid) push('removeMember', null, target.uid);
 }
 
 export function updateProfile(patch) {
@@ -344,16 +410,20 @@ export function updateProfile(patch) {
       if (patch.phone !== undefined) me.phone = patch.phone;
     }
   });
+  push('profile', null, patch);
 }
 
 /* ============================================================
    التصنيفات
    ============================================================ */
 export function addCategory({ name, icon, type }) {
-  update((s) => { s.categories.push({ id: nextId(s.categories), name, icon: icon || '📦', type }); });
+  const cat = { id: newId(), name, icon: icon || '📦', type };
+  update((s) => { s.categories.push(cat); });
+  push('save', 'categories', cat);
 }
 export function removeCategory(id) {
   update((s) => { s.categories = s.categories.filter((c) => c.id !== id); });
+  push('remove', 'categories', id);
 }
 export const categoriesOf = (type) => state.categories.filter((c) => c.type === type);
 
@@ -362,6 +432,7 @@ export const categoriesOf = (type) => state.categories.filter((c) => c.type === 
    ============================================================ */
 export function setNotification(key, value) {
   update((s) => { s.notifications[key] = value; });
+  push('prefs', null, state.notifications);
 }
 export function setDarkMode(on) {
   update((s) => { s.settings.darkMode = on; });

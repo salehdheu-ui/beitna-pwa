@@ -4,7 +4,11 @@
    ============================================================ */
 
 import { $, esc } from './util.js';
-import { getState, subscribe } from './store.js';
+import {
+  getState, subscribe, update, applyRemote, setCloudBridge, setCloudUid,
+  setLogoutHook, setupHousehold,
+} from './store.js';
+import * as cloud from './cloud.js';
 import { route, setNotFound, setOnChange, start, go, back, currentPath } from './router.js';
 import { renderAuth } from './screens/auth.js';
 import { homeScreen } from './screens/home.js';
@@ -16,7 +20,7 @@ import {
   categoriesScreen, archiveScreen, supportScreen,
 } from './screens/more.js';
 import { emptyState, toast } from './ui.js';
-import { startReminderLoop } from './notify.js';
+import { startReminderLoop, notifyPartner } from './notify.js';
 
 /* ---------- التنقل السفلي ---------- */
 const NAV = [
@@ -134,15 +138,101 @@ setNotFound(() => render(() => ({
 
 setOnChange(applyTheme);
 
+/* ============================================================
+   جلسة السحابة
+   ============================================================ */
+function cloudBridge(hid) {
+  return {
+    save: (col, item) => cloud.saveItem(hid, col, item),
+    patch: (col, id, patch) => cloud.patchItem(hid, col, id, patch),
+    remove: (col, id) => cloud.removeItem(hid, col, id),
+    profile: (_, patch) => cloud.updateMemberProfile(hid, patch),
+    removeMember: (_, uid) => cloud.removeMemberCloud(hid, uid),
+    prefs: (_, prefs) => cloud.saveNotificationPrefs(prefs),
+  };
+}
+
+function startCloudSession(hid) {
+  setCloudUid(cloud.currentUid());
+  setCloudBridge(cloudBridge(hid), hid);
+
+  cloud.startSync(hid, {
+    onData(col, items) {
+      if (col === 'members') {
+        const me = items.find((m) => m.uid === cloud.currentUid());
+        update((st) => {
+          st.members = items;
+          if (me) {
+            st.profile.isOwner = me.isOwner;
+            st.profile.role = me.role;
+            if (me.name) st.profile.name = me.name;
+            if (me.phone) st.profile.phone = me.phone;
+          }
+        });
+      } else {
+        applyRemote(col, items);
+      }
+      rerender();
+    },
+    onPartnerActivity(text) {
+      notifyPartner(text);
+      toast(text);
+    },
+  });
+
+  cloud.recordSession();
+}
+
+setLogoutHook(() => {
+  cloud.stopSync();
+  cloud.signOutCloud();
+  setCloudBridge(null, null);
+  setCloudUid(null);
+});
+
 /* ---------- الإقلاع ---------- */
-function boot() {
+async function boot() {
   applyTheme();
   const s = getState();
+
+  /* محاولة استعادة جلسة سحابية */
+  if (s.household?.cloud || !s.onboarded) {
+    const ok = await cloud.initCloud();
+    if (ok) {
+      const user = await cloud.waitForUser();
+      if (user) {
+        try {
+          const hid = await cloud.loadHouseholdId();
+          if (hid) {
+            const hh = await cloud.loadHousehold(hid);
+            setupHousehold({
+              householdName: hh?.name || getState().household.name || 'بيتي',
+              memberName: user.displayName || getState().profile.name || (user.email || '').split('@')[0],
+              email: user.email || '',
+              inviteCode: hh?.inviteCode || '',
+              isOwner: getState().profile.isOwner,
+              cloud: true,
+            });
+            $('#app').hidden = false;
+            $('#shell').hidden = false;
+            hideSplash();
+            startCloudSession(hid);
+            startApp();
+            return;
+          }
+        } catch (e) { console.warn('تعذّرت استعادة الجلسة', e); }
+      }
+    }
+  }
 
   if (!s.onboarded) {
     $('#app').hidden = false;
     hideSplash();
-    renderAuth(() => { $('#shell').hidden = false; startApp(); });
+    renderAuth((res) => {
+      $('#shell').hidden = false;
+      if (res?.cloud && res.hid) startCloudSession(res.hid);
+      startApp();
+    });
     return;
   }
 

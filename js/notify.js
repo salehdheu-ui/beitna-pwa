@@ -97,6 +97,13 @@ export function checkReminders() {
   if (changed) markSent(sent);
 }
 
+/** إشعار فوري بنشاط فرد آخر من البيت */
+export function notifyPartner(text) {
+  const s = getState();
+  if (!s.notifications.partnerActivity) return;
+  show('بيتنا — نشاط جديد', text);
+}
+
 export function startReminderLoop() {
   checkReminders();
   setInterval(checkReminders, 60000);
