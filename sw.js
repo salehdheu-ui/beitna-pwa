@@ -3,7 +3,7 @@
    يعمل بدون إنترنت، ويحدّث نفسه فورًا عند نشر نسخة جديدة.
    ============================================================ */
 
-const VERSION = 'beitna-v1.8.1';
+const VERSION = 'beitna-v2.0.0';
 const NET_TIMEOUT = 4000;
 
 const CORE = [
@@ -89,13 +89,16 @@ self.addEventListener('fetch', (event) => {
   try { url = new URL(req.url); } catch { return; }
   if (!url.protocol.startsWith('http')) return;
 
+  /* طلبات الخادم (/api) لا تُخزَّن إطلاقًا — التطبيق يدير العمل بدون إنترنت بنفسه */
+  if (url.origin === location.origin && url.pathname.startsWith('/api')) return;
+
   /* صفحات التنقّل: index.html من الشبكة ثم المحفوظ */
   if (req.mode === 'navigate') {
     event.respondWith(networkFirst(new Request('./index.html', { cache: 'no-cache' }), './index.html'));
     return;
   }
 
-  /* موارد خارجية (خطوط Google و Firebase): المحفوظ أولًا */
+  /* موارد خارجية (خطوط Google): المحفوظ أولًا */
   if (url.origin !== location.origin) {
     event.respondWith(cacheFirst(req).catch(() => caches.match(req)));
     return;
