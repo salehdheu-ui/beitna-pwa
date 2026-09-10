@@ -1,6 +1,11 @@
-/* Service Worker — يجعل بيتنا يعمل بدون إنترنت */
+/* ============================================================
+   Service Worker — بيتنا
+   يعمل بدون إنترنت، ويحدّث نفسه فورًا عند نشر نسخة جديدة.
+   ============================================================ */
 
-const VERSION = 'beitna-v1.7.1';
+const VERSION = 'beitna-v1.7.2';
+const NET_TIMEOUT = 4000;
+
 const CORE = [
   './',
   './index.html',
@@ -27,11 +32,11 @@ const CORE = [
 ];
 
 self.addEventListener('install', (event) => {
+  self.skipWaiting();
   event.waitUntil(
     caches.open(VERSION)
-      .then((c) => c.addAll(CORE))
-      .then(() => self.skipWaiting())
-      .catch(() => self.skipWaiting())
+      .then((c) => Promise.allSettled(CORE.map((u) => c.add(new Request(u, { cache: 'reload' })))))
+      .catch(() => {})
   );
 });
 
@@ -43,51 +48,67 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+/** الشبكة أولًا مع مهلة، ثم النسخة المحفوظة */
+async function networkFirst(request, cacheKey) {
+  const cache = await caches.open(VERSION);
+  try {
+    const res = await Promise.race([
+      fetch(request, { cache: 'no-cache' }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), NET_TIMEOUT)),
+    ]);
+    if (res && res.ok) {
+      cache.put(cacheKey || request, res.clone());
+      return res;
+    }
+    throw new Error('bad response');
+  } catch {
+    const hit = await cache.match(cacheKey || request);
+    if (hit) return hit;
+    if (request.mode === 'navigate') {
+      return (await cache.match('./index.html')) || (await cache.match('./'));
+    }
+    throw new Error('offline');
+  }
+}
+
+/** المحفوظ أولًا (للصور والخطوط والموارد الثابتة) */
+async function cacheFirst(request) {
+  const cache = await caches.open(VERSION);
+  const hit = await cache.match(request);
+  if (hit) return hit;
+  const res = await fetch(request);
+  if (res && (res.ok || res.type === 'opaque')) cache.put(request, res.clone());
+  return res;
+}
+
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
 
-  const url = new URL(req.url);
+  let url;
+  try { url = new URL(req.url); } catch { return; }
+  if (!url.protocol.startsWith('http')) return;
 
-  // التنقّل: الشبكة أولًا ثم النسخة المخزّنة
+  /* صفحات التنقّل: index.html من الشبكة ثم المحفوظ */
   if (req.mode === 'navigate') {
-    event.respondWith(
-      fetch(req)
-        .then((res) => {
-          const copy = res.clone();
-          caches.open(VERSION).then((c) => c.put('./index.html', copy));
-          return res;
-        })
-        .catch(() => caches.match('./index.html').then((r) => r || caches.match('./')))
-    );
+    event.respondWith(networkFirst(new Request('./index.html', { cache: 'no-cache' }), './index.html'));
     return;
   }
 
-  // الخطوط والموارد الخارجية: المخزَّن أولًا ثم الشبكة
+  /* موارد خارجية (خطوط Google و Firebase): المحفوظ أولًا */
   if (url.origin !== location.origin) {
-    event.respondWith(
-      caches.match(req).then((hit) => hit || fetch(req).then((res) => {
-        const copy = res.clone();
-        caches.open(VERSION).then((c) => c.put(req, copy));
-        return res;
-      }).catch(() => hit))
-    );
+    event.respondWith(cacheFirst(req).catch(() => caches.match(req)));
     return;
   }
 
-  // ملفات التطبيق: المخزَّن أولًا مع تحديث في الخلفية
-  event.respondWith(
-    caches.match(req).then((hit) => {
-      const network = fetch(req).then((res) => {
-        if (res && res.status === 200) {
-          const copy = res.clone();
-          caches.open(VERSION).then((c) => c.put(req, copy));
-        }
-        return res;
-      }).catch(() => hit);
-      return hit || network;
-    })
-  );
+  /* كود التطبيق: الشبكة أولًا حتى يصل أي تحديث فورًا */
+  if (/\.(js|css|webmanifest|json)$/i.test(url.pathname)) {
+    event.respondWith(networkFirst(req));
+    return;
+  }
+
+  /* الباقي (الصور والأيقونات): المحفوظ أولًا */
+  event.respondWith(cacheFirst(req).catch(() => caches.match(req)));
 });
 
 self.addEventListener('message', (e) => {
