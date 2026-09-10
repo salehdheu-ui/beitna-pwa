@@ -22,17 +22,37 @@ import {
 import { emptyState, toast } from './ui.js';
 import { startReminderLoop, notifyPartner } from './notify.js';
 
-/* ---------- مسار الإنقاذ: ‎?reset=1 يمسح الذاكرة المؤقتة ويعيد التشغيل ---------- */
+/* ============================================================
+   مسارات الإنقاذ:
+   ?reset=1    → يمسح الذاكرة المؤقتة فقط (البيانات تبقى)
+   ?reset=all  → يمسح كل شيء: البيانات والحساب والذاكرة
+   ============================================================ */
+export async function wipeEverything(includeData) {
+  try {
+    const regs = (await navigator.serviceWorker?.getRegistrations?.()) || [];
+    await Promise.all(regs.map((r) => r.unregister()));
+  } catch { /* تجاهل */ }
+  try {
+    const keys = await caches.keys();
+    await Promise.all(keys.map((k) => caches.delete(k)));
+  } catch { /* تجاهل */ }
+  if (!includeData) return;
+  try { await cloud.signOutCloud(); } catch { /* تجاهل */ }
+  try { localStorage.clear(); sessionStorage.clear(); } catch { /* تجاهل */ }
+  try {
+    const dbs = (await indexedDB.databases?.()) || [];
+    await Promise.all(dbs.map((d) => d.name && new Promise((res) => {
+      const req = indexedDB.deleteDatabase(d.name);
+      req.onsuccess = req.onerror = req.onblocked = () => res();
+    })));
+  } catch { /* تجاهل */ }
+}
+
 if (location.search.includes('reset')) {
-  (async () => {
-    try {
-      const regs = await navigator.serviceWorker?.getRegistrations?.() || [];
-      await Promise.all(regs.map((r) => r.unregister()));
-      const keys = await caches.keys();
-      await Promise.all(keys.map((k) => caches.delete(k)));
-    } catch { /* تجاهل */ }
+  const all = location.search.includes('all');
+  wipeEverything(all).finally(() => {
     location.replace(location.origin + location.pathname);
-  })();
+  });
 }
 
 /* ---------- التنقل السفلي ---------- */
@@ -182,6 +202,8 @@ function startCloudSession(hid) {
             if (me.phone) st.profile.phone = me.phone;
           }
         });
+      } else if (col === 'categories' && items.length === 0) {
+        /* لا نفرّغ التصنيفات إن لم تصل من السحابة — نبقي الافتراضية */
       } else {
         applyRemote(col, items);
       }
@@ -195,6 +217,8 @@ function startCloudSession(hid) {
 
   cloud.recordSession();
 }
+
+cloud.setWriteErrorHandler?.((msg) => toast(msg, 4000));
 
 setLogoutHook(() => {
   cloud.stopSync();
@@ -238,42 +262,46 @@ async function boot() {
   failsafe();
   const s = getState();
 
-  /* محاولة استعادة جلسة سحابية */
-  if (s.household?.cloud || !s.onboarded) {
-    const ok = await cloud.initCloud();
-    if (ok) {
-      const user = await cloud.waitForUser();
-      if (user) {
-        try {
-          const hid = await cloud.loadHouseholdId();
-          if (hid) {
-            const hh = await cloud.loadHousehold(hid);
-            setupHousehold({
-              householdName: hh?.name || getState().household.name || 'بيتي',
-              memberName: user.displayName || getState().profile.name || (user.email || '').split('@')[0],
-              email: user.email || '',
-              inviteCode: hh?.inviteCode || '',
-              isOwner: getState().profile.isOwner,
-              cloud: true,
-            });
-            if (booted) {          // ظهرت الواجهة عبر شبكة الأمان — نكمل المزامنة فقط
-              startCloudSession(hid);
-              return;
-            }
-            booted = true;
-            $('#app').hidden = false;
-            $('#shell').hidden = false;
-            hideSplash();
-            startCloudSession(hid);
-            startApp();
-            return;
-          }
-        } catch (e) { console.warn('تعذّرت استعادة الجلسة', e); }
-      }
-    }
+  /* ===== مُهيّأ مسبقًا: نعرض آخر بيانات محفوظة فورًا، والسحابة تلحق لاحقًا ===== */
+  if (s.onboarded) {
+    showApp();
+    if (s.household?.cloud) restoreCloud();   // في الخلفية، بلا انتظار
+    return;
   }
 
-  showApp();
+  /* ===== أول تشغيل: نحاول استعادة جلسة سحابية قبل عرض شاشة الدخول ===== */
+  const restored = await restoreCloud();
+  if (!restored) showApp();
+}
+
+/** يستعيد جلسة السحابة ويشغّل المزامنة. يرجع true عند النجاح. */
+async function restoreCloud() {
+  try {
+    if (!(await cloud.initCloud())) return false;
+    const user = await cloud.waitForUser();
+    if (!user) return false;
+
+    const hid = await cloud.loadHouseholdId();
+    if (!hid) return false;
+
+    const hh = await cloud.loadHousehold(hid);
+    setupHousehold({
+      householdName: hh?.name || getState().household.name || 'بيتي',
+      memberName: user.displayName || getState().profile.name || (user.email || '').split('@')[0],
+      email: user.email || '',
+      inviteCode: hh?.inviteCode || getState().household.inviteCode || '',
+      isOwner: getState().profile.isOwner,
+      cloud: true,
+    });
+
+    startCloudSession(hid);
+    if (!booted) showApp();
+    else rerender();
+    return true;
+  } catch (e) {
+    console.warn('تعذّرت استعادة الجلسة السحابية', e);
+    return false;
+  }
 }
 
 function startApp() {

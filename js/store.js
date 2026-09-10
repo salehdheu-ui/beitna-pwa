@@ -159,7 +159,7 @@ export function generateInviteCode() {
 
 /* ---------- التهيئة الأولى ---------- */
 export function setupHousehold({ householdName, memberName, email = '', joinCode = '',
-  inviteCode = '', isOwner = null, cloud = false }) {
+  inviteCode = '', isOwner = null, cloud = false, resetData = false }) {
   const owner = isOwner === null ? !joinCode : isOwner;
   update((s) => {
     s.onboarded = true;
@@ -178,7 +178,8 @@ export function setupHousehold({ householdName, memberName, email = '', joinCode
         isOnline: true, isOwner: owner,
       }];
     }
-    if (cloud) { s.shopping = []; s.faults = []; s.occasions = []; s.favoriteLists = []; }
+    /* لا نمسح البيانات إلا عند إنشاء بيت جديد أو الانضمام لبيت آخر */
+    if (resetData) { s.shopping = []; s.faults = []; s.occasions = []; s.favoriteLists = []; s.activities = []; }
     logActivity(joinCode || !owner ? `انضم ${memberName} إلى البيت` : `تم إنشاء ${s.household.name}`);
   });
 }
