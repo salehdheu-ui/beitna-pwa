@@ -5,7 +5,102 @@
    تُرسل تلقائيًا أول ما يعود الاتصال.
    ============================================================ */
 
-const API = (window.BEITNA_API || (location.origin + '/api')).replace(/\/+$/, '');
+/* ============================================================
+   عنوان الخادم
+   كان يُشتق من مكان فتح الصفحة (location.origin + '/api')، فأي نسخة
+   لا تُفتح من دومين الخادم نفسه — نسخة محلية، دومين ثانٍ، WebView —
+   كانت تخاطب خادمًا ثابتًا لا وجود لـ /api فيه، فيرد 501/405،
+   ويبقى ذلك الجهاز جزيرة لا تتزامن مع بقية الأجهزة.
+
+   الآن: نستخدم /api على نفس الأصل إن كان يستجيب فعلًا (لا CORS،
+   ويحترم النسخ المستضافة ذاتيًا)، وإلا نرجع لخادم بيتنا الرسمي
+   حتى يبقى الحساب واحدًا من أي مكان.
+   ============================================================ */
+const CANONICAL_API = 'https://beitna.saher.cloud/api';
+const K_API = 'beitna:api';
+
+const trimSlash = (u) => String(u).replace(/\/+$/, '');
+
+/** عنوان مفروض يدويًا: window.BEITNA_API أو مفتاح محفوظ (للنسخ المستضافة ذاتيًا) */
+function forcedApi() {
+  if (window.BEITNA_API) return trimSlash(window.BEITNA_API);
+  try {
+    const saved = localStorage.getItem(K_API);
+    if (saved) return trimSlash(saved);
+  } catch { /* تجاهل */ }
+  return null;
+}
+
+/** هل يوجد خادم بيتنا فعلًا على هذا العنوان؟ */
+async function isBeitnaServer(base) {
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 2500);
+    const res = await fetch(base + '/health', { signal: ctrl.signal, cache: 'no-store' });
+    clearTimeout(t);
+    if (!res.ok) return false;
+    const data = await res.json().catch(() => null);
+    return data?.ok === true;
+  } catch { return false; }
+}
+
+const K_API_CACHE = 'beitna:api:resolved';
+const API_CACHE_MS = 7 * 86400000;
+
+/** نتيجة اكتشاف سابقة على نفس الأصل — تمنع تكرار الفحص كل تشغيل */
+function cachedApi() {
+  try {
+    const c = JSON.parse(localStorage.getItem(K_API_CACHE) || 'null');
+    if (!c || c.origin !== location.origin) return null;
+    if (Date.now() - (c.at || 0) > API_CACHE_MS) return null;
+    return c.base || null;
+  } catch { return null; }
+}
+function rememberApi(base) {
+  try {
+    localStorage.setItem(K_API_CACHE, JSON.stringify({ origin: location.origin, base, at: Date.now() }));
+  } catch { /* تجاهل */ }
+}
+
+let API = forcedApi() || cachedApi() || CANONICAL_API;
+let apiPromise = null;
+
+/** يحدّد عنوان الخادم مرة واحدة. لا يُستدعى أثناء الإقلاع — فقط عند أول طلب. */
+function detectApi() {
+  if (apiPromise) return apiPromise;
+  const forced = forcedApi();
+  if (forced) { API = forced; apiPromise = Promise.resolve(API); return apiPromise; }
+
+  apiPromise = (async () => {
+    const sameOrigin = trimSlash(location.origin + '/api');
+    if (location.origin === new URL(CANONICAL_API).origin) return (API = sameOrigin);
+
+    const remembered = cachedApi();
+    if (remembered) return (API = remembered);
+
+    const base = (/^https?:$/.test(location.protocol) && await isBeitnaServer(sameOrigin))
+      ? sameOrigin
+      : CANONICAL_API;
+    rememberApi(base);
+    return (API = base);
+  })();
+  return apiPromise;
+}
+
+/** العنوان المستخدم فعلًا — تعرضه شاشة الدعم */
+export const apiBase = () => API;
+export const canonicalApi = () => CANONICAL_API;
+
+/** يفحص الخادم المستخدم حاليًا ويرجع تفاصيله (لزر «فحص الاتصال») */
+export async function checkServer({ rediscover = false } = {}) {
+  if (rediscover) {
+    try { localStorage.removeItem(K_API_CACHE); } catch { /* تجاهل */ }
+    apiPromise = null;
+  }
+  await detectApi();
+  const ok = await isBeitnaServer(API);
+  return { base: API, ok, canonical: API === CANONICAL_API };
+}
 
 const K_TOKEN = 'beitna:token';
 const K_USER = 'beitna:user';
@@ -67,6 +162,7 @@ function lsDel(k) { try { localStorage.removeItem(k); } catch { /* تجاهل */
 
 /* ---------- طلب شبكة بمهلة ---------- */
 async function req(pathname, { method = 'GET', body, timeout = 15000, auth = true } = {}) {
+  await detectApi();
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeout);
   try {
@@ -129,6 +225,8 @@ export function arabicError(e) {
   if (code.includes('bad-code')) return 'كود الدعوة غير صحيح أو غير موجود';
   if (code.includes('offline')) return 'لا يوجد اتصال بالإنترنت — هذه الخطوة تحتاج اتصالًا';
   if (code.includes('auth-timeout')) return 'تأخّر ردّ الخادم — تحقق من الإنترنت وأعد المحاولة';
+  if (/http-(404|405|501)/.test(code)) return 'لا يوجد خادم بيتنا على هذا العنوان — افتح التطبيق من beitna.saher.cloud';
+  if (/http-(500|502|503|504)/.test(code)) return 'الخادم لا يستجيب حاليًا — أعد المحاولة بعد قليل';
   if (code.includes('network')) return 'تعذّر الوصول إلى الخادم — تحقق من الإنترنت';
   if (code.includes('no-user')) return 'انتهت الجلسة — سجّل دخولك من جديد';
   if (code.includes('no-household')) return 'لم يعد لك بيت — أنشئ بيتًا أو انضم بكود';

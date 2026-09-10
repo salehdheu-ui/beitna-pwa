@@ -9,7 +9,7 @@ import {
 import { emptyState, toast, confirmDialog, openSheet, switchEl, iosInstallSheet } from '../ui.js';
 import { go } from '../router.js';
 import { requestNotificationPermission, notificationStatus, testNotification } from '../notify.js';
-import { pendingWrites } from '../cloud.js';
+import { pendingWrites, apiBase, checkServer, currentEmail } from '../cloud.js';
 
 /* ============================ المزيد ============================ */
 
@@ -589,6 +589,21 @@ export function supportScreen() {
       </div>
 
       <div class="section">
+        <div class="section-title">حالة الاتصال بالخادم</div>
+        <div class="card">
+          <div class="small"><span class="muted">الحساب:</span>
+            <b style="direction:ltr;display:inline-block">${esc(currentEmail() || '— بدون حساب —')}</b></div>
+          <div class="small mt-s"><span class="muted">عنوان الخادم:</span>
+            <b style="direction:ltr;display:inline-block;word-break:break-all">${esc(apiBase())}</b></div>
+          <div id="srvState" class="small mt-s muted">اضغط «فحص» للتأكد من الوصول.</div>
+          <button class="btn ghost block mt" data-act="check">🔌 فحص الاتصال</button>
+        </div>
+        <p class="tiny muted mt">
+          الحساب واحد على كل الأجهزة: نفس البريد يفتح نفس البيت من أي جهاز أو متصفح.
+        </p>
+      </div>
+
+      <div class="section">
         <div class="section-title">خطر — منطقة الحذف</div>
         <button class="btn danger-soft block" data-act="reset">🗑️ حذف كل البيانات وإعادة الضبط</button>
       </div>
@@ -596,6 +611,21 @@ export function supportScreen() {
       <p class="center tiny muted mt">إدارة المنزل بذكاء — الإصدار 1.6.1</p>`,
     mount(root) {
       root.addEventListener('click', async (e) => {
+        if (e.target.closest('[data-act="check"]')) {
+          const box = root.querySelector('#srvState');
+          box.className = 'small mt-s muted';
+          box.textContent = 'جارٍ الفحص...';
+          const r = await checkServer({ rediscover: true });
+          box.className = 'small mt-s strong';
+          box.style.color = r.ok ? 'var(--emerald)' : 'var(--danger)';
+          box.textContent = r.ok
+            ? (r.canonical
+                ? 'متصل بخادم بيتنا الرسمي ✓ — حسابك يتزامن من أي جهاز'
+                : 'متصل بخادم على نفس الدومين ✓')
+            : 'تعذّر الوصول إلى الخادم — تحقق من الإنترنت ثم أعد الفحص';
+          return;
+        }
+
         const f = e.target.closest('[data-faq]');
         if (f) {
           const [q, ans] = FAQ[Number(f.dataset.faq)];
