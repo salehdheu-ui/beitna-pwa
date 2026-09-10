@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="بيتنا">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#12A07E"/>
+      <stop offset="1" stop-color="#0B6E56"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#g)"/>
+  <path d="M256 116 106 246h44v150h84V300h44v96h84V246h44z" fill="#ffffff"/>
+  <circle cx="256" cy="352" r="26" fill="#12A07E"/>
+</svg>
