@@ -19,8 +19,8 @@ import {
   moreScreen, profileScreen, householdScreen, notificationsScreen,
   categoriesScreen, archiveScreen, supportScreen,
 } from './screens/more.js';
-import { emptyState, toast } from './ui.js';
-import { startReminderLoop, notifyPartner } from './notify.js';
+import { emptyState, toast, iosInstallSheet } from './ui.js';
+import { startReminderLoop, notifyPartner, isIOS, isStandalone } from './notify.js';
 
 /* ============================================================
    مسارات الإنقاذ:
@@ -319,6 +319,7 @@ function startApp() {
   start();
   startReminderLoop();
   subscribe(applyTheme);
+  maybeShowInstall();
 }
 
 function hideSplash() {
@@ -339,6 +340,13 @@ if ('serviceWorker' in navigator) {
     location.reload();                          // نسخة جديدة وصلت
   });
 
+  /* الضغط على الإشعار: الـ Service Worker يركّز النافذة ويرسل لنا الوجهة */
+  navigator.serviceWorker.addEventListener('message', (e) => {
+    if (e.data?.type !== 'notification-click') return;
+    const hash = String(e.data.url || '').split('#')[1];
+    if (hash) go('/' + hash.replace(/^\/+/, ''));
+  });
+
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('sw.js')
       .then((reg) => {
@@ -349,43 +357,80 @@ if ('serviceWorker' in navigator) {
   });
 }
 
-/* ---------- التثبيت على الجهاز ---------- */
+/* ============================================================
+   التثبيت على الجهاز
+   أندرويد: يعطي المتصفح حدث beforeinstallprompt.
+   iPhone: لا يوجد حدث إطلاقًا — نعرض خطوات «إضافة إلى الشاشة الرئيسية».
+   الشريط يُرسم في ‎#installRoot‎ لأن ‎#view‎ يُمسح مع كل إعادة رسم.
+   ============================================================ */
+const INSTALL_DISMISS_KEY = 'beitna:install-dismissed';
 let deferredPrompt = null;
+let installShown = false;
+
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   deferredPrompt = e;
-  showInstallHint();
+  maybeShowInstall();
 });
 
-function showInstallHint() {
-  if (localStorage.getItem('beitna:install-dismissed')) return;
-  const view = $('#view');
-  if (!view || view.querySelector('.install-bar')) return;
-  const bar = document.createElement('div');
-  bar.className = 'install-bar';
-  bar.innerHTML = `
-    <span style="font-size:22px">📲</span>
-    <div class="grow"><div class="strong small">ثبّت بيتنا على جهازك</div>
-      <div class="tiny muted">يعمل بدون إنترنت وكأنه تطبيق مستقل.</div></div>
-    <button class="btn sm" data-install>تثبيت</button>
-    <button class="icon-btn" data-dismiss aria-label="إغلاق">✕</button>`;
-  view.prepend(bar);
-  bar.querySelector('[data-install]').onclick = async () => {
-    if (!deferredPrompt) return;
-    deferredPrompt.prompt();
-    const res = await deferredPrompt.userChoice;
+/** يعرض الشريط متى ما صار ذلك ممكنًا — يُستدعى عند الحدث وبعد ظهور الواجهة */
+function maybeShowInstall() {
+  if (installShown || !booted) return;
+  if (isStandalone()) return;                                   // مثبّت بالفعل
+  try { if (localStorage.getItem(INSTALL_DISMISS_KEY)) return; } catch { /* تجاهل */ }
+
+  /* على iOS لا يوجد زر تثبيت تلقائي إطلاقًا — الخطوات اليدوية هي الطريق الوحيد */
+  const iosMode = isIOS();
+  if (!deferredPrompt && !iosMode) return;                      // لا طريقة تثبيت معروفة
+  renderInstallBar(iosMode);
+}
+
+function renderInstallBar(iosMode) {
+  const root = $('#installRoot');
+  if (!root) return;
+  installShown = true;
+  root.hidden = false;
+  root.innerHTML = `
+    <div class="install-bar">
+      <span style="font-size:22px">📲</span>
+      <div class="grow">
+        <div class="strong small">ثبّت بيتنا على جهازك</div>
+        <div class="tiny muted">${iosMode
+          ? 'خطوتان من متصفح Safari — وتصلك الإشعارات.'
+          : 'يعمل بدون إنترنت وكأنه تطبيق مستقل.'}</div>
+      </div>
+      <button class="btn sm" data-install>${iosMode ? 'الطريقة' : 'تثبيت'}</button>
+      <button class="icon-btn" data-dismiss aria-label="إغلاق">✕</button>
+    </div>`;
+
+  root.querySelector('[data-install]').onclick = async () => {
+    if (iosMode) { iosInstallSheet(); return; }
+    const evt = deferredPrompt;
+    if (!evt) return;
     deferredPrompt = null;
-    bar.remove();
-    if (res.outcome === 'accepted') toast('تم التثبيت ✓');
+    evt.prompt();
+    const res = await evt.userChoice.catch(() => ({ outcome: 'dismissed' }));
+    hideInstallBar();
+    if (res.outcome !== 'accepted') toast('يمكنك التثبيت لاحقًا من قائمة المتصفح');
   };
-  bar.querySelector('[data-dismiss]').onclick = () => {
-    localStorage.setItem('beitna:install-dismissed', '1');
-    bar.remove();
+  root.querySelector('[data-dismiss]').onclick = () => {
+    try { localStorage.setItem(INSTALL_DISMISS_KEY, '1'); } catch { /* تجاهل */ }
+    hideInstallBar();
   };
+}
+
+function hideInstallBar() {
+  const root = $('#installRoot');
+  if (!root) return;
+  root.hidden = true;
+  root.innerHTML = '';
+  installShown = false;
 }
 
 window.addEventListener('appinstalled', () => {
   deferredPrompt = null;
+  hideInstallBar();
+  try { localStorage.removeItem(INSTALL_DISMISS_KEY); } catch { /* تجاهل */ }
   toast('تم تثبيت بيتنا على جهازك 🎉');
 });
 

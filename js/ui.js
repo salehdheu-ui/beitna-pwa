@@ -74,6 +74,23 @@ export function openSheet(html, { onMount } = {}) {
 
 export function closeSheet() { sheetClose?.(); }
 
+/** خطوات تثبيت التطبيق على iPhone / iPad — لا يوجد زر تثبيت تلقائي في Safari */
+export function iosInstallSheet() {
+  return openSheet(`
+    <h3>تثبيت بيتنا على iPhone</h3>
+    <ol class="steps">
+      <li>افتح الموقع في متصفح <b>Safari</b> — وليس Chrome أو متصفح داخل تطبيق آخر.</li>
+      <li>اضغط زر <b>المشاركة</b> (مربع بداخله سهم لأعلى ↑) في شريط Safari السفلي.</li>
+      <li>مرّر لأسفل واختر <b>«إضافة إلى الشاشة الرئيسية»</b> ثم <b>«إضافة»</b>.</li>
+      <li>افتح بيتنا من أيقونته الجديدة — عندها فقط تعمل الإشعارات.</li>
+    </ol>
+    <p class="tiny muted">إشعارات iPhone لا تعمل داخل صفحة المتصفح؛ تحتاج التطبيق مثبّتًا (iOS 16.4 فأحدث).</p>
+    <button class="btn block" data-close>حسنًا</button>
+  `, {
+    onMount(el, close) { el.querySelector('[data-close]').onclick = close; },
+  });
+}
+
 /* ---------- عناصر جاهزة ---------- */
 export const emptyState = (icon, title, desc) => `
   <div class="empty">

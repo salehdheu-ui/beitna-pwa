@@ -6,9 +6,9 @@ import {
   setNotification, setDarkMode, profileStats, archiveItems, signOut, resetAll,
   generateInviteCode, update, isCloud, CURRENCY,
 } from '../store.js';
-import { emptyState, toast, confirmDialog, openSheet, switchEl } from '../ui.js';
+import { emptyState, toast, confirmDialog, openSheet, switchEl, iosInstallSheet } from '../ui.js';
 import { go } from '../router.js';
-import { requestNotificationPermission, notificationState } from '../notify.js';
+import { requestNotificationPermission, notificationStatus, testNotification } from '../notify.js';
 import { pendingWrites } from '../cloud.js';
 
 /* ============================ المزيد ============================ */
@@ -337,22 +337,67 @@ const NOTIF_ROWS = [
   ['quietHours', '🌙', 'وضع الهدوء الليلي', 'كتم الإشعارات من 11 مساءً إلى 7 صباحًا'],
 ];
 
+/** لافتة حالة الإشعارات — رسالة مفهومة لكل حالة بدل «لم يتم منح الإذن» */
+function notifBanner(status) {
+  if (status === 'granted') {
+    return `
+      <div class="install-bar">
+        <span style="font-size:20px">✅</span>
+        <div class="grow small strong">الإشعارات مفعّلة على هذا الجهاز</div>
+        <button class="btn sm ghost" data-act="test">تجربة</button>
+      </div>`;
+  }
+  if (status === 'ios-needs-install') {
+    return `
+      <div class="install-bar">
+        <span style="font-size:22px">📲</span>
+        <div class="grow">
+          <div class="strong small">ثبّت بيتنا أولًا على الـ iPhone</div>
+          <div class="tiny muted">إشعارات iPhone تعمل فقط بعد «إضافة إلى الشاشة الرئيسية».</div>
+        </div>
+        <button class="btn sm" data-act="ios">الطريقة</button>
+      </div>`;
+  }
+  if (status === 'denied') {
+    return `
+      <div class="install-bar">
+        <span style="font-size:22px">🚫</span>
+        <div class="grow">
+          <div class="strong small">الإشعارات محظورة من إعدادات المتصفح</div>
+          <div class="tiny muted">افتح إعدادات هذا الموقع في متصفحك، فعّل «الإشعارات»، ثم ارجع لهذه الشاشة.</div>
+        </div>
+      </div>`;
+  }
+  if (status === 'unsupported') {
+    return `
+      <div class="install-bar">
+        <span style="font-size:22px">ℹ️</span>
+        <div class="grow">
+          <div class="strong small">هذا المتصفح لا يدعم الإشعارات</div>
+          <div class="tiny muted">استخدم Chrome على أندرويد، أو Safari على iPhone بعد تثبيت التطبيق.</div>
+        </div>
+      </div>`;
+  }
+  /* default — لم يُطلب الإذن بعد */
+  return `
+    <div class="install-bar">
+      <span style="font-size:22px">🔔</span>
+      <div class="grow">
+        <div class="strong small">تفعيل التذكيرات والتنبيهات</div>
+        <div class="tiny muted">اسمح للمتصفح بإرسال الإشعارات لتصلك تذكيرات المناسبات.</div>
+      </div>
+      <button class="btn sm" data-act="perm">تفعيل</button>
+    </div>`;
+}
+
 export function notificationsScreen() {
   const n = getState().notifications;
-  const perm = notificationState();
+  const status = notificationStatus();
   return {
     title: 'الإشعارات',
     back: true,
     html: `
-      ${perm !== 'granted' ? `
-        <div class="install-bar">
-          <span style="font-size:22px">🔔</span>
-          <div class="grow"><div class="strong small">تفعيل التذكيرات والتنبيهات</div>
-            <div class="tiny muted">اسمح للمتصفح بإرسال الإشعارات لتصلك تذكيرات المناسبات.</div></div>
-          <button class="btn sm" data-act="perm">تفعيل</button>
-        </div>` : `
-        <div class="install-bar"><span style="font-size:20px">✅</span>
-          <div class="grow small strong">الإشعارات مفعّلة على هذا الجهاز</div></div>`}
+      ${notifBanner(status)}
 
       <div class="list">
         ${NOTIF_ROWS.map(([key, ic, t, d]) => `
@@ -361,15 +406,36 @@ export function notificationsScreen() {
             <span class="grow"><span class="t">${esc(t)}</span><br><span class="d">${esc(d)}</span></span>
             ${switchEl(n[key], key)}
           </div>`).join('')}
-      </div>`,
+      </div>
+
+      <p class="tiny muted mt">
+        التذكيرات تُحسب على هذا الجهاز، فتصل ما دام التطبيق مفتوحًا أو يعمل في الخلفية.
+      </p>`,
     mount(root, rerender) {
       root.addEventListener('click', async (e) => {
+        if (e.target.closest('[data-act="ios"]')) { iosInstallSheet(); return; }
+
+        if (e.target.closest('[data-act="test"]')) {
+          const sent = await testNotification();
+          toast(sent ? 'أُرسل إشعار تجريبي 🔔' : 'تعذّر إرسال الإشعار التجريبي');
+          return;
+        }
+
         if (e.target.closest('[data-act="perm"]')) {
+          /* الطلب يجب أن يبدأ داخل نقرة المستخدم — شرط Safari على iPhone */
           const ok = await requestNotificationPermission();
-          toast(ok ? 'تم تفعيل الإشعارات ✓' : 'لم يتم منح الإذن');
+          if (ok) {
+            await testNotification();
+            toast('تم تفعيل الإشعارات ✓');
+          } else {
+            toast(notificationStatus() === 'denied'
+              ? 'المتصفح يحظر الإشعارات — فعّلها من إعدادات الموقع'
+              : 'لم يتم منح الإذن');
+          }
           rerender();
           return;
         }
+
         const row = e.target.closest('[data-toggle]');
         if (row) {
           const key = row.dataset.toggle;
