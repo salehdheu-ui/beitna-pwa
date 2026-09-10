@@ -515,10 +515,13 @@ export function supportScreen() {
         if (act === 'reset') {
           const ok = await confirmDialog({
             title: 'حذف كل البيانات',
-            message: 'سيتم حذف كل المشتريات والأعطال والمناسبات وإعادة التطبيق كما كان. لا يمكن التراجع.',
+            message: 'سيتم تسجيل خروجك ومسح كل البيانات المحفوظة على هذا الجهاز والبدء من جديد. لا يمكن التراجع.',
             confirmText: 'حذف الكل', danger: true,
           });
-          if (ok) { resetAll(); location.reload(); }
+          if (ok) {
+            resetAll();
+            location.replace(location.origin + location.pathname + '?reset=all');
+          }
         }
       });
     },

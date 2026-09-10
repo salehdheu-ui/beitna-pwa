@@ -116,10 +116,21 @@ export function renderAuth(onDone) {
     const box = root.querySelector('#err');
     if (box) box.innerHTML = `<div class="err">${esc(msg)}</div>`;
   };
+  let busyTimer = null;
   const setBusy = (on, label) => {
     busy = on;
     const b = root.querySelector('[data-submit]');
     if (b) { b.disabled = on; if (on) b.textContent = label || 'لحظة...'; }
+    clearTimeout(busyTimer);
+    if (on) {
+      /* إن تأخّرت العملية لأي سبب، نفكّ القفل ونخبر المستخدم بدل التعليق */
+      busyTimer = setTimeout(() => {
+        if (!busy) return;
+        setBusy(false);
+        draw();
+        err('تأخّر الاتصال. تحقق من الإنترنت وأعد المحاولة.');
+      }, 20000);
+    }
   };
 
   root.onclick = async (e) => {
@@ -189,10 +200,10 @@ export function renderAuth(onDone) {
       if (!hname) return err('اكتب اسم البيت');
       setBusy(true, 'جارٍ الإنشاء...');
       try {
-        const hh = await cloud.createHousehold(hname, pendingName || 'مستخدم');
+        const hh = cloud.createHousehold(hname, pendingName || 'مستخدم');
         setupHousehold({
           householdName: hh.name, memberName: pendingName, email: cloud.currentEmail() || '',
-          inviteCode: hh.inviteCode, isOwner: true, cloud: true,
+          inviteCode: hh.inviteCode, isOwner: true, cloud: true, resetData: true,
         });
         toast('تم إنشاء بيتك 🎉');
         return finishCloud(hh.id, true);
@@ -211,7 +222,7 @@ export function renderAuth(onDone) {
         const hh = await cloud.joinHousehold(code, pendingName || 'مستخدم');
         setupHousehold({
           householdName: hh.name, memberName: pendingName, email: cloud.currentEmail() || '',
-          inviteCode: hh.inviteCode, isOwner: false, cloud: true,
+          inviteCode: hh.inviteCode, isOwner: false, cloud: true, resetData: true,
         });
         toast('تم الانضمام إلى البيت ✓');
         return finishCloud(hh.id, true);
@@ -228,7 +239,7 @@ export function renderAuth(onDone) {
       setupHousehold({
         householdName: hh?.name || 'بيتي', memberName: pendingName,
         email: cloud.currentEmail() || '', inviteCode: hh?.inviteCode || '',
-        isOwner: false, cloud: true,
+        isOwner: false, cloud: true, resetData: true,
       });
     }
     finish({ cloud: true, hid });
