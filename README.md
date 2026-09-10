@@ -2,7 +2,7 @@
 
 # 🏡 بيتنا — نسخة الويب
 
-### 🔗 التطبيق المباشر: **https://beitna-app.netlify.app**
+### 🔗 التطبيق المباشر: **https://beitna.saher.cloud**
 
 **إدارة المنزل بذكاء** — نسخة ويب كاملة من تطبيق «بيتنا» للأندرويد، مبنية كـ
 
@@ -56,20 +56,24 @@ python3 -m http.server 8000
 
 ## 🌍 النشر
 
-الموقع منشور ومباشر على:
+الموقع منشور ومباشر على الخادم الخاص عبر
+`Coolify`
+كموقع ثابت خلف
+`nginx`
+:
 
-**https://beitna-app.netlify.app**
+**https://beitna.saher.cloud**
 
-للنشر بنفسك أو لتفعيل التحديث التلقائي مع كل تعديل في المستودع:
+طريقة النشر المستخدمة:
 
-1. ادخل على
-   `app.netlify.com`
-2. اختر
-   `Add new site → Import an existing project`
-3. اربط المستودع، واترك خانة أمر البناء فارغة، واجعل مجلد النشر هو
-   `.`
+1. `Add Resource` ثم `Public Repository`
+2. رابط المستودع، والفرع `main`
+3. `Build Pack` = `Static`، و `Base Directory` = `/`
+4. الدومين: `https://beitna.saher.cloud` (الشهادة تلقائية عبر `Let's Encrypt`)
 
-يعمل أيضًا مباشرة على
+المشروع ملفات ثابتة فقط، فيعمل كما هو أيضًا على
+`Netlify`
+أو
 `GitHub Pages`
 أو
 `Vercel`
