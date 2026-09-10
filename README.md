@@ -62,22 +62,25 @@ python3 -m http.server 8000
 
 **https://beitna.saher.cloud**
 
-طريقة النشر المستخدمة:
+المشروع يُنشر كخدمتين على نفس الدومين:
+
+**1) الموقع (ملفات ثابتة)**
 
 1. `Add Resource` ثم `Public Repository`
 2. رابط المستودع، والفرع `main`
 3. `Build Pack` = `Static`، و `Base Directory` = `/`
 4. الدومين: `https://beitna.saher.cloud` (الشهادة تلقائية عبر `Let's Encrypt`)
 
-المشروع ملفات ثابتة فقط، فيعمل كما هو أيضًا على
-`Netlify`
-أو
-`GitHub Pages`
-أو
-`Vercel`
-أو
-`Cloudflare Pages`
-بدون أي تعديل.
+**2) الخادم (الحسابات والمزامنة)**
+
+1. `Add Resource` ثم `Public Repository`
+2. نفس المستودع والفرع
+3. `Build Pack` = `Dockerfile`، و `Base Directory` = `/server`
+4. الدومين: `https://beitna.saher.cloud/api`
+5. `Persistent Storage` → مجلد دائم على المسار `/data` (هنا تُحفظ كل البيانات)
+
+لا يحتاج الخادم أي متغيّر بيئة ولا أي مفتاح: مفتاح توقيع الجلسات يُولَّد ذاتيًا
+عند أول تشغيل ويُحفظ في المجلد الدائم.
 
 ---
 
