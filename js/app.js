@@ -281,8 +281,21 @@ function hideSplash() {
 
 /* ---------- Service Worker ---------- */
 if ('serviceWorker' in navigator) {
+  let reloading = false;
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || reloading) return;   // أول تثبيت: لا نحدّث
+    reloading = true;
+    location.reload();                          // نسخة جديدة وصلت
+  });
+
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js').catch(() => { /* تجاهل */ });
+    navigator.serviceWorker.register('sw.js')
+      .then((reg) => {
+        reg.update().catch(() => {});
+        setInterval(() => reg.update().catch(() => {}), 3600000);
+      })
+      .catch(() => { /* تجاهل */ });
   });
 }
 
