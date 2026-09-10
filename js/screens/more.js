@@ -4,7 +4,7 @@ import { esc, fmtDate, relTime } from '../util.js';
 import {
   getState, updateProfile, addMember, removeMember, addCategory, removeCategory,
   setNotification, setDarkMode, profileStats, archiveItems, signOut, resetAll,
-  generateInviteCode, update, CURRENCY,
+  generateInviteCode, update, isCloud, CURRENCY,
 } from '../store.js';
 import { emptyState, toast, confirmDialog, openSheet, switchEl } from '../ui.js';
 import { go } from '../router.js';
@@ -28,6 +28,16 @@ export function moreScreen() {
             <div class="muted small">${esc(s.profile.role || 'عضو')} • ${esc(s.household.name || 'بيتي')}</div>
           </div>
           <span class="muted">‹</span>
+        </div>
+      </div>
+
+      <div class="install-bar mt" style="background:${isCloud() ? 'var(--mint)' : 'var(--surface-2)'}">
+        <span style="font-size:20px">${isCloud() ? '☁️' : '📱'}</span>
+        <div class="grow">
+          <div class="strong small">${isCloud() ? 'المزامنة السحابية مفعّلة' : 'وضع محلي — هذا الجهاز فقط'}</div>
+          <div class="tiny muted">${isCloud()
+            ? 'بياناتك متزامنة لحظيًا مع كل أفراد البيت وتطبيق الجوال.'
+            : 'سجّل خروجًا ثم ادخل بحساب لتتزامن بياناتك بين الأجهزة.'}</div>
         </div>
       </div>
 
@@ -211,7 +221,7 @@ export function householdScreen() {
         <div class="row" style="gap:8px">
           <button class="btn soft grow" data-act="copy">📋 نسخ</button>
           <button class="btn ghost grow" data-act="share">📤 مشاركة</button>
-          <button class="icon-btn" data-act="regen" title="توليد كود جديد">🔄</button>
+          ${isCloud() ? '' : `<button class="icon-btn" data-act="regen" title="توليد كود جديد">🔄</button>`}
         </div>
       </div>
 
@@ -231,7 +241,9 @@ export function householdScreen() {
               ${m.isOwner ? '' : `<button class="icon-btn" data-remove="${m.id}" title="إزالة">✕</button>`}
             </div>`).join('')}
         </div>
-        <button class="btn ghost block mt">＋ إضافة عضو جديد</button>
+        ${isCloud()
+          ? `<div class="card mt small muted">لإضافة فرد جديد: أرسل له كود الدعوة أعلاه، ويدخله عند إنشاء حسابه — سينضم للبيت مباشرة وتتزامن بياناته لحظيًا.</div>`
+          : `<button class="btn ghost block mt">＋ إضافة عضو جديد</button>`}
       </div>`,
     mount(root, rerender) {
       root.addEventListener('click', async (e) => {
