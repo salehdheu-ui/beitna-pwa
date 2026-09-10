@@ -30,6 +30,27 @@ let selfWrites = new Set();
 let flushing = false;
 
 export function setWriteErrorHandler(fn) { onWriteError = fn; }
+
+/** هل توجد جلسة محفوظة على هذا الجهاز؟ */
+export function hasSession() {
+  try { return !!localStorage.getItem(K_TOKEN); } catch { return false; }
+}
+
+/** ينظّف بقايا مزوّد المصادقة السابق (مرة واحدة) */
+export function purgeLegacy() {
+  try {
+    Object.keys(localStorage)
+      .filter((k) => /^firebase[:_]/i.test(k) || k.startsWith('firebaseLocalStorage'))
+      .forEach((k) => localStorage.removeItem(k));
+  } catch { /* تجاهل */ }
+  try {
+    indexedDB.databases?.().then((list) => {
+      (list || []).forEach((d) => {
+        if (d.name && /firebase|firestore/i.test(d.name)) indexedDB.deleteDatabase(d.name);
+      });
+    }).catch(() => {});
+  } catch { /* تجاهل */ }
+}
 export const isReady = () => ready;
 export const currentUid = () => me?.uid || null;
 export const currentEmail = () => me?.email || null;

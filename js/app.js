@@ -6,7 +6,7 @@
 import { $, esc } from './util.js';
 import {
   getState, subscribe, update, applyRemote, setCloudBridge, setCloudUid,
-  setLogoutHook, setupHousehold,
+  setLogoutHook, setupHousehold, signOut as signOutLocal,
 } from './store.js';
 import * as cloud from './cloud.js';
 import { route, setNotFound, setOnChange, start, go, back, currentPath } from './router.js';
@@ -260,9 +260,18 @@ function showApp() {
 async function boot() {
   applyTheme();
   failsafe();
+  await cloud.initCloud();
+  cloud.purgeLegacy?.();
   const s = getState();
 
-  /* ===== مُهيّأ مسبقًا: نعرض آخر بيانات محفوظة فورًا، والسحابة تلحق لاحقًا ===== */
+  /* ===== انتهت الجلسة (أو تغيّر الخادم): نعيده لشاشة الدخول بدل حالة معلّقة ===== */
+  if (s.onboarded && s.household?.cloud && !cloud.hasSession?.()) {
+    signOutLocal();
+    showApp();
+    return;
+  }
+
+  /* ===== مُهيّأ مسبقًا: نعرض آخر بيانات محفوظة فورًا، والمزامنة تلحق لاحقًا ===== */
   if (s.onboarded) {
     showApp();
     if (s.household?.cloud) restoreCloud();   // في الخلفية، بلا انتظار
