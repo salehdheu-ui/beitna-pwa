@@ -25,6 +25,14 @@ let seen = {};                // معرّفات شوهدت لكل مجموعة
 let ready = false;
 
 export const isReady = () => ready;
+
+/** يمنع أي عملية شبكة من تعليق التطبيق للأبد */
+function withTimeout(promise, ms, fallback = null) {
+  return Promise.race([
+    promise,
+    new Promise((resolve) => setTimeout(() => resolve(fallback), ms)),
+  ]);
+}
 export const currentUid = () => auth?.currentUser?.uid || null;
 export const currentEmail = () => auth?.currentUser?.email || null;
 
@@ -41,10 +49,11 @@ async function load() {
 }
 
 /** تهيئة الاتصال — ترجع true عند النجاح */
-export async function initCloud() {
+export async function initCloud(timeoutMs = 9000) {
   if (ready) return true;
   try {
-    const m = await load();
+    const m = await withTimeout(load(), timeoutMs, null);
+    if (!m) { console.warn('انتهت مهلة تحميل Firebase'); return false; }
     app = m.initializeApp(CONFIG);
     auth = m.getAuth(app);
     try {
@@ -61,12 +70,15 @@ export async function initCloud() {
   }
 }
 
-/** ينتظر معرفة حالة تسجيل الدخول الحالية */
-export function waitForUser() {
-  return new Promise((resolve) => {
-    if (!auth) return resolve(null);
-    const off = fb.onAuthStateChanged(auth, (user) => { off(); resolve(user); });
+/** ينتظر معرفة حالة تسجيل الدخول الحالية (بمهلة قصوى) */
+export function waitForUser(timeoutMs = 7000) {
+  const p = new Promise((resolve) => {
+    if (!auth || !fb) return resolve(null);
+    try {
+      const off = fb.onAuthStateChanged(auth, (user) => { off(); resolve(user); });
+    } catch { resolve(null); }
   });
+  return withTimeout(p, timeoutMs, null);
 }
 
 /* ---------- رسائل الأخطاء بالعربية ---------- */

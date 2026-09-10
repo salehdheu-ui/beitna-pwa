@@ -58,7 +58,7 @@ function blankState() {
     shopping: [],
     faults: [],
     occasions: [],
-    categories: structuredClone(DEFAULT_CATEGORIES),
+    categories: DEFAULT_CATEGORIES.map((c) => ({ ...c })),
     favoriteLists: [],
     activities: [],
     notifications: { ...DEFAULT_NOTIFICATIONS },

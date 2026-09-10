@@ -191,8 +191,38 @@ setLogoutHook(() => {
 });
 
 /* ---------- الإقلاع ---------- */
+let booted = false;
+
+/** شبكة أمان: مهما حدث، لا تبقَ شاشة البداية عالقة */
+function failsafe() {
+  setTimeout(() => {
+    if (booted) return;
+    console.warn('الإقلاع تأخّر — عرض الواجهة بدون انتظار السحابة');
+    showApp();
+  }, 10000);
+}
+
+function showApp() {
+  if (booted) return;
+  booted = true;
+  const s = getState();
+  $('#app').hidden = false;
+  hideSplash();
+  if (s.onboarded) {
+    $('#shell').hidden = false;
+    startApp();
+  } else {
+    renderAuth((res) => {
+      $('#shell').hidden = false;
+      if (res?.cloud && res.hid) startCloudSession(res.hid);
+      startApp();
+    });
+  }
+}
+
 async function boot() {
   applyTheme();
+  failsafe();
   const s = getState();
 
   /* محاولة استعادة جلسة سحابية */
@@ -213,6 +243,11 @@ async function boot() {
               isOwner: getState().profile.isOwner,
               cloud: true,
             });
+            if (booted) {          // ظهرت الواجهة عبر شبكة الأمان — نكمل المزامنة فقط
+              startCloudSession(hid);
+              return;
+            }
+            booted = true;
             $('#app').hidden = false;
             $('#shell').hidden = false;
             hideSplash();
@@ -225,21 +260,7 @@ async function boot() {
     }
   }
 
-  if (!s.onboarded) {
-    $('#app').hidden = false;
-    hideSplash();
-    renderAuth((res) => {
-      $('#shell').hidden = false;
-      if (res?.cloud && res.hid) startCloudSession(res.hid);
-      startApp();
-    });
-    return;
-  }
-
-  $('#app').hidden = false;
-  $('#shell').hidden = false;
-  hideSplash();
-  startApp();
+  showApp();
 }
 
 function startApp() {
@@ -308,4 +329,20 @@ window.addEventListener('appinstalled', () => {
 /* ---------- حالة الاتصال ---------- */
 window.addEventListener('offline', () => toast('أنت غير متصل — التطبيق يعمل محليًا'));
 
-boot();
+/* ---------- التشغيل ---------- */
+boot().catch((e) => {
+  console.error('فشل الإقلاع', e);
+  try { showApp(); } catch (e2) {
+    document.getElementById('splash')?.remove();
+    document.body.innerHTML =
+      '<div style="padding:32px;text-align:center;font-family:Tajawal,system-ui">' +
+      '<div style="font-size:44px">⚠️</div>' +
+      '<h2 style="margin:8px 0">تعذّر تشغيل التطبيق</h2>' +
+      '<p style="color:#6B7280">حدّث الصفحة، وإن تكرر الخطأ اضغط الزر أدناه لمسح الذاكرة المؤقتة.</p>' +
+      '<button onclick="(async()=>{const r=await navigator.serviceWorker.getRegistrations();' +
+      'for(const x of r)await x.unregister();const k=await caches.keys();' +
+      'for(const c of k)await caches.delete(c);location.reload(true)})()" ' +
+      'style="padding:12px 22px;border-radius:999px;background:#0F8B6D;color:#fff;font-weight:700;border:0">' +
+      'إعادة الضبط وتحديث</button></div>';
+  }
+});
