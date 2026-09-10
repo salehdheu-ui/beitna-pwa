@@ -22,6 +22,19 @@ import {
 import { emptyState, toast } from './ui.js';
 import { startReminderLoop, notifyPartner } from './notify.js';
 
+/* ---------- مسار الإنقاذ: ‎?reset=1 يمسح الذاكرة المؤقتة ويعيد التشغيل ---------- */
+if (location.search.includes('reset')) {
+  (async () => {
+    try {
+      const regs = await navigator.serviceWorker?.getRegistrations?.() || [];
+      await Promise.all(regs.map((r) => r.unregister()));
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => caches.delete(k)));
+    } catch { /* تجاهل */ }
+    location.replace(location.origin + location.pathname);
+  })();
+}
+
 /* ---------- التنقل السفلي ---------- */
 const NAV = [
   { route: '/home', label: 'الرئيسية', icon: '🏠' },
