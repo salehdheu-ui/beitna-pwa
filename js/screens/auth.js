@@ -129,13 +129,14 @@ export function renderAuth(onDone) {
         setBusy(false);
         draw();
         err('تأخّر الاتصال. تحقق من الإنترنت وأعد المحاولة.');
-      }, 20000);
+      }, 25000);
     }
   };
 
   root.onclick = async (e) => {
     const goBtn = e.target.closest('[data-go]');
     if (goBtn) {
+      setBusy(false);
       const target = goBtn.dataset.go;
       if (target === 'logout') { await cloud.signOutCloud(); mode = 'welcome'; }
       else mode = target;
@@ -167,6 +168,7 @@ export function renderAuth(onDone) {
         const user = await cloud.signIn(email, pass);
         pendingName = user.displayName || email.split('@')[0];
         const hid = await cloud.loadHouseholdId();
+        setBusy(false);
         if (hid) return finishCloud(hid);
         mode = 'household'; draw();
       } catch (ex) {
@@ -187,6 +189,7 @@ export function renderAuth(onDone) {
         if (!(await cloud.initCloud())) throw new Error('network');
         await cloud.signUp(email, pass, name);
         pendingName = name;
+        setBusy(false);
         mode = 'household'; draw();
       } catch (ex) {
         setBusy(false); err(cloud.arabicError(ex));
@@ -205,6 +208,7 @@ export function renderAuth(onDone) {
           householdName: hh.name, memberName: pendingName, email: cloud.currentEmail() || '',
           inviteCode: hh.inviteCode, isOwner: true, cloud: true, resetData: true,
         });
+        setBusy(false);
         toast('تم إنشاء بيتك 🎉');
         return finishCloud(hh.id, true);
       } catch (ex) {
@@ -224,6 +228,7 @@ export function renderAuth(onDone) {
           householdName: hh.name, memberName: pendingName, email: cloud.currentEmail() || '',
           inviteCode: hh.inviteCode, isOwner: false, cloud: true, resetData: true,
         });
+        setBusy(false);
         toast('تم الانضمام إلى البيت ✓');
         return finishCloud(hh.id, true);
       } catch (ex) {
