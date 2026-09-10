@@ -63,6 +63,22 @@ async function load() {
   return fb;
 }
 
+/** يفحص إن كان IndexedDB يستجيب فعلًا (على بعض الأجهزة يتجمّد) */
+function idbUsable() {
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (v) => { if (!settled) { settled = true; resolve(v); } };
+    setTimeout(() => done(false), 1500);
+    try {
+      if (!self.indexedDB) return done(false);
+      const req = indexedDB.open('beitna-idb-probe', 1);
+      req.onsuccess = () => { try { req.result.close(); } catch { /* تجاهل */ } done(true); };
+      req.onerror = () => done(false);
+      req.onblocked = () => done(false);
+    } catch { done(false); }
+  });
+}
+
 /** تهيئة الاتصال — ترجع true عند النجاح */
 export async function initCloud(timeoutMs = 9000) {
   if (ready) return true;
@@ -70,21 +86,37 @@ export async function initCloud(timeoutMs = 9000) {
     const m = await withTimeout(load(), timeoutMs, null);
     if (!m) { console.warn('انتهت مهلة تحميل Firebase'); return false; }
     app = m.initializeApp(CONFIG);
-    auth = m.getAuth(app);
+
+    /* الحساب: نحفظ الجلسة في localStorage لا في IndexedDB.
+       تخزين IndexedDB يتجمّد على بعض الأجهزة فلا تُستدعى onAuthStateChanged أبدًا. */
     try {
+      auth = m.initializeAuth(app, {
+        persistence: [m.browserLocalPersistence, m.browserSessionPersistence, m.inMemoryPersistence]
+          .filter(Boolean),
+      });
+    } catch {
+      auth = m.getAuth(app);
+    }
+
+    /* قاعدة البيانات: تخزين دائم إن كان IndexedDB سليمًا، وإلا ذاكرة مؤقتة.
+       بيانات التطبيق محفوظة أصلًا في المتصفح، فالعمل بدون إنترنت مضمون في الحالتين. */
+    try {
+      const idbOk = await idbUsable();
       let localCache;
-      if (m.persistentLocalCache) {
-        localCache = m.persistentMultipleTabManager
-          ? m.persistentLocalCache({ tabManager: m.persistentMultipleTabManager() })
-          : m.persistentLocalCache({});
+      if (idbOk && m.persistentLocalCache) {
+        localCache = m.persistentLocalCache({});
+      } else if (m.memoryLocalCache) {
+        localCache = m.memoryLocalCache();
+        if (!idbOk) console.warn('IndexedDB غير مستجيب — تخزين Firestore في الذاكرة');
       }
       db = localCache
         ? m.initializeFirestore(app, { localCache })
         : m.initializeFirestore(app, {});
     } catch (e) {
-      console.warn('تعذّر تفعيل التخزين الدائم — نكمل بالذاكرة', e);
+      console.warn('تعذّر ضبط تخزين Firestore', e);
       try { db = m.getFirestore(app); } catch { db = m.initializeFirestore(app, {}); }
     }
+
     ready = true;
     return true;
   } catch (e) {
@@ -95,7 +127,7 @@ export async function initCloud(timeoutMs = 9000) {
 }
 
 /** ينتظر معرفة حالة تسجيل الدخول الحالية (بمهلة قصوى) */
-export function waitForUser(timeoutMs = 7000) {
+export function waitForUser(timeoutMs = 5000) {
   const p = new Promise((resolve) => {
     if (!auth || !fb) return resolve(null);
     try {
@@ -116,6 +148,8 @@ export function arabicError(e) {
   if (code.includes('too-many-requests')) return 'محاولات كثيرة — انتظر قليلًا ثم أعد المحاولة';
   if (code.includes('network')) return 'تعذّر الاتصال بالخادم — تحقق من الإنترنت';
   if (code.includes('permission-denied')) return 'صلاحيات Firestore لا تسمح بالعملية حاليًا';
+  if (code.includes('auth-timeout')) return 'تأخّر ردّ خادم الحساب — تحقق من الإنترنت وأعد المحاولة';
+  if (code.includes('operation-not-allowed')) return 'إنشاء الحسابات بالبريد غير مفعّل في المشروع';
   if (code.includes('offline-join')) return 'الانضمام بكود يحتاج إنترنت — تحقق من الاتصال وأعد المحاولة';
   if (code.includes('no-user')) return 'انتهت الجلسة — سجّل دخولك من جديد';
   if (code.includes('unavailable') || code.includes('deadline')) return 'انتهت مهلة الاتصال — أعد المحاولة';
@@ -124,13 +158,17 @@ export function arabicError(e) {
 
 /* ---------- الحساب ---------- */
 export async function signIn(email, password) {
-  const cred = await fb.signInWithEmailAndPassword(auth, email.trim(), password);
+  const cred = await withTimeout(
+    fb.signInWithEmailAndPassword(auth, email.trim(), password), 15000, 'TIMEOUT');
+  if (cred === 'TIMEOUT') throw new Error('auth-timeout');
   ensureUserDoc(cred.user);           // بدون انتظار
   return cred.user;
 }
 
 export async function signUp(email, password, displayName) {
-  const cred = await fb.createUserWithEmailAndPassword(auth, email.trim(), password);
+  const cred = await withTimeout(
+    fb.createUserWithEmailAndPassword(auth, email.trim(), password), 15000, 'TIMEOUT');
+  if (cred === 'TIMEOUT') throw new Error('auth-timeout');
   if (displayName) {
     fire(fb.updateProfile(cred.user, { displayName }), 'الاسم');
   }
