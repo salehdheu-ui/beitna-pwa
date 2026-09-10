@@ -1,320 +1,181 @@
 /* ============================================================
-   طبقة السحابة — Firebase Auth + Firestore
-   نفس مشروع تطبيق الأندرويد ونفس بنية البيانات،
-   فتتزامن البيانات بين الموقع والتطبيق وكل أجهزة أفراد البيت.
+   طبقة السحابة — خادم "بيتنا" الخاص بك
+   مستضاف على خادمك أنت. لا Firebase ولا أي طرف خارجي.
+   يعمل بدون إنترنت: كل شيء محفوظ محليًا، والتغييرات
+   تُرسل تلقائيًا أول ما يعود الاتصال.
    ============================================================ */
 
-const CONFIG = {
-  apiKey: 'AIzaSyARYk1HopQQVzy0DlYbmWYVe7opZPDH9eM',
-  authDomain: 'beitna-c9ce7.firebaseapp.com',
-  projectId: 'beitna-c9ce7',
-  storageBucket: 'beitna-c9ce7.firebasestorage.app',
-  messagingSenderId: '1039309246355',
-};
+const API = (window.BEITNA_API || (location.origin + '/api')).replace(/\/+$/, '');
 
-const SDK = 'https://www.gstatic.com/firebasejs/10.12.5/';
+const K_TOKEN = 'beitna:token';
+const K_USER = 'beitna:user';
+const K_DOCS = (hid) => 'beitna:docs:' + hid;
+const K_QUEUE = 'beitna:queue';
 
-const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const POLL_MS = 6000;
 
-/* الحالة الداخلية */
-let fb = null;          // وحدات Firebase بعد التحميل
-let app = null, auth = null, db = null;
-let unsubs = [];
-let selfWrites = new Set();   // عناصر كتبناها نحن — لا ننبّه عليها
-let seen = {};                // معرّفات شوهدت لكل مجموعة
+/* ---------- الحالة ---------- */
+let token = null;
+let me = null;              // { uid, email, displayName, householdId }
 let ready = false;
-let onWriteError = null;      // يُبلّغ الواجهة عند فشل مزامنة
+let onWriteError = null;
+let hidActive = null;
+let docs = {};              // { col: { id: doc } }
+let membersMap = {};
+let cursor = 0;
+let pollTimer = null;
+let listeners = null;
+let firstEmit = true;
+let selfWrites = new Set();
+let flushing = false;
 
 export function setWriteErrorHandler(fn) { onWriteError = fn; }
-
-/** كل عمليات الكتابة تُطلق ولا تُنتظر — Firestore يطبّقها محليًا ويزامنها لاحقًا */
-function fire(promise, what) {
-  Promise.resolve(promise).catch((e) => {
-    const code = String(e?.code || e?.message || '');
-    console.warn('تعذّرت مزامنة', what, code);
-    if (code.includes('permission-denied')) {
-      onWriteError?.('صلاحيات قاعدة البيانات لا تسمح بهذه العملية — البيانات محفوظة على جهازك.');
-    }
-  });
-  return promise;
-}
-
 export const isReady = () => ready;
+export const currentUid = () => me?.uid || null;
+export const currentEmail = () => me?.email || null;
 
-/** يمنع أي عملية شبكة من تعليق التطبيق للأبد */
-function withTimeout(promise, ms, fallback = null) {
-  return Promise.race([
-    promise,
-    new Promise((resolve) => setTimeout(() => resolve(fallback), ms)),
-  ]);
+/* ---------- تخزين محلي آمن ---------- */
+function lsGet(k, fallback = null) {
+  try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : fallback; }
+  catch { return fallback; }
 }
-export const currentUid = () => auth?.currentUser?.uid || null;
-export const currentEmail = () => auth?.currentUser?.email || null;
-
-/* ---------- تحميل المكتبة ---------- */
-async function load() {
-  if (fb) return fb;
-  const [appMod, authMod, fsMod] = await Promise.all([
-    import(/* @vite-ignore */ SDK + 'firebase-app.js'),
-    import(/* @vite-ignore */ SDK + 'firebase-auth.js'),
-    import(/* @vite-ignore */ SDK + 'firebase-firestore.js'),
-  ]);
-  fb = { ...appMod, ...authMod, ...fsMod };
-  return fb;
+function lsSet(k, v) {
+  try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* ممتلئ */ }
 }
+function lsDel(k) { try { localStorage.removeItem(k); } catch { /* تجاهل */ } }
 
-/** يفحص إن كان IndexedDB يستجيب فعلًا (على بعض الأجهزة يتجمّد) */
-function idbUsable() {
-  return new Promise((resolve) => {
-    let settled = false;
-    const done = (v) => { if (!settled) { settled = true; resolve(v); } };
-    setTimeout(() => done(false), 1500);
-    try {
-      if (!self.indexedDB) return done(false);
-      const req = indexedDB.open('beitna-idb-probe', 1);
-      req.onsuccess = () => { try { req.result.close(); } catch { /* تجاهل */ } done(true); };
-      req.onerror = () => done(false);
-      req.onblocked = () => done(false);
-    } catch { done(false); }
-  });
-}
-
-/** تهيئة الاتصال — ترجع true عند النجاح */
-export async function initCloud(timeoutMs = 9000) {
-  if (ready) return true;
+/* ---------- طلب شبكة بمهلة ---------- */
+async function req(pathname, { method = 'GET', body, timeout = 15000, auth = true } = {}) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeout);
   try {
-    const m = await withTimeout(load(), timeoutMs, null);
-    if (!m) { console.warn('انتهت مهلة تحميل Firebase'); return false; }
-    app = m.initializeApp(CONFIG);
-
-    /* الحساب: نحفظ الجلسة في localStorage لا في IndexedDB.
-       تخزين IndexedDB يتجمّد على بعض الأجهزة فلا تُستدعى onAuthStateChanged أبدًا. */
-    try {
-      auth = m.initializeAuth(app, {
-        persistence: [m.browserLocalPersistence, m.browserSessionPersistence, m.inMemoryPersistence]
-          .filter(Boolean),
-      });
-    } catch {
-      auth = m.getAuth(app);
+    const headers = { 'content-type': 'application/json' };
+    if (auth && token) headers.authorization = 'Bearer ' + token;
+    const res = await fetch(API + pathname, {
+      method, headers, signal: ctrl.signal,
+      body: body === undefined ? undefined : JSON.stringify(body),
+      cache: 'no-store',
+    });
+    let data = null;
+    try { data = await res.json(); } catch { data = {}; }
+    if (!res.ok) {
+      const e = new Error(data?.error || 'http-' + res.status);
+      e.code = data?.error || 'http-' + res.status;
+      e.status = res.status;
+      throw e;
     }
-
-    /* قاعدة البيانات: تخزين دائم إن كان IndexedDB سليمًا، وإلا ذاكرة مؤقتة.
-       بيانات التطبيق محفوظة أصلًا في المتصفح، فالعمل بدون إنترنت مضمون في الحالتين. */
-    try {
-      const idbOk = await idbUsable();
-      let localCache;
-      if (idbOk && m.persistentLocalCache) {
-        localCache = m.persistentLocalCache({});
-      } else if (m.memoryLocalCache) {
-        localCache = m.memoryLocalCache();
-        if (!idbOk) console.warn('IndexedDB غير مستجيب — تخزين Firestore في الذاكرة');
-      }
-      db = localCache
-        ? m.initializeFirestore(app, { localCache })
-        : m.initializeFirestore(app, {});
-    } catch (e) {
-      console.warn('تعذّر ضبط تخزين Firestore', e);
-      try { db = m.getFirestore(app); } catch { db = m.initializeFirestore(app, {}); }
-    }
-
-    ready = true;
-    return true;
+    return data;
   } catch (e) {
-    console.warn('تعذّر تحميل Firebase', e);
-    ready = false;
-    return false;
-  }
+    if (e.name === 'AbortError') { const x = new Error('auth-timeout'); x.code = 'auth-timeout'; throw x; }
+    if (e.status) throw e;
+    if (!navigator.onLine) { const x = new Error('offline'); x.code = 'offline'; throw x; }
+    const x = new Error('network'); x.code = 'network'; throw x;
+  } finally { clearTimeout(t); }
 }
 
-/** ينتظر معرفة حالة تسجيل الدخول الحالية (بمهلة قصوى) */
-export function waitForUser(timeoutMs = 5000) {
-  const p = new Promise((resolve) => {
-    if (!auth || !fb) return resolve(null);
-    try {
-      const off = fb.onAuthStateChanged(auth, (user) => { off(); resolve(user); });
-    } catch { resolve(null); }
+/* ---------- التهيئة ---------- */
+export async function initCloud() {
+  if (ready) return true;
+  token = lsGet(K_TOKEN);
+  me = lsGet(K_USER);
+  ready = true;
+  return true;      // لا شبكة هنا إطلاقًا — التطبيق يفتح فورًا
+}
+
+/** يرجع المستخدم المحفوظ فورًا (بدون انتظار الشبكة) */
+export async function waitForUser() {
+  if (!ready) await initCloud();
+  if (!token || !me) return null;
+  /* تحديث صامت من الخادم إن توفّر الاتصال */
+  req('/me', { timeout: 8000 }).then((u) => {
+    me = { uid: u.uid, email: u.email, displayName: u.displayName, householdId: u.householdId };
+    lsSet(K_USER, me);
+  }).catch((e) => {
+    if (e.code === 'no-user') { /* انتهت الجلسة */ token = null; me = null; lsDel(K_TOKEN); lsDel(K_USER); }
   });
-  return withTimeout(p, timeoutMs, null);
+  return me;
 }
 
-/* ---------- رسائل الأخطاء بالعربية ---------- */
+/* ---------- رسائل الأخطاء ---------- */
 export function arabicError(e) {
   const code = String(e?.code || e?.message || '');
-  if (code.includes('invalid-credential') || code.includes('wrong-password')) return 'كلمة المرور خاطئة';
+  if (code.includes('wrong-password') || code.includes('invalid-credential')) return 'كلمة المرور خاطئة';
   if (code.includes('user-not-found')) return 'لا يوجد حساب بهذا البريد';
   if (code.includes('email-already-in-use')) return 'هذا البريد مسجَّل من قبل';
   if (code.includes('invalid-email')) return 'صيغة البريد غير صحيحة';
   if (code.includes('weak-password')) return 'كلمة المرور يجب 6 أحرف على الأقل';
-  if (code.includes('too-many-requests')) return 'محاولات كثيرة — انتظر قليلًا ثم أعد المحاولة';
-  if (code.includes('network')) return 'تعذّر الاتصال بالخادم — تحقق من الإنترنت';
-  if (code.includes('permission-denied')) return 'صلاحيات Firestore لا تسمح بالعملية حاليًا';
-  if (code.includes('auth-timeout')) return 'تأخّر ردّ خادم الحساب — تحقق من الإنترنت وأعد المحاولة';
-  if (code.includes('operation-not-allowed')) return 'إنشاء الحسابات بالبريد غير مفعّل في المشروع';
-  if (code.includes('offline-join')) return 'الانضمام بكود يحتاج إنترنت — تحقق من الاتصال وأعد المحاولة';
+  if (code.includes('too-many-requests')) return 'محاولات كثيرة — انتظر ربع ساعة ثم أعد المحاولة';
+  if (code.includes('bad-code')) return 'كود الدعوة غير صحيح أو غير موجود';
+  if (code.includes('offline')) return 'لا يوجد اتصال بالإنترنت — هذه الخطوة تحتاج اتصالًا';
+  if (code.includes('auth-timeout')) return 'تأخّر ردّ الخادم — تحقق من الإنترنت وأعد المحاولة';
+  if (code.includes('network')) return 'تعذّر الوصول إلى الخادم — تحقق من الإنترنت';
   if (code.includes('no-user')) return 'انتهت الجلسة — سجّل دخولك من جديد';
-  if (code.includes('unavailable') || code.includes('deadline')) return 'انتهت مهلة الاتصال — أعد المحاولة';
+  if (code.includes('no-household')) return 'لم يعد لك بيت — أنشئ بيتًا أو انضم بكود';
+  if (code.includes('owner-only')) return 'هذه العملية لمالك البيت فقط';
   return 'حدث خطأ: ' + code;
 }
 
 /* ---------- الحساب ---------- */
+function keepSession(u) {
+  token = u.token;
+  me = { uid: u.uid, email: u.email, displayName: u.displayName, householdId: u.householdId || null };
+  lsSet(K_TOKEN, token);
+  lsSet(K_USER, me);
+  return me;
+}
+
 export async function signIn(email, password) {
-  const cred = await withTimeout(
-    fb.signInWithEmailAndPassword(auth, email.trim(), password), 15000, 'TIMEOUT');
-  if (cred === 'TIMEOUT') throw new Error('auth-timeout');
-  ensureUserDoc(cred.user);           // بدون انتظار
-  return cred.user;
+  const u = await req('/login', { method: 'POST', auth: false, body: { email, password } });
+  return keepSession(u);
 }
 
 export async function signUp(email, password, displayName) {
-  const cred = await withTimeout(
-    fb.createUserWithEmailAndPassword(auth, email.trim(), password), 15000, 'TIMEOUT');
-  if (cred === 'TIMEOUT') throw new Error('auth-timeout');
-  if (displayName) {
-    fire(fb.updateProfile(cred.user, { displayName }), 'الاسم');
-  }
-  ensureUserDoc(cred.user, displayName);   // بدون انتظار
-  return cred.user;
+  const u = await req('/signup', { method: 'POST', auth: false, body: { email, password, displayName } });
+  return keepSession(u);
 }
 
 export async function signOutCloud() {
   stopSync();
-  try { await fb.signOut(auth); } catch { /* تجاهل */ }
-}
-
-function ensureUserDoc(user, displayName) {
-  const ref = fb.doc(db, 'users', user.uid);
-  const name = displayName || user.displayName || (user.email || '').split('@')[0] || 'مستخدم';
-  fire(fb.setDoc(ref, {
-    uid: user.uid, email: user.email || '', displayName: name,
-    updatedAt: Date.now(),
-  }, { merge: true }), 'مستند المستخدم');
+  if (hidActive) lsDel(K_DOCS(hidActive));
+  token = null; me = null; hidActive = null; docs = {}; membersMap = {}; cursor = 0;
+  lsDel(K_TOKEN); lsDel(K_USER); lsDel(K_QUEUE);
 }
 
 /* ---------- البيت ---------- */
-async function readDoc(ref, timeoutMs = 6000) {
-  try {
-    const snap = await withTimeout(fb.getDoc(ref), timeoutMs, 'TIMEOUT');
-    if (snap !== 'TIMEOUT') return snap;
-  } catch { /* نجرّب الذاكرة المحلية */ }
-  try { return await fb.getDocFromCache(ref); } catch { return null; }
-}
-
 export async function loadHouseholdId() {
-  const uid = currentUid();
-  if (!uid) return null;
-  const snap = await readDoc(fb.doc(db, 'users', uid));
-  return snap?.exists?.() ? (snap.data().householdId || null) : null;
+  if (me?.householdId) return me.householdId;
+  try {
+    const u = await req('/me', { timeout: 10000 });
+    me = { uid: u.uid, email: u.email, displayName: u.displayName, householdId: u.householdId };
+    lsSet(K_USER, me);
+    return me.householdId || null;
+  } catch { return me?.householdId || null; }
 }
 
-function makeInviteCode() {
-  let s = '';
-  for (let i = 0; i < 6; i++) s += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)];
-  return 'BEITNA-' + s;
-}
-
-export function createHousehold(name, memberName) {
-  const user = auth.currentUser;
-  if (!user) throw new Error('no-user');
-  const inviteCode = makeInviteCode();
-  const ref = fb.doc(fb.collection(db, 'households'));
-
-  /* كل الكتابات تُطلق فورًا — تُطبَّق محليًا وتتزامن متى توفّر الإنترنت */
-  fire(fb.setDoc(ref, {
-    name, inviteCode, createdBy: user.uid, ownerName: memberName, createdAt: Date.now(),
-  }), 'إنشاء البيت');
-
-  fire(fb.setDoc(fb.doc(db, 'households', ref.id, 'members', user.uid), {
-    uid: user.uid, name: memberName, email: user.email || '',
-    role: 'مالك البيت', isOwner: true, joinedAt: Date.now(),
-  }), 'العضوية');
-
-  fire(fb.setDoc(fb.doc(db, 'users', user.uid), {
-    householdId: ref.id, displayName: memberName, updatedAt: Date.now(),
-  }, { merge: true }), 'ربط المستخدم بالبيت');
-
-  seedCategories(ref.id);
-  return { id: ref.id, name, inviteCode };
+export async function createHousehold(name, memberName) {
+  const hh = await req('/household', { method: 'POST', body: { name, memberName } });
+  if (me) { me.householdId = hh.id; me.displayName = memberName || me.displayName; lsSet(K_USER, me); }
+  return hh;
 }
 
 export async function joinHousehold(code, memberName) {
-  const user = auth.currentUser;
-  if (!user) throw new Error('no-user');
-  const q = fb.query(
-    fb.collection(db, 'households'),
-    fb.where('inviteCode', '==', code.trim().toUpperCase()),
-    fb.limit(1),
-  );
-  const res = await withTimeout(fb.getDocs(q), 12000, 'TIMEOUT');
-  if (res === 'TIMEOUT') throw new Error('offline-join');
-  if (res.empty) throw new Error('bad-code');
-  const hd = res.docs[0];
-
-  fire(fb.setDoc(fb.doc(db, 'households', hd.id, 'members', user.uid), {
-    uid: user.uid, name: memberName, email: user.email || '',
-    role: 'عضو', isOwner: false, joinedAt: Date.now(),
-  }), 'العضوية');
-
-  fire(fb.setDoc(fb.doc(db, 'users', user.uid), {
-    householdId: hd.id, displayName: memberName, updatedAt: Date.now(),
-  }, { merge: true }), 'ربط المستخدم بالبيت');
-
-  return { id: hd.id, name: hd.data().name || 'بيتي', inviteCode: hd.data().inviteCode || code };
+  const hh = await req('/household/join', { method: 'POST', body: { code, memberName } });
+  if (me) { me.householdId = hh.id; me.displayName = memberName || me.displayName; lsSet(K_USER, me); }
+  return hh;
 }
 
 export async function loadHousehold(hid) {
-  const snap = await readDoc(fb.doc(db, 'households', hid));
-  if (!snap?.exists?.()) return null;
-  const d = snap.data();
-  return { id: hid, name: d.name || 'بيتي', inviteCode: d.inviteCode || '', createdAt: d.createdAt || Date.now() };
-}
-
-const DEFAULT_CATEGORIES = [
-  [1, 'بقالة', '🛒', 'Shopping'], [2, 'منظفات', '🧴', 'Shopping'],
-  [3, 'خضار وفواكه', '🥬', 'Shopping'], [4, 'لحوم', '🥩', 'Shopping'],
-  [5, 'صيدلية', '💊', 'Shopping'], [6, 'المطبخ', '🍳', 'FaultLocation'],
-  [7, 'الصالة', '🛋️', 'FaultLocation'], [8, 'غرفة النوم', '🛏️', 'FaultLocation'],
-  [9, 'الحمام', '🚿', 'FaultLocation'], [10, 'غرفة الغسيل', '🧺', 'FaultLocation'],
-  [11, 'عيد ميلاد', '🎂', 'OccasionType'], [12, 'فاتورة', '💡', 'OccasionType'],
-  [13, 'صيانة دورية', '🔧', 'OccasionType'], [14, 'مناسبة عائلية', '👨‍👩‍👧', 'OccasionType'],
-];
-
-function seedCategories(hid) {
-  DEFAULT_CATEGORIES.forEach(([id, name, icon, type]) => {
-    fire(fb.setDoc(fb.doc(db, 'households', hid, 'categories', String(id)),
-      { id, name, icon, type, createdAt: Date.now() }), 'التصنيفات');
-  });
-}
-
-/* ---------- الأعضاء ---------- */
-export async function loadMembers(hid) {
-  const res = await fb.getDocs(fb.collection(db, 'households', hid, 'members'));
-  return res.docs.map((d, i) => {
-    const m = d.data();
-    return {
-      id: i + 1, uid: d.id, name: m.name || 'عضو', role: m.role || 'عضو',
-      phone: m.phone || '', email: m.email || '',
-      isOwner: !!m.isOwner, isOnline: d.id === currentUid(),
-      joinedAt: m.joinedAt || 0,
-    };
-  }).sort((a, b) => Number(b.isOwner) - Number(a.isOwner));
-}
-
-export function updateMemberProfile(hid, patch) {
-  const uid = currentUid();
-  if (!uid) return;
-  fire(fb.setDoc(fb.doc(db, 'households', hid, 'members', uid), patch, { merge: true }), 'الملف الشخصي');
-  if (patch.name) {
-    fire(fb.setDoc(fb.doc(db, 'users', uid),
-      { displayName: patch.name, updatedAt: Date.now() }, { merge: true }), 'الاسم');
+  try {
+    const hh = await req('/household', { timeout: 10000 });
+    return hh;
+  } catch {
+    const cached = lsGet(K_DOCS(hid));
+    return cached?.household || null;
   }
 }
 
-export function removeMemberCloud(hid, uid) {
-  fire(fb.deleteDoc(fb.doc(db, 'households', hid, 'members', uid)), 'إزالة عضو');
-}
-
 /* ============================================================
-   المزامنة اللحظية
+   المزامنة
    ============================================================ */
 const MAPPERS = {
   shopping: (d) => ({
@@ -350,113 +211,233 @@ const LABELS = {
   occasions: (x) => `🎉 مناسبة جديدة: ${x.title}`,
 };
 
-/**
- * يبدأ الاستماع اللحظي لكل المجموعات.
- * onData(collection, items) — لتحديث الحالة
- * onPartnerActivity(text)   — لإظهار إشعار بنشاط فرد آخر
- */
-export function startSync(hid, { onData, onPartnerActivity }) {
-  stopSync();
-  seen = {};
-  const cols = ['shopping', 'faults', 'occasions', 'categories', 'favoriteLists'];
+const COLS = ['shopping', 'faults', 'occasions', 'categories', 'favoriteLists'];
 
-  cols.forEach((col) => {
-    const ref = fb.collection(db, 'households', hid, col);
-    const un = fb.onSnapshot(ref, (snap) => {
-      const items = [];
-      snap.forEach((doc) => {
-        const raw = { ...doc.data(), id: doc.data().id ?? doc.id };
-        try { items.push(MAPPERS[col](raw)); } catch { /* تجاهل مستندًا تالفًا */ }
-      });
-
-      items.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-      onData?.(col, items);
-
-      /* تنبيه نشاط الشريك */
-      const first = seen[col] === undefined;
-      const ids = new Set(items.map((x) => x.id));
-      if (!first && LABELS[col]) {
-        items.forEach((x) => {
-          if (seen[col].has(x.id)) return;
-          if (selfWrites.has(col + ':' + x.id)) return;
-          if (x.ownerUid && x.ownerUid === currentUid()) return;
-          onPartnerActivity?.(LABELS[col](x));
-        });
-      }
-      seen[col] = ids;
-    }, (err) => console.warn('خطأ في المزامنة', col, err));
-    unsubs.push(un);
-  });
-
-  /* الأعضاء */
-  const mref = fb.collection(db, 'households', hid, 'members');
-  unsubs.push(fb.onSnapshot(mref, (snap) => {
-    const members = snap.docs.map((d, i) => {
-      const m = d.data();
-      return {
-        id: i + 1, uid: d.id, name: m.name || 'عضو', role: m.role || 'عضو',
-        phone: m.phone || '', email: m.email || '',
-        isOwner: !!m.isOwner, isOnline: d.id === currentUid(), joinedAt: m.joinedAt || 0,
-      };
-    }).sort((a, b) => Number(b.isOwner) - Number(a.isOwner));
-    onData?.('members', members);
-  }, () => {}));
+function persistDocs() {
+  if (!hidActive) return;
+  lsSet(K_DOCS(hidActive), { cursor, docs, members: membersMap });
 }
 
+function shapeMembers() {
+  return Object.values(membersMap)
+    .filter((m) => !m.deleted)
+    .sort((a, b) => Number(b.isOwner) - Number(a.isOwner))
+    .map((m, i) => ({
+      id: i + 1, uid: m.uid, name: m.name || 'عضو', role: m.role || 'عضو',
+      phone: m.phone || '', email: m.email || '',
+      isOwner: !!m.isOwner, isOnline: m.uid === currentUid(), joinedAt: m.joinedAt || 0,
+    }));
+}
+
+function emit(col) {
+  const bucket = docs[col] || {};
+  const items = [];
+  for (const k of Object.keys(bucket)) {
+    const d = bucket[k];
+    if (d.deleted) continue;
+    try { items.push(MAPPERS[col](d)); } catch { /* مستند تالف */ }
+  }
+  items.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  listeners?.onData?.(col, items);
+}
+
+function emitAll() {
+  COLS.forEach(emit);
+  listeners?.onData?.('members', shapeMembers());
+}
+
+export function startSync(hid, { onData, onPartnerActivity }) {
+  stopSync();
+  hidActive = hid;
+  listeners = { onData, onPartnerActivity };
+  firstEmit = true;
+
+  /* 1) البيانات المحفوظة تظهر فورًا — حتى بدون إنترنت */
+  const cached = lsGet(K_DOCS(hid));
+  docs = cached?.docs || {};
+  membersMap = cached?.members || {};
+  cursor = cached?.cursor || 0;
+  COLS.forEach((c) => { if (!docs[c]) docs[c] = {}; });
+  if (cached) emitAll();
+
+  /* 2) ثم اللحاق بآخر تحديث من الخادم */
+  tick();
+  pollTimer = setInterval(() => { if (!document.hidden) tick(); }, POLL_MS);
+  window.addEventListener('online', onWake);
+  document.addEventListener('visibilitychange', onWake);
+}
+
+function onWake() { if (!document.hidden && navigator.onLine) tick(); }
+
 export function stopSync() {
-  unsubs.forEach((u) => { try { u(); } catch { /* تجاهل */ } });
-  unsubs = [];
+  clearInterval(pollTimer); pollTimer = null;
+  window.removeEventListener('online', onWake);
+  document.removeEventListener('visibilitychange', onWake);
+  listeners = null;
+}
+
+let ticking = false;
+async function tick() {
+  if (ticking || !hidActive || !token) return;
+  ticking = true;
+  try {
+    await flushQueue();
+    const res = await req('/sync?since=' + cursor, { timeout: 12000 });
+    applySync(res);
+  } catch (e) {
+    if (e.code === 'no-user') { /* الجلسة انتهت — الواجهة ستطلب الدخول */ }
+  } finally { ticking = false; }
+}
+
+function applySync(res) {
+  const wasFirst = firstEmit;
+  let changed = false;
+  const fresh = [];
+
+  for (const col of COLS) {
+    const list = res.cols?.[col] || [];
+    if (!list.length) continue;
+    const bucket = docs[col] || (docs[col] = {});
+    for (const d of list) {
+      const id = String(d.id);
+      const prev = bucket[id];
+      if (prev && (prev.updatedAt || 0) > (d.updatedAt || 0)) continue;  // تعديل محلي أحدث
+      const isNew = !prev && !d.deleted;
+      bucket[id] = d;
+      changed = true;
+      if (isNew && !wasFirst && LABELS[col] && !selfWrites.has(col + ':' + id)) {
+        try { fresh.push([col, MAPPERS[col](d)]); } catch { /* تجاهل */ }
+      }
+    }
+    emit(col);
+  }
+
+  if (res.members?.length) {
+    for (const m of res.members) membersMap[m.uid] = m;
+    changed = true;
+    listeners?.onData?.('members', shapeMembers());
+  }
+
+  cursor = res.now || cursor;
+  if (changed || res.full) persistDocs();
+  firstEmit = false;
+
+  for (const [col, x] of fresh) {
+    if (x.ownerUid && x.ownerUid === currentUid()) continue;
+    listeners?.onPartnerActivity?.(LABELS[col](x));
+  }
 }
 
 /* ============================================================
-   الكتابة
+   الكتابة — محلية فورًا، ثم تُرسل متى توفّر الاتصال
    ============================================================ */
 function mark(col, id) {
-  selfWrites.add(col + ':' + id);
-  setTimeout(() => selfWrites.delete(col + ':' + id), 60000);
+  const key = col + ':' + id;
+  selfWrites.add(key);
+  setTimeout(() => selfWrites.delete(key), 60000);
+}
+
+function enqueue(op) {
+  const q = lsGet(K_QUEUE, []);
+  /* عملية أحدث على نفس العنصر تلغي "الدمج" السابق لتقليل الطابور */
+  q.push(op);
+  lsSet(K_QUEUE, q.slice(-800));
+  flushQueue();
+}
+
+async function flushQueue() {
+  if (flushing || !token || !navigator.onLine) return;
+  let q = lsGet(K_QUEUE, []);
+  if (!q.length) return;
+  flushing = true;
+  try {
+    while (q.length) {
+      const batch = q.slice(0, 200);
+      await req('/write', { method: 'POST', body: { ops: batch }, timeout: 20000 });
+      q = lsGet(K_QUEUE, []).slice(batch.length);
+      lsSet(K_QUEUE, q);
+    }
+  } catch (e) {
+    if (e.code === 'no-household' || e.code === 'no-user') {
+      lsSet(K_QUEUE, []);
+      onWriteError?.('انتهت جلستك — سجّل دخولك من جديد لمزامنة التغييرات.');
+    }
+    /* غير ذلك: يبقى الطابور كما هو ويُعاد إرساله لاحقًا */
+  } finally { flushing = false; }
+}
+
+export function pendingWrites() { return (lsGet(K_QUEUE, []) || []).length; }
+
+function localApply(col, id, patch, remove) {
+  const bucket = docs[col] || (docs[col] = {});
+  const key = String(id);
+  const prev = bucket[key] || {};
+  bucket[key] = remove
+    ? { ...prev, id: prev.id ?? Number(id), deleted: true, updatedAt: Date.now() }
+    : { ...prev, ...patch, id: patch?.id ?? prev.id ?? Number(id), deleted: false, updatedAt: Date.now() };
+  persistDocs();
+  emit(col);
 }
 
 export function saveItem(hid, col, item) {
   mark(col, item.id);
   const data = { ...item, createdAt: item.createdAt || Date.now() };
   delete data.purchasedAt;
-  fire(fb.setDoc(fb.doc(db, 'households', hid, col, String(item.id)), data), col);
+  localApply(col, item.id, data, false);
+  enqueue({ col, id: String(item.id), op: 'set', data });
 }
 
 export function patchItem(hid, col, id, patch) {
   mark(col, id);
-  fire(fb.setDoc(fb.doc(db, 'households', hid, col, String(id)), patch, { merge: true }), col);
+  localApply(col, id, patch, false);
+  enqueue({ col, id: String(id), op: 'merge', data: patch });
 }
 
 export function removeItem(hid, col, id) {
   mark(col, id);
-  fire(fb.deleteDoc(fb.doc(db, 'households', hid, col, String(id))), col);
+  localApply(col, id, null, true);
+  enqueue({ col, id: String(id), op: 'delete', numericId: Number(id) || id });
+}
+
+/* ---------- الأعضاء ---------- */
+export async function loadMembers() {
+  try {
+    const r = await req('/members', { timeout: 10000 });
+    (r.members || []).forEach((m) => { membersMap[m.uid] = m; });
+    persistDocs();
+  } catch { /* نكتفي بالمحفوظ */ }
+  return shapeMembers();
+}
+
+export function updateMemberProfile(hid, patch) {
+  const uid = currentUid();
+  if (!uid) return;
+  membersMap[uid] = { ...(membersMap[uid] || { uid }), ...patch, updatedAt: Date.now() };
+  persistDocs();
+  listeners?.onData?.('members', shapeMembers());
+  req('/member', { method: 'POST', body: { patch } }).catch(() => {
+    onWriteError?.('لم تُحفظ بيانات ملفك على الخادم بعد — ستُرسل عند عودة الاتصال.');
+  });
+}
+
+export function removeMemberCloud(hid, uid) {
+  if (membersMap[uid]) { membersMap[uid].deleted = true; persistDocs(); }
+  listeners?.onData?.('members', shapeMembers());
+  req('/member/' + encodeURIComponent(uid), { method: 'DELETE' }).catch((e) => {
+    onWriteError?.(arabicError(e));
+  });
 }
 
 /* ---------- تفضيلات الإشعارات ---------- */
 export function saveNotificationPrefs(prefs) {
-  const uid = currentUid();
-  if (!uid) return;
-  fire(fb.setDoc(fb.doc(db, 'users', uid, 'prefs', 'notifications'),
-    { ...prefs, updatedAt: Date.now() }, { merge: true }), 'تفضيلات الإشعارات');
+  if (!token) return;
+  req('/prefs', { method: 'POST', body: prefs }).catch(() => { /* تُحفظ محليًا أصلًا */ });
 }
 
 export async function loadNotificationPrefs() {
-  const uid = currentUid();
-  if (!uid) return null;
-  const snap = await fb.getDoc(fb.doc(db, 'users', uid, 'prefs', 'notifications'));
-  return snap.exists() ? snap.data() : null;
+  if (!token) return null;
+  try { return await req('/prefs', { timeout: 8000 }); } catch { return null; }
 }
 
-/* ---------- سجل الدخول ---------- */
-export function recordSession() {
-  const uid = currentUid();
-  if (!uid) return;
-  try {
-    fire(fb.addDoc(fb.collection(db, 'users', uid, 'sessions'), {
-      deviceModel: navigator.platform || 'Web',
-      androidVersion: 'Web — ' + (navigator.userAgent.split(')')[0].split('(')[1] || 'browser'),
-      timestamp: Date.now(), signedIn: true,
-    }), 'سجل الدخول');
-  } catch { /* غير مهم */ }
-}
+/* ---------- سجل الدخول (غير مستخدم في الخادم الذاتي) ---------- */
+export function recordSession() { /* لا نجمع سجلات أجهزة */ }
