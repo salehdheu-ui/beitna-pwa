@@ -1,6 +1,6 @@
 /* Service Worker — يجعل بيتنا يعمل بدون إنترنت */
 
-const VERSION = 'beitna-v1.7.0';
+const VERSION = 'beitna-v1.7.1';
 const CORE = [
   './',
   './index.html',
