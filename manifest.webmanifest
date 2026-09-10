@@ -1,0 +1,41 @@
+{
+  "name": "بيتنا — إدارة المنزل بذكاء",
+  "short_name": "بيتنا",
+  "description": "المشتريات، الأعطال، المناسبات وأفراد البيت في مكان واحد — يعمل بدون إنترنت.",
+  "id": "/",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "portrait",
+  "background_color": "#F8F5F0",
+  "theme_color": "#0F8B6D",
+  "lang": "ar",
+  "dir": "rtl",
+  "categories": ["lifestyle", "productivity", "utilities"],
+  "icons": [
+    { "src": "assets/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    {
+      "name": "إضافة مشتريات",
+      "short_name": "مشتريات",
+      "url": "./index.html#/shopping/new",
+      "icons": [{ "src": "assets/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "إضافة عطل",
+      "short_name": "عطل",
+      "url": "./index.html#/faults/new",
+      "icons": [{ "src": "assets/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "إضافة مناسبة",
+      "short_name": "مناسبة",
+      "url": "./index.html#/occasions/new",
+      "icons": [{ "src": "assets/icons/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

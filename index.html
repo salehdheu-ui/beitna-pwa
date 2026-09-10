@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=5">
+<title>بيتنا — إدارة المنزل بذكاء</title>
+<meta name="description" content="بيتنا — تطبيق إدارة المنزل: المشتريات، الأعطال، المناسبات وأفراد البيت في مكان واحد.">
+<meta name="theme-color" content="#0F8B6D">
+<meta name="color-scheme" content="light dark">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="بيتنا">
+<meta name="mobile-web-app-capable" content="yes">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="بيتنا — إدارة المنزل بذكاء">
+<meta property="og:description" content="المشتريات، الأعطال، المناسبات وأفراد البيت في مكان واحد.">
+<meta property="og:image" content="assets/icons/icon-512.png">
+
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="assets/icons/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<div id="splash" class="splash">
+  <div class="splash-mark">🏡</div>
+  <div class="splash-name">بيتنا</div>
+  <div class="splash-tag">إدارة المنزل بذكاء</div>
+</div>
+
+<div id="app" class="app" hidden>
+
+  <!-- شاشة الدخول -->
+  <section id="authRoot" class="auth-root" hidden></section>
+
+  <!-- الهيكل الرئيسي -->
+  <div id="shell" class="shell" hidden>
+    <header id="topbar" class="topbar"></header>
+
+    <nav id="sidenav" class="sidenav" aria-label="التنقل الرئيسي"></nav>
+
+    <main id="view" class="view" tabindex="-1"></main>
+
+    <nav id="bottomnav" class="bottomnav" aria-label="التنقل السفلي"></nav>
+  </div>
+</div>
+
+<div id="sheetRoot" class="sheet-root" hidden></div>
+<div id="dialogRoot" class="dialog-root" hidden></div>
+<div id="toastRoot" class="toast-root" aria-live="polite"></div>
+
+<noscript>
+  <div style="padding:24px;font-family:system-ui;text-align:center">
+    هذا التطبيق يحتاج تفعيل JavaScript في المتصفح.
+  </div>
+</noscript>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
