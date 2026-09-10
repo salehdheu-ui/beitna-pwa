@@ -203,7 +203,7 @@ export function renderAuth(onDone) {
       if (!hname) return err('اكتب اسم البيت');
       setBusy(true, 'جارٍ الإنشاء...');
       try {
-        const hh = cloud.createHousehold(hname, pendingName || 'مستخدم');
+        const hh = await cloud.createHousehold(hname, pendingName || 'مستخدم');
         setupHousehold({
           householdName: hh.name, memberName: pendingName, email: cloud.currentEmail() || '',
           inviteCode: hh.inviteCode, isOwner: true, cloud: true, resetData: true,

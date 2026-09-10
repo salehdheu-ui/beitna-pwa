@@ -9,8 +9,46 @@ import {
 import { emptyState, toast, confirmDialog, openSheet, switchEl } from '../ui.js';
 import { go } from '../router.js';
 import { requestNotificationPermission, notificationState } from '../notify.js';
+import { pendingWrites } from '../cloud.js';
 
 /* ============================ المزيد ============================ */
+
+/** شريط حالة المزامنة — يوضّح العمل بدون إنترنت وعدد التغييرات المنتظرة */
+function syncBar() {
+  if (!isCloud()) {
+    return `
+      <div class="install-bar mt" style="background:var(--surface-2)">
+        <span style="font-size:20px">📱</span>
+        <div class="grow">
+          <div class="strong small">وضع محلي — هذا الجهاز فقط</div>
+          <div class="tiny muted">سجّل خروجًا ثم ادخل بحساب لتتزامن بياناتك بين الأجهزة.</div>
+        </div>
+      </div>`;
+  }
+  let pending = 0;
+  try { pending = pendingWrites(); } catch { pending = 0; }
+  const offline = !navigator.onLine;
+  const icon = offline ? '📴' : (pending ? '🔄' : '☁️');
+  const title = offline
+    ? 'بدون إنترنت — التطبيق يعمل عادي'
+    : (pending ? 'جارٍ رفع تغييراتك...' : 'المزامنة مع بيتك مفعّلة');
+  const note = offline
+    ? (pending
+        ? `${pending} تغييرًا محفوظًا على جهازك، سيُرفع تلقائيًا أول ما يعود الاتصال.`
+        : 'كل بياناتك متاحة، وأي تعديل سيُرفع تلقائيًا عند عودة الاتصال.')
+    : (pending
+        ? `${pending} تغييرًا قيد الرفع الآن.`
+        : 'كل شيء محفوظ ومتزامن مع بقية أفراد البيت.');
+  return `
+    <div class="install-bar mt" style="background:${offline ? 'var(--surface-2)' : 'var(--mint)'}">
+      <span style="font-size:20px">${icon}</span>
+      <div class="grow">
+        <div class="strong small">${title}</div>
+        <div class="tiny muted">${note}</div>
+      </div>
+    </div>`;
+}
+
 export function moreScreen() {
   const s = getState();
   const st = profileStats();
@@ -31,15 +69,7 @@ export function moreScreen() {
         </div>
       </div>
 
-      <div class="install-bar mt" style="background:${isCloud() ? 'var(--mint)' : 'var(--surface-2)'}">
-        <span style="font-size:20px">${isCloud() ? '☁️' : '📱'}</span>
-        <div class="grow">
-          <div class="strong small">${isCloud() ? 'المزامنة السحابية مفعّلة' : 'وضع محلي — هذا الجهاز فقط'}</div>
-          <div class="tiny muted">${isCloud()
-            ? 'بياناتك متزامنة لحظيًا مع كل أفراد البيت وتطبيق الجوال.'
-            : 'سجّل خروجًا ثم ادخل بحساب لتتزامن بياناتك بين الأجهزة.'}</div>
-        </div>
-      </div>
+      ${syncBar()}
 
       <div class="stats mt">
         <div class="stat"><div class="n">${st.shoppingAdded}</div><div class="l">مشتريات أضفتها</div></div>
