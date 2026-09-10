@@ -6,10 +6,13 @@ import {
   setNotification, setDarkMode, profileStats, archiveItems, signOut, resetAll,
   generateInviteCode, update, isCloud, CURRENCY,
 } from '../store.js';
-import { emptyState, toast, confirmDialog, openSheet, switchEl } from '../ui.js';
+import { emptyState, toast, confirmDialog, openSheet, switchEl, iosInstallSheet } from '../ui.js';
 import { go } from '../router.js';
-import { requestNotificationPermission, notificationState } from '../notify.js';
-import { pendingWrites } from '../cloud.js';
+import { requestNotificationPermission, notificationStatus, testNotification } from '../notify.js';
+import {
+  pendingWrites, apiBase, checkServer, currentEmail,
+  deleteAccount, loadStats, amAdmin, arabicError,
+} from '../cloud.js';
 
 /* ============================ المزيد ============================ */
 
@@ -337,22 +340,67 @@ const NOTIF_ROWS = [
   ['quietHours', '🌙', 'وضع الهدوء الليلي', 'كتم الإشعارات من 11 مساءً إلى 7 صباحًا'],
 ];
 
+/** لافتة حالة الإشعارات — رسالة مفهومة لكل حالة بدل «لم يتم منح الإذن» */
+function notifBanner(status) {
+  if (status === 'granted') {
+    return `
+      <div class="install-bar">
+        <span style="font-size:20px">✅</span>
+        <div class="grow small strong">الإشعارات مفعّلة على هذا الجهاز</div>
+        <button class="btn sm ghost" data-act="test">تجربة</button>
+      </div>`;
+  }
+  if (status === 'ios-needs-install') {
+    return `
+      <div class="install-bar">
+        <span style="font-size:22px">📲</span>
+        <div class="grow">
+          <div class="strong small">ثبّت بيتنا أولًا على الـ iPhone</div>
+          <div class="tiny muted">إشعارات iPhone تعمل فقط بعد «إضافة إلى الشاشة الرئيسية».</div>
+        </div>
+        <button class="btn sm" data-act="ios">الطريقة</button>
+      </div>`;
+  }
+  if (status === 'denied') {
+    return `
+      <div class="install-bar">
+        <span style="font-size:22px">🚫</span>
+        <div class="grow">
+          <div class="strong small">الإشعارات محظورة من إعدادات المتصفح</div>
+          <div class="tiny muted">افتح إعدادات هذا الموقع في متصفحك، فعّل «الإشعارات»، ثم ارجع لهذه الشاشة.</div>
+        </div>
+      </div>`;
+  }
+  if (status === 'unsupported') {
+    return `
+      <div class="install-bar">
+        <span style="font-size:22px">ℹ️</span>
+        <div class="grow">
+          <div class="strong small">هذا المتصفح لا يدعم الإشعارات</div>
+          <div class="tiny muted">استخدم Chrome على أندرويد، أو Safari على iPhone بعد تثبيت التطبيق.</div>
+        </div>
+      </div>`;
+  }
+  /* default — لم يُطلب الإذن بعد */
+  return `
+    <div class="install-bar">
+      <span style="font-size:22px">🔔</span>
+      <div class="grow">
+        <div class="strong small">تفعيل التذكيرات والتنبيهات</div>
+        <div class="tiny muted">اسمح للمتصفح بإرسال الإشعارات لتصلك تذكيرات المناسبات.</div>
+      </div>
+      <button class="btn sm" data-act="perm">تفعيل</button>
+    </div>`;
+}
+
 export function notificationsScreen() {
   const n = getState().notifications;
-  const perm = notificationState();
+  const status = notificationStatus();
   return {
     title: 'الإشعارات',
     back: true,
     html: `
-      ${perm !== 'granted' ? `
-        <div class="install-bar">
-          <span style="font-size:22px">🔔</span>
-          <div class="grow"><div class="strong small">تفعيل التذكيرات والتنبيهات</div>
-            <div class="tiny muted">اسمح للمتصفح بإرسال الإشعارات لتصلك تذكيرات المناسبات.</div></div>
-          <button class="btn sm" data-act="perm">تفعيل</button>
-        </div>` : `
-        <div class="install-bar"><span style="font-size:20px">✅</span>
-          <div class="grow small strong">الإشعارات مفعّلة على هذا الجهاز</div></div>`}
+      ${notifBanner(status)}
 
       <div class="list">
         ${NOTIF_ROWS.map(([key, ic, t, d]) => `
@@ -361,15 +409,36 @@ export function notificationsScreen() {
             <span class="grow"><span class="t">${esc(t)}</span><br><span class="d">${esc(d)}</span></span>
             ${switchEl(n[key], key)}
           </div>`).join('')}
-      </div>`,
+      </div>
+
+      <p class="tiny muted mt">
+        التذكيرات تُحسب على هذا الجهاز، فتصل ما دام التطبيق مفتوحًا أو يعمل في الخلفية.
+      </p>`,
     mount(root, rerender) {
       root.addEventListener('click', async (e) => {
+        if (e.target.closest('[data-act="ios"]')) { iosInstallSheet(); return; }
+
+        if (e.target.closest('[data-act="test"]')) {
+          const sent = await testNotification();
+          toast(sent ? 'أُرسل إشعار تجريبي 🔔' : 'تعذّر إرسال الإشعار التجريبي');
+          return;
+        }
+
         if (e.target.closest('[data-act="perm"]')) {
+          /* الطلب يجب أن يبدأ داخل نقرة المستخدم — شرط Safari على iPhone */
           const ok = await requestNotificationPermission();
-          toast(ok ? 'تم تفعيل الإشعارات ✓' : 'لم يتم منح الإذن');
+          if (ok) {
+            await testNotification();
+            toast('تم تفعيل الإشعارات ✓');
+          } else {
+            toast(notificationStatus() === 'denied'
+              ? 'المتصفح يحظر الإشعارات — فعّلها من إعدادات الموقع'
+              : 'لم يتم منح الإذن');
+          }
           rerender();
           return;
         }
+
         const row = e.target.closest('[data-toggle]');
         if (row) {
           const key = row.dataset.toggle;
@@ -490,6 +559,88 @@ const FAQ = [
   ['هل يمكنني تخصيص التصنيفات؟', 'نعم، من "المزيد" > "التصنيفات والأماكن" يمكنك إضافة وحذف التصنيفات.'],
 ];
 
+const nf = (n) => Number(n || 0).toLocaleString('ar-EG');
+
+/** ورقة إحصائيات النظام — أرقام مجمّعة يجلبها الخادم */
+async function openStatsSheet() {
+  const close = openSheet('<h3>إحصائيات النظام</h3><p class="muted small">جارٍ التحميل...</p>');
+  let st;
+  try { st = await loadStats(); }
+  catch (e) {
+    openSheet(`<h3>إحصائيات النظام</h3><div class="err">${esc(arabicError(e))}</div>
+               <button class="btn block" data-close>حسنًا</button>`,
+      { onMount(el, c) { el.querySelector('[data-close]').onclick = c; } });
+    return;
+  }
+  close();
+
+  const rows = [
+    ['👥', 'إجمالي المستخدمين', nf(st.users)],
+    ['🆕', 'مستخدمون جدد (٧ أيام)', nf(st.usersNew7d)],
+    ['🆕', 'مستخدمون جدد (٣٠ يومًا)', nf(st.usersNew30d)],
+    ['⚡', 'نشطون (٧ أيام)', nf(st.activeUsers7d)],
+    ['⚡', 'نشطون (٣٠ يومًا)', nf(st.activeUsers30d)],
+    ['🏡', 'عدد البيوت', nf(st.households)],
+    ['👨‍👩‍👧', 'بيوت فيها أكثر من فرد', nf(st.householdsShared)],
+    ['📊', 'متوسط الأفراد في البيت', nf(st.avgMembers)],
+    ['📦', 'إجمالي العناصر', nf(st.itemsTotal)],
+    ['💾', 'حجم قاعدة البيانات', nf(Number((st.dbBytes / 1024).toFixed(1))) + ' ك.ب'],
+  ];
+
+  openSheet(`
+    <h3>إحصائيات النظام</h3>
+    <div class="list">
+      ${rows.map(([ic, t, v]) => `
+        <div class="list-row"><span class="ic">${ic}</span>
+          <span class="grow"><span class="t">${esc(t)}</span></span>
+          <b style="font-size:16px">${esc(v)}</b></div>`).join('')}
+    </div>
+    <p class="tiny muted mt">أرقام مجمّعة فقط — لا بريد ولا اسم ولا محتوى أي بيت.</p>
+    <button class="btn block mt" data-close>حسنًا</button>
+  `, { onMount(el, c) { el.querySelector('[data-close]').onclick = c; } });
+}
+
+/** حذف الحساب: تأكيد مكتوب ثم كلمة المرور */
+async function confirmDeleteAccount() {
+  const ok = await confirmDialog({
+    title: 'حذف الحساب نهائيًا',
+    message: 'سيُحذف حسابك وبياناتك من الخادم بلا رجعة. لا يمكن التراجع عن هذه الخطوة.',
+    confirmText: 'متابعة',
+    danger: true,
+  });
+  if (!ok) return;
+
+  openSheet(`
+    <h3>تأكيد الحذف</h3>
+    <p class="muted small" style="margin:0 0 14px">اكتب كلمة مرور حسابك للتأكيد.</p>
+    <div id="err"></div>
+    <div class="field"><label for="delpass">كلمة المرور</label>
+      <input class="input" id="delpass" type="password" autocomplete="current-password"></div>
+    <button class="btn danger block" data-go-del>حذف حسابي نهائيًا</button>
+    <button class="btn ghost block mt" data-close>إلغاء</button>
+  `, {
+    onMount(el, close) {
+      el.querySelector('[data-close]').onclick = close;
+      const btn = el.querySelector('[data-go-del]');
+      btn.onclick = async () => {
+        const pass = el.querySelector('#delpass').value;
+        if (!pass) return;
+        btn.disabled = true; btn.textContent = 'جارٍ الحذف...';
+        try {
+          const r = await deleteAccount(pass);
+          close();
+          resetAll();
+          toast(r.householdsDeleted ? 'حُذف حسابك وبيتك نهائيًا' : 'حُذف حسابك نهائيًا');
+          setTimeout(() => location.replace(location.origin + location.pathname), 1200);
+        } catch (e) {
+          btn.disabled = false; btn.textContent = 'حذف حسابي نهائيًا';
+          el.querySelector('#err').innerHTML = `<div class="err">${esc(arabicError(e))}</div>`;
+        }
+      };
+    },
+  });
+}
+
 export function supportScreen() {
   return {
     title: 'الدعم والمساعدة',
@@ -523,13 +674,68 @@ export function supportScreen() {
       </div>
 
       <div class="section">
+        <div class="section-title">حالة الاتصال بالخادم</div>
+        <div class="card">
+          <div class="small"><span class="muted">الحساب:</span>
+            <b style="direction:ltr;display:inline-block">${esc(currentEmail() || '— بدون حساب —')}</b></div>
+          <div class="small mt-s"><span class="muted">عنوان الخادم:</span>
+            <b style="direction:ltr;display:inline-block;word-break:break-all">${esc(apiBase())}</b></div>
+          <div id="srvState" class="small mt-s muted">اضغط «فحص» للتأكد من الوصول.</div>
+          <button class="btn ghost block mt" data-act="check">🔌 فحص الاتصال</button>
+        </div>
+        <p class="tiny muted mt">
+          الحساب واحد على كل الأجهزة: نفس البريد يفتح نفس البيت من أي جهاز أو متصفح.
+        </p>
+      </div>
+
+      <div class="section" id="adminSection" hidden>
+        <div class="section-title">إدارة النظام</div>
+        <div class="list">
+          <button class="list-row" data-act="stats"><span class="ic">📈</span>
+            <span class="grow"><span class="t">إحصائيات النظام</span>
+              <br><span class="d">عدد المستخدمين والبيوت — أرقام مجمّعة فقط</span></span>
+            <span class="arrow">‹</span></button>
+        </div>
+      </div>
+
+      <div class="section">
         <div class="section-title">خطر — منطقة الحذف</div>
-        <button class="btn danger-soft block" data-act="reset">🗑️ حذف كل البيانات وإعادة الضبط</button>
+        <button class="btn danger-soft block" data-act="reset">🗑️ حذف بيانات هذا الجهاز وإعادة الضبط</button>
+        ${isCloud() ? `
+          <button class="btn danger block mt" data-act="delacct">⚠️ حذف حسابي نهائيًا من الخادم</button>
+          <p class="tiny muted mt-s">
+            يمسح حسابك وبياناتك من الخادم بلا رجعة. إن كنت مالك بيت وفيه أعضاء آخرون
+            تنتقل الملكية لأقدمهم ويبقى البيت لهم؛ وإن كنت آخر فرد فيه يُحذف البيت كاملًا.
+          </p>` : ''}
       </div>
 
       <p class="center tiny muted mt">إدارة المنزل بذكاء — الإصدار 1.6.1</p>`,
     mount(root) {
+      /* قسم الإدارة يظهر فقط إن أكّد الخادم أن هذا الحساب مشرف */
+      if (isCloud()) {
+        amAdmin().then((ok) => { if (ok) { const el = root.querySelector('#adminSection'); if (el) el.hidden = false; } });
+      }
+
       root.addEventListener('click', async (e) => {
+        if (e.target.closest('[data-act="stats"]')) { openStatsSheet(); return; }
+
+        if (e.target.closest('[data-act="delacct"]')) { await confirmDeleteAccount(); return; }
+
+        if (e.target.closest('[data-act="check"]')) {
+          const box = root.querySelector('#srvState');
+          box.className = 'small mt-s muted';
+          box.textContent = 'جارٍ الفحص...';
+          const r = await checkServer({ rediscover: true });
+          box.className = 'small mt-s strong';
+          box.style.color = r.ok ? 'var(--emerald)' : 'var(--danger)';
+          box.textContent = r.ok
+            ? (r.canonical
+                ? 'متصل بخادم بيتنا الرسمي ✓ — حسابك يتزامن من أي جهاز'
+                : 'متصل بخادم على نفس الدومين ✓')
+            : 'تعذّر الوصول إلى الخادم — تحقق من الإنترنت ثم أعد الفحص';
+          return;
+        }
+
         const f = e.target.closest('[data-faq]');
         if (f) {
           const [q, ans] = FAQ[Number(f.dataset.faq)];
