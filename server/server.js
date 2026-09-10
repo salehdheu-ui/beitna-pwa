@@ -15,6 +15,12 @@ const DB_FILE = path.join(DATA_DIR, 'db.json');
 const SECRET_FILE = path.join(DATA_DIR, 'secret.key');
 const TOKEN_DAYS = 400;
 
+/* بريد المشرفين (يفصل بينها فاصلة). بدونها لا يرى أحد إحصائيات النظام. */
+const ADMIN_EMAILS = new Set(
+  String(process.env.ADMIN_EMAILS || '')
+    .split(',').map((e) => e.trim().toLowerCase()).filter(Boolean)
+);
+
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
 /* ---------- مفتاح التوقيع: يُولَّد ذاتيًا مرة واحدة ---------- */
@@ -122,6 +128,25 @@ setInterval(() => {
   for (const [k, v] of attempts) if (now() - v.at > 15 * 60000) attempts.delete(k);
 }, 60000).unref();
 
+/* ---------- حدّ المعدل حسب مصدر الطلب ---------- */
+const hits = new Map();
+function clientIp(req) {
+  const fwd = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+  return fwd || req.socket?.remoteAddress || 'unknown';
+}
+/** يرجع true إذا تجاوز المصدر الحدّ المسموح داخل النافذة الزمنية */
+function rateLimited(key, limit, windowMs) {
+  const t = now();
+  const rec = hits.get(key);
+  if (!rec || t - rec.at > windowMs) { hits.set(key, { n: 1, at: t }); return false; }
+  rec.n++;
+  return rec.n > limit;
+}
+setInterval(() => {
+  const t = now();
+  for (const [k, v] of hits) if (t - v.at > 3600000) hits.delete(k);
+}, 300000).unref();
+
 /* ---------- المجموعات ---------- */
 const COLS = ['shopping', 'faults', 'occasions', 'categories', 'favoriteLists'];
 
@@ -213,6 +238,86 @@ const publicUser = (u, token) => ({
 
 const normEmail = (e) => String(e || '').trim().toLowerCase();
 
+const isAdmin = (u) => !!u && ADMIN_EMAILS.has(String(u.email || '').toLowerCase());
+
+/**
+ * يحذف المستخدم من كل بيوته ثم يحذف حسابه.
+ * إن كان مالكًا وبقي أعضاء: تنتقل الملكية لأقدم عضو باقٍ حتى لا تضيع بيانات غيره.
+ * إن كان آخر عضو: يُحذف البيت وبياناته وكود دعوته.
+ */
+function deleteUser(user) {
+  let householdsDeleted = 0, ownershipTransferred = 0;
+
+  for (const hh of Object.values(db.households)) {
+    const m = hh.members[user.uid];
+    if (!m) continue;
+    const wasOwner = !!m.isOwner;
+    delete hh.members[user.uid];
+
+    const remaining = Object.values(hh.members).filter((x) => !x.deleted);
+    if (!remaining.length) {
+      if (hh.inviteCode) delete db.codes[hh.inviteCode];
+      delete db.households[hh.id];
+      householdsDeleted++;
+      continue;
+    }
+    if (wasOwner) {
+      const heir = remaining.sort((a, b) => (a.joinedAt || 0) - (b.joinedAt || 0))[0];
+      heir.isOwner = true;
+      heir.role = 'مالك البيت';
+      heir.updatedAt = now();
+      ownershipTransferred++;
+    }
+    hh.updatedAt = now();
+  }
+
+  const email = String(user.email || '').toLowerCase();
+  if (email && db.emails[email] === user.uid) delete db.emails[email];
+  delete db.users[user.uid];
+
+  return { householdsDeleted, ownershipTransferred };
+}
+
+/** أرقام مجمّعة فقط — لا بريد ولا اسم ولا محتوى */
+function buildStats() {
+  const users = Object.values(db.users);
+  const households = Object.values(db.households);
+  const t = now();
+  const since = (days) => t - days * 86400000;
+
+  const activeSince = (days) => users.filter((u) => (u.updatedAt || u.createdAt || 0) > since(days)).length;
+
+  const items = {};
+  let itemsTotal = 0;
+  for (const c of COLS) items[c] = 0;
+  for (const hh of households) {
+    for (const c of COLS) {
+      const live = Object.values(hh.cols?.[c] || {}).filter((d) => !d.deleted).length;
+      items[c] += live;
+      itemsTotal += live;
+    }
+  }
+
+  const members = households.map((hh) => Object.values(hh.members).filter((m) => !m.deleted).length);
+  let dbBytes = 0;
+  try { dbBytes = fs.statSync(DB_FILE).size; } catch { /* لم يُحفظ بعد */ }
+
+  return {
+    users: users.length,
+    usersNew7d: users.filter((u) => (u.createdAt || 0) > since(7)).length,
+    usersNew30d: users.filter((u) => (u.createdAt || 0) > since(30)).length,
+    activeUsers7d: activeSince(7),
+    activeUsers30d: activeSince(30),
+    households: households.length,
+    householdsShared: members.filter((n) => n > 1).length,
+    avgMembers: households.length ? Number((members.reduce((a, b) => a + b, 0) / households.length).toFixed(2)) : 0,
+    items, itemsTotal,
+    dbBytes,
+    uptimeSec: Math.round(process.uptime()),
+    at: t,
+  };
+}
+
 /* ---------- المسارات ---------- */
 async function route(req, res, url) {
   const p = url.pathname.replace(/^\/api/, '') || '/';
@@ -222,6 +327,8 @@ async function route(req, res, url) {
 
   /* ===== حساب جديد ===== */
   if (p === '/signup' && method === 'POST') {
+    /* بلا هذا الحدّ يستطيع أي أحد إنشاء حسابات بلا نهاية حتى يمتلئ القرص */
+    if (rateLimited('signup:' + clientIp(req), 5, 3600000)) return fail(res, 429, 'too-many-requests');
     const b = await readBody(req);
     const email = normEmail(b.email);
     const password = String(b.password || '');
@@ -262,6 +369,7 @@ async function route(req, res, url) {
     const hh = myHousehold(user);
     return send(res, 200, {
       ...publicUser(user, null),
+      isAdmin: isAdmin(user),
       householdId: hh ? hh.id : null,
       household: hh ? { id: hh.id, name: hh.name, inviteCode: hh.inviteCode, createdAt: hh.createdAt } : null,
     });
@@ -271,6 +379,22 @@ async function route(req, res, url) {
     const b = await readBody(req);
     if (b.displayName) { user.displayName = String(b.displayName).slice(0, 60); user.updatedAt = now(); save(); }
     return send(res, 200, { ok: true });
+  }
+
+  /* ===== حذف الحساب نهائيًا =====
+     يطلب كلمة المرور حتى لا يكفي رمز مسروق لمحو الحساب. */
+  if (p === '/account/delete' && method === 'POST') {
+    const b = await readBody(req);
+    if (!verifyPassword(String(b.password || ''), user.pass)) return fail(res, 401, 'wrong-password');
+    const summary = deleteUser(user);
+    save();
+    return send(res, 200, { ok: true, ...summary });
+  }
+
+  /* ===== إحصائيات النظام — للمشرفين فقط، أرقام مجمّعة بلا أي بيانات شخصية ===== */
+  if (p === '/stats' && method === 'GET') {
+    if (!isAdmin(user)) return fail(res, 403, 'admin-only');
+    return send(res, 200, buildStats());
   }
 
   /* ===== إنشاء بيت ===== */
@@ -285,6 +409,8 @@ async function route(req, res, url) {
 
   /* ===== الانضمام بكود ===== */
   if (p === '/household/join' && method === 'POST') {
+    /* كود الدعوة قصير — بلا حدّ يمكن تخمينه والدخول على بيت غريب */
+    if (rateLimited('join:' + clientIp(req), 10, 3600000)) return fail(res, 429, 'too-many-requests');
     const b = await readBody(req);
     const code = String(b.code || '').trim().toUpperCase();
     const hid = db.codes[code];

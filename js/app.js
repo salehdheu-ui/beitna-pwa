@@ -50,9 +50,20 @@ export async function wipeEverything(includeData) {
 
 if (location.search.includes('reset')) {
   const all = location.search.includes('all');
-  wipeEverything(all).finally(() => {
-    location.replace(location.origin + location.pathname);
-  });
+  /* ‎?reset=1‎ يمسح الذاكرة المؤقتة فقط فيمرّ مباشرة.
+     ‎?reset=all‎ يمحو البيانات والحساب — لا يمرّ إلا بتأكيد صريح،
+     وإلا كفى إرسال رابط واحد لأي فرد ليفقد كل ما على جهازه. */
+  const go = !all || window.confirm(
+    'سيتم محو كل بيانات بيتنا على هذا الجهاز وتسجيل الخروج. '
+    + 'إن لم تكن أنت من فتح هذا الرابط بنفسك، اضغط «إلغاء».'
+  );
+  if (go) {
+    wipeEverything(all).finally(() => {
+      location.replace(location.origin + location.pathname);
+    });
+  } else {
+    history.replaceState(null, '', location.origin + location.pathname);
+  }
 }
 
 /* ---------- التنقل السفلي ---------- */

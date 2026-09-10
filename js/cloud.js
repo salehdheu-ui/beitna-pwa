@@ -213,6 +213,25 @@ export async function waitForUser() {
   return me;
 }
 
+/** يحذف الحساب من الخادم نهائيًا. يتطلب كلمة المرور. */
+export async function deleteAccount(password) {
+  const r = await req('/account/delete', { method: 'POST', body: { password }, timeout: 20000 });
+  /* الحساب زال من الخادم — لا يجوز أن تبقى نسخة من بيانات البيت على الجهاز */
+  await signOutCloud();
+  return r;
+}
+
+/** إحصائيات النظام — تنجح للمشرفين فقط */
+export function loadStats() {
+  return req('/stats', { timeout: 15000 });
+}
+
+/** هل هذا الحساب مشرف؟ يُقرأ من /me */
+export async function amAdmin() {
+  try { const u = await req('/me', { timeout: 8000 }); return !!u.isAdmin; }
+  catch { return false; }
+}
+
 /* ---------- رسائل الأخطاء ---------- */
 export function arabicError(e) {
   const code = String(e?.code || e?.message || '');
@@ -231,6 +250,7 @@ export function arabicError(e) {
   if (code.includes('no-user')) return 'انتهت الجلسة — سجّل دخولك من جديد';
   if (code.includes('no-household')) return 'لم يعد لك بيت — أنشئ بيتًا أو انضم بكود';
   if (code.includes('owner-only')) return 'هذه العملية لمالك البيت فقط';
+  if (code.includes('admin-only')) return 'هذه الشاشة للمشرف فقط';
   return 'حدث خطأ: ' + code;
 }
 
@@ -253,11 +273,20 @@ export async function signUp(email, password, displayName) {
   return keepSession(u);
 }
 
+/** يمسح كل ما خزّنته السحابة على هذا الجهاز — بما فيه ذاكرة أي بيت سابق */
+function purgeLocalCloudCache() {
+  lsDel(K_TOKEN); lsDel(K_USER); lsDel(K_QUEUE);
+  try {
+    Object.keys(localStorage)
+      .filter((k) => k.startsWith('beitna:docs:'))
+      .forEach((k) => localStorage.removeItem(k));
+  } catch { /* تجاهل */ }
+}
+
 export async function signOutCloud() {
   stopSync();
-  if (hidActive) lsDel(K_DOCS(hidActive));
   token = null; me = null; hidActive = null; docs = {}; membersMap = {}; cursor = 0;
-  lsDel(K_TOKEN); lsDel(K_USER); lsDel(K_QUEUE);
+  purgeLocalCloudCache();
 }
 
 /* ---------- البيت ---------- */
