@@ -252,6 +252,9 @@ export function arabicError(e) {
   if (code.includes('no-household')) return 'لم يعد لك بيت — أنشئ بيتًا أو انضم بكود';
   if (code.includes('owner-only')) return 'هذه العملية لمالك البيت فقط';
   if (code.includes('admin-only')) return 'هذه الشاشة للمشرف فقط';
+  if (code.includes('bad-recovery')) return 'رمز الاسترداد أو البريد غير صحيح';
+  if (code.includes('backup-failed')) return 'تعذّرت النسخة الاحتياطية — راجع سجل الخادم';
+  if (code.includes('not-a-member')) return 'لم تعد عضوًا في هذا البيت';
   return 'حدث خطأ: ' + code;
 }
 
@@ -271,7 +274,9 @@ export async function signIn(email, password) {
 
 export async function signUp(email, password, displayName) {
   const u = await req('/signup', { method: 'POST', auth: false, body: { email, password, displayName } });
-  return keepSession(u);
+  const session = keepSession(u);
+  /* رمز الاسترداد يصل مرة واحدة فقط — نمرّره للواجهة لتعرضه */
+  return { ...session, recoveryCode: u.recoveryCode };
 }
 
 /** يمسح كل ما خزّنته السحابة على هذا الجهاز — بما فيه ذاكرة أي بيت سابق */
@@ -581,6 +586,34 @@ export function removeItem(hid, col, id) {
   localApply(col, id, null, true);
   enqueue({ col, id: String(id), op: 'delete', numericId: Number(id) || id });
 }
+
+/* ---------- كلمة المرور والاسترداد ---------- */
+
+/** يستعيد الحساب برمز الاسترداد ويبدأ جلسة جديدة */
+export async function recoverAccount(email, code, password) {
+  const u = await req('/account/recover', {
+    method: 'POST', auth: false, timeout: 20000,
+    body: { email, code, password },
+  });
+  keepSession(u);
+  return u;
+}
+
+/** يغيّر كلمة المرور — يتطلب الحالية، ويُسقط الجلسات الأخرى */
+export async function changePassword(current, password) {
+  const u = await req('/account/password', { method: 'POST', body: { current, password }, timeout: 20000 });
+  keepSession(u);
+  return u;
+}
+
+/** رمز استرداد جديد — يُعرض مرة واحدة */
+export function newRecoveryCode(password) {
+  return req('/account/recovery', { method: 'POST', body: { password }, timeout: 15000 });
+}
+
+/* ---------- النسخ الاحتياطية (للمشرف) ---------- */
+export const listBackups = () => req('/backups', { timeout: 15000 });
+export const runBackup = () => req('/backups/now', { method: 'POST', timeout: 30000 });
 
 /* ---------- البيوت المتعددة والأدوار ---------- */
 const K_PERM = 'beitna:perm';

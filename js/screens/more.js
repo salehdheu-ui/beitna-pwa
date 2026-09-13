@@ -12,6 +12,7 @@ import { requestNotificationPermission, notificationStatus, testNotification } f
 import {
   pendingWrites, apiBase, checkServer, currentEmail,
   deleteAccount, loadStats, amAdmin, arabicError,
+  changePassword, newRecoveryCode, listBackups, runBackup,
   listHouseholds, switchHousehold, getHelperCode, newHelperCode,
   setMemberRole, currentPerm, isOwner as amOwner, joinHousehold,
 } from '../cloud.js';
@@ -735,6 +736,8 @@ async function openStatsSheet() {
     ['📊', 'متوسط الأفراد في البيت', nf(st.avgMembers)],
     ['📦', 'إجمالي العناصر', nf(st.itemsTotal)],
     ['💾', 'حجم قاعدة البيانات', nf(Number((st.dbBytes / 1024).toFixed(1))) + ' ك.ب'],
+    ['🗄️', 'النسخ الاحتياطية', nf(st.backups || 0)],
+    ['🕒', 'آخر نسخة', st.lastBackupAt ? relTime(st.lastBackupAt) : '—'],
   ];
 
   openSheet(`
@@ -746,8 +749,20 @@ async function openStatsSheet() {
           <b style="font-size:16px">${esc(v)}</b></div>`).join('')}
     </div>
     <p class="tiny muted mt">أرقام مجمّعة فقط — لا بريد ولا اسم ولا محتوى أي بيت.</p>
-    <button class="btn block mt" data-close>حسنًا</button>
-  `, { onMount(el, c) { el.querySelector('[data-close]').onclick = c; } });
+    <button class="btn soft block mt" data-backup>🗄️ نسخة احتياطية الآن</button>
+    <button class="btn block mt-s" data-close>حسنًا</button>
+  `, {
+    onMount(el, c) {
+      el.querySelector('[data-close]').onclick = c;
+      const bk = el.querySelector('[data-backup]');
+      if (bk) bk.onclick = async () => {
+        bk.disabled = true; bk.textContent = 'جارٍ الحفظ...';
+        try { const r = await runBackup(); toast('حُفظت: ' + r.file, 3500); }
+        catch (ex) { toast(arabicError(ex), 3500); }
+        bk.disabled = false; bk.textContent = '🗄️ نسخة احتياطية الآن';
+      };
+    },
+  });
 }
 
 /** حذف الحساب: تأكيد مكتوب ثم كلمة المرور */
@@ -791,6 +806,98 @@ async function confirmDeleteAccount() {
   });
 }
 
+/** ورقة عرض رمز الاسترداد — يُعرض مرة واحدة فقط */
+function recoveryCodeSheet(code) {
+  openSheet(`
+    <h3>🔑 رمز الاسترداد</h3>
+    <p class="muted small" style="margin:0 0 12px">
+      احفظه في مكان آمن. هو طريقك الوحيد لاستعادة حسابك إن نسيت كلمة المرور —
+      الخادم لا يحفظه نصًا ولا يستطيع إرساله لك لاحقًا. الرمز السابق بطل الآن.
+    </p>
+    <div class="invite-code">${esc(code)}</div>
+    <button class="btn soft block mt" data-copy>📋 نسخ</button>
+    <button class="btn block mt-s" data-close>حسنًا</button>
+  `, {
+    onMount(el, close) {
+      el.querySelector('[data-copy]').onclick = async () => {
+        try { await navigator.clipboard.writeText(code); toast('نُسخ ✓'); } catch { /* تجاهل */ }
+      };
+      el.querySelector('[data-close]').onclick = close;
+    },
+  });
+}
+
+/** يطلب كلمة المرور الحالية ثم ينفّذ */
+function askPassword({ title, note, confirmText, run }) {
+  openSheet(`
+    <h3>${esc(title)}</h3>
+    ${note ? `<p class="muted small" style="margin:0 0 12px">${esc(note)}</p>` : ''}
+    <div id="err"></div>
+    <div class="field"><label for="curp">كلمة المرور الحالية</label>
+      <input class="input" id="curp" type="password" autocomplete="current-password"
+             style="direction:ltr;text-align:left"></div>
+    <div id="extra"></div>
+    <button class="btn block" data-go>${esc(confirmText)}</button>
+    <button class="btn ghost block mt-s" data-close>إلغاء</button>
+  `, {
+    onMount(el, close) {
+      el.querySelector('[data-close]').onclick = close;
+      const btn = el.querySelector('[data-go]');
+      btn.onclick = async () => {
+        const cur = el.querySelector('#curp').value;
+        if (!cur) return;
+        btn.disabled = true; btn.textContent = 'لحظة...';
+        try { await run(cur, el, close); }
+        catch (ex) {
+          btn.disabled = false; btn.textContent = confirmText;
+          el.querySelector('#err').innerHTML = `<div class="err">${esc(arabicError(ex))}</div>`;
+        }
+      };
+    },
+  });
+}
+
+function changePasswordSheet() {
+  askPassword({
+    title: 'تغيير كلمة المرور',
+    note: 'ستُسجَّل خروجًا من كل أجهزتك الأخرى.',
+    confirmText: 'تغيير',
+    async run(cur, el, close) {
+      const extra = el.querySelector('#extra');
+      if (!extra.dataset.ready) {
+        extra.dataset.ready = '1';
+        extra.innerHTML = `
+          <div class="field"><label for="newp">كلمة المرور الجديدة</label>
+            <input class="input" id="newp" type="password" autocomplete="new-password"
+                   style="direction:ltr;text-align:left">
+            <div class="hint">6 أحرف على الأقل</div></div>`;
+        const btn = el.querySelector('[data-go]');
+        btn.disabled = false; btn.textContent = 'تغيير';
+        el.querySelector('#newp').focus();
+        return;
+      }
+      const next = el.querySelector('#newp').value;
+      if (next.length < 6) throw { code: 'weak-password' };
+      await changePassword(cur, next);
+      close();
+      toast('تم تغيير كلمة المرور ✓');
+    },
+  });
+}
+
+function newRecoverySheet() {
+  askPassword({
+    title: 'رمز استرداد جديد',
+    note: 'الرمز الحالي سيبطل فورًا.',
+    confirmText: 'توليد',
+    async run(cur, el, close) {
+      const r = await newRecoveryCode(cur);
+      close();
+      recoveryCodeSheet(r.recoveryCode);
+    },
+  });
+}
+
 export function supportScreen() {
   return {
     title: 'الدعم والمساعدة',
@@ -822,6 +929,21 @@ export function supportScreen() {
             <span class="grow"><span class="t">اقتراح ميزة جديدة</span></span><span class="arrow">‹</span></button>
         </div>
       </div>
+
+      ${isCloud() ? `
+      <div class="section">
+        <div class="section-title">الحساب والأمان</div>
+        <div class="list">
+          <button class="list-row" data-act="chpass"><span class="ic">🔒</span>
+            <span class="grow"><span class="t">تغيير كلمة المرور</span>
+              <br><span class="d">يُخرج جلساتك على الأجهزة الأخرى</span></span>
+            <span class="arrow">‹</span></button>
+          <button class="list-row" data-act="newrec"><span class="ic">🔑</span>
+            <span class="grow"><span class="t">رمز استرداد جديد</span>
+              <br><span class="d">يُعرض مرة واحدة — احفظه</span></span>
+            <span class="arrow">‹</span></button>
+        </div>
+      </div>` : ''}
 
       <div class="section">
         <div class="section-title">حالة الاتصال بالخادم</div>
@@ -867,6 +989,8 @@ export function supportScreen() {
       }
 
       root.addEventListener('click', async (e) => {
+        if (e.target.closest('[data-act="chpass"]')) { changePasswordSheet(); return; }
+        if (e.target.closest('[data-act="newrec"]')) { newRecoverySheet(); return; }
         if (e.target.closest('[data-act="stats"]')) { openStatsSheet(); return; }
 
         if (e.target.closest('[data-act="delacct"]')) { await confirmDeleteAccount(); return; }

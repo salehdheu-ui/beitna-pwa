@@ -32,13 +32,91 @@ try {
   fs.writeFileSync(SECRET_FILE, SECRET, { mode: 0o600 });
 }
 
-/* ---------- قاعدة البيانات ---------- */
+/* ============================================================
+   قاعدة البيانات والنسخ الاحتياطي
+   كل البيانات في ملف JSON واحد. لذلك:
+   1) ملف تالف لا يُفسَّر أبدًا كقاعدة فارغة — كان ذلك يمحو كل شيء
+      عند أول حفظ بعد أي كتابة مقطوعة أو خطأ قرص.
+   2) نسخة احتياطية دورية تُدوَّر تلقائيًا داخل المجلد الدائم.
+   ============================================================ */
+const BACKUP_DIR = path.join(DATA_DIR, 'backups');
+const BACKUP_KEEP = Number(process.env.BACKUP_KEEP || 24);
+const BACKUP_HOURS = Number(process.env.BACKUP_HOURS || 1);
+
+fs.mkdirSync(BACKUP_DIR, { recursive: true });
+
 const blank = () => ({ users: {}, emails: {}, households: {}, codes: {}, helperCodes: {} });
-let db;
-try {
-  db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-  for (const k of Object.keys(blank())) if (!db[k]) db[k] = {};
-} catch { db = blank(); }
+
+const fillMissing = (o) => {
+  for (const k of Object.keys(blank())) if (!o[k]) o[k] = {};
+  return o;
+};
+
+/** أحدث النسخ الاحتياطية أولًا */
+function backupFiles() {
+  try {
+    return fs.readdirSync(BACKUP_DIR)
+      .filter((f) => f.startsWith('db-') && f.endsWith('.json'))
+      .sort()
+      .reverse();
+  } catch { return []; }
+}
+
+function loadDb() {
+  let raw;
+  try {
+    raw = fs.readFileSync(DB_FILE, 'utf8');
+  } catch (e) {
+    if (e.code === 'ENOENT') {
+      console.log('لا توجد قاعدة بيانات — تشغيل أول، نبدأ فارغة');
+      return blank();
+    }
+    throw e;                       // قرص غير قابل للقراءة: نتوقف بدل أن نمحو
+  }
+
+  try {
+    return fillMissing(JSON.parse(raw));
+  } catch {
+    /* الملف موجود لكنه لا يُفسَّر — لا نبدأ فارغين مهما كان */
+    console.error('⚠️  قاعدة البيانات تالفة. نحاول أحدث نسخة احتياطية...');
+    for (const f of backupFiles()) {
+      try {
+        const parsed = fillMissing(JSON.parse(fs.readFileSync(path.join(BACKUP_DIR, f), 'utf8')));
+        const aside = DB_FILE + '.corrupt-' + Date.now();
+        try { fs.renameSync(DB_FILE, aside); } catch { /* تجاهل */ }
+        console.error(`✅ استُعيدت من ${f}. الملف التالف محفوظ في ${path.basename(aside)}`);
+        return parsed;
+      } catch { /* نجرّب الأقدم */ }
+    }
+    console.error('لا توجد نسخة احتياطية صالحة. التشغيل بقاعدة فارغة سيكتب فوق الملف ويمحو كل شيء.');
+    console.error(`نتوقف هنا. افحص ${DB_FILE} يدويًا ثم أعد التشغيل.`);
+    process.exit(1);
+  }
+}
+
+let db = loadDb();
+
+let writesSinceBackup = 0;
+
+/** نسخة احتياطية مدوَّرة. لا تُكتب إن لم يتغيّر شيء. */
+function backupNow(reason = 'دوري', force = false) {
+  if (!force && !writesSinceBackup) return null;
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const file = path.join(BACKUP_DIR, `db-${stamp}.json`);
+  try {
+    fs.writeFileSync(file, JSON.stringify(db));
+    writesSinceBackup = 0;
+    /* التدوير: نبقي أحدث BACKUP_KEEP فقط */
+    backupFiles().slice(BACKUP_KEEP).forEach((f) => {
+      try { fs.unlinkSync(path.join(BACKUP_DIR, f)); } catch { /* تجاهل */ }
+    });
+    console.log(`نسخة احتياطية (${reason}): ${path.basename(file)}`);
+    return file;
+  } catch (e) {
+    console.error('تعذّرت النسخة الاحتياطية', e);
+    return null;
+  }
+}
 
 let saveTimer = null, saving = false, dirty = false;
 function save() {
@@ -54,13 +132,29 @@ function flush() {
   try {
     fs.writeFileSync(tmp, JSON.stringify(db));
     fs.renameSync(tmp, DB_FILE);
+    writesSinceBackup++;
   } catch (e) { console.error('فشل الحفظ', e); dirty = true; }
   saving = false;
   if (dirty) save();
 }
-process.on('SIGTERM', () => { flush(); process.exit(0); });
-process.on('SIGINT', () => { flush(); process.exit(0); });
+function shutdown() { flush(); backupNow('إيقاف', true); process.exit(0); }
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
 setInterval(flush, 5000).unref();
+
+/* نسخة عند الإقلاع: نقطة رجوع معروفة السلامة.
+   لا تُكتب إن كانت آخر نسخة أحدث من ساعة، وإلا طرد النشرُ المتكررُ
+   النسخَ القديمة الصالحة بنسخ متطابقة. */
+(() => {
+  const newest = backupFiles()[0];
+  let fresh = false;
+  if (newest) {
+    try { fresh = Date.now() - fs.statSync(path.join(BACKUP_DIR, newest)).mtimeMs < 3600000; }
+    catch { fresh = false; }
+  }
+  if (!fresh) backupNow('إقلاع', true);
+})();
+setInterval(() => backupNow('دوري'), Math.max(1, BACKUP_HOURS) * 3600000).unref();
 
 /* ---------- أدوات ---------- */
 const now = () => Date.now();
@@ -91,9 +185,31 @@ function verifyPassword(password, stored) {
   } catch { return false; }
 }
 
+/* ============================================================
+   رمز الاسترداد
+   الخادم بلا بريد ولا أي تبعية خارجية، فلا يمكن إرسال رابط تصفير.
+   البديل: رمز يُعرض مرة واحدة عند التسجيل ويُخزَّن مبصومًا فقط —
+   من فقد كلمة مروره يستعيد حسابه به.
+   ============================================================ */
+function makeRecoveryCode() {
+  const part = () => Array.from({ length: 5 },
+    () => CODE_CHARS[crypto.randomInt(CODE_CHARS.length)]).join('');
+  return `${part()}-${part()}-${part()}`;
+}
+const normCode = (c) => String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+/** يولّد رمزًا جديدًا، يحفظ بصمته في المستخدم، ويرجع الرمز مرة واحدة */
+function issueRecoveryCode(user) {
+  const code = makeRecoveryCode();
+  user.recovery = hashPassword(normCode(code));
+  user.recoveryAt = Date.now();
+  return code;
+}
+
 const b64 = (s) => Buffer.from(s).toString('base64url');
 function signToken(uid) {
-  const body = b64(JSON.stringify({ u: uid, e: now() + TOKEN_DAYS * 864e5 }));
+  const epoch = db.users[uid]?.tokenEpoch || 0;
+  const body = b64(JSON.stringify({ u: uid, e: now() + TOKEN_DAYS * 864e5, v: epoch }));
   const sig = crypto.createHmac('sha256', SECRET).update(body).digest('base64url');
   return body + '.' + sig;
 }
@@ -106,6 +222,8 @@ function readToken(token) {
     if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
     const p = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
     if (!p.u || !p.e || p.e < now()) return null;
+    /* بعد تصفير كلمة المرور تُرفع الحقبة فتسقط كل الجلسات القديمة */
+    if ((db.users[p.u]?.tokenEpoch || 0) !== (p.v || 0)) return null;
     return p.u;
   } catch { return null; }
 }
@@ -326,7 +444,13 @@ function buildStats() {
   let dbBytes = 0;
   try { dbBytes = fs.statSync(DB_FILE).size; } catch { /* لم يُحفظ بعد */ }
 
+  const backups = backupFiles();
+  let lastBackup = 0;
+  if (backups[0]) { try { lastBackup = fs.statSync(path.join(BACKUP_DIR, backups[0])).mtimeMs; } catch { /* تجاهل */ } }
+
   return {
+    backups: backups.length,
+    lastBackupAt: lastBackup,
     users: users.length,
     usersNew7d: users.filter((u) => (u.createdAt || 0) > since(7)).length,
     usersNew30d: users.filter((u) => (u.createdAt || 0) > since(30)).length,
@@ -366,8 +490,10 @@ async function route(req, res, url) {
       householdId: null, createdAt: now(), updatedAt: now(), prefs: {},
     };
     db.emails[email] = uid;
+    const recoveryCode = issueRecoveryCode(db.users[uid]);
     save();
-    return send(res, 200, publicUser(db.users[uid], signToken(uid)));
+    /* يُعرض مرة واحدة فقط — لا يُخزَّن على الخادم إلا مبصومًا */
+    return send(res, 200, { ...publicUser(db.users[uid], signToken(uid)), recoveryCode });
   }
 
   /* ===== تسجيل الدخول ===== */
@@ -383,6 +509,32 @@ async function route(req, res, url) {
     if (!verifyPassword(password, u.pass)) { noteAttempt(email, false); return fail(res, 401, 'wrong-password'); }
     noteAttempt(email, true);
     return send(res, 200, publicUser(u, signToken(uid)));
+  }
+
+  /* ===== استعادة الحساب برمز الاسترداد ===== */
+  if (p === '/account/recover' && method === 'POST') {
+    if (rateLimited('recover:' + clientIp(req), 8, 3600000)) return fail(res, 429, 'too-many-requests');
+    const b = await readBody(req);
+    const email = normEmail(b.email);
+    const code = normCode(b.code);
+    const password = String(b.password || '');
+    if (password.length < 6) return fail(res, 400, 'weak-password');
+    if (tooMany('rec:' + email)) return fail(res, 429, 'too-many-requests');
+
+    const u = db.users[db.emails[email]];
+    /* ردّ واحد لكل الحالات حتى لا يُستدلّ على البرد المسجَّلة */
+    if (!u || !u.recovery || !verifyPassword(code, u.recovery)) {
+      noteAttempt('rec:' + email, false);
+      return fail(res, 401, 'bad-recovery');
+    }
+    noteAttempt('rec:' + email, true);
+
+    u.pass = hashPassword(password);
+    u.tokenEpoch = (u.tokenEpoch || 0) + 1;      // تسقط كل الجلسات القديمة
+    u.updatedAt = now();
+    const recoveryCode = issueRecoveryCode(u);   // الرمز يُستهلك ويُستبدل
+    save();
+    return send(res, 200, { ...publicUser(u, signToken(u.uid)), recoveryCode });
   }
 
   /* ===== كل ما بعده يحتاج تسجيل دخول ===== */
@@ -440,6 +592,29 @@ async function route(req, res, url) {
     });
   }
 
+  /* ===== رمز استرداد جديد ===== */
+  if (p === '/account/recovery' && method === 'POST') {
+    const b = await readBody(req);
+    if (!verifyPassword(String(b.password || ''), user.pass)) return fail(res, 401, 'wrong-password');
+    const recoveryCode = issueRecoveryCode(user);
+    save();
+    return send(res, 200, { recoveryCode });
+  }
+
+  /* ===== تغيير كلمة المرور ===== */
+  if (p === '/account/password' && method === 'POST') {
+    const b = await readBody(req);
+    if (!verifyPassword(String(b.current || ''), user.pass)) return fail(res, 401, 'wrong-password');
+    const next = String(b.password || '');
+    if (next.length < 6) return fail(res, 400, 'weak-password');
+    user.pass = hashPassword(next);
+    user.tokenEpoch = (user.tokenEpoch || 0) + 1;
+    user.updatedAt = now();
+    save();
+    /* الجلسة الحالية تحتاج رمزًا جديدًا بعد رفع الحقبة */
+    return send(res, 200, { ...publicUser(user, signToken(user.uid)) });
+  }
+
   /* ===== حذف الحساب نهائيًا =====
      يطلب كلمة المرور حتى لا يكفي رمز مسروق لمحو الحساب. */
   if (p === '/account/delete' && method === 'POST') {
@@ -448,6 +623,26 @@ async function route(req, res, url) {
     const summary = deleteUser(user);
     save();
     return send(res, 200, { ok: true, ...summary });
+  }
+
+  /* ===== النسخ الاحتياطية — للمشرفين فقط ===== */
+  if (p === '/backups' && method === 'GET') {
+    if (!isAdmin(user)) return fail(res, 403, 'admin-only');
+    const list = backupFiles().map((f) => {
+      let size = 0, at = 0;
+      try { const st = fs.statSync(path.join(BACKUP_DIR, f)); size = st.size; at = st.mtimeMs; }
+      catch { /* حُذفت للتو */ }
+      return { file: f, size, at };
+    });
+    return send(res, 200, { backups: list, keep: BACKUP_KEEP, everyHours: BACKUP_HOURS });
+  }
+
+  if (p === '/backups/now' && method === 'POST') {
+    if (!isAdmin(user)) return fail(res, 403, 'admin-only');
+    flush();
+    const file = backupNow('يدوي', true);
+    if (!file) return fail(res, 500, 'backup-failed');
+    return send(res, 200, { ok: true, file: path.basename(file) });
   }
 
   /* ===== إحصائيات النظام — للمشرفين فقط، أرقام مجمّعة بلا أي بيانات شخصية ===== */
