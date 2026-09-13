@@ -99,6 +99,12 @@ function applyTheme() {
 
 /* ---------- رسم الشاشة ---------- */
 function render(factory, params = {}) {
+  /* إعادة رسم الشاشة نفسها (مزامنة وصلت، أو تبديل حالة) ليست تنقّلًا:
+     نُبقي موضع القراءة بدل قذف المستخدم إلى أعلى الصفحة. */
+  const sameScreen = factory === currentFactory
+    && JSON.stringify(params) === JSON.stringify(currentParams);
+  const keepScroll = sameScreen ? (window.scrollY || 0) : 0;
+
   currentFactory = factory;
   currentParams = params;
   const screen = factory(params);
@@ -124,7 +130,7 @@ function render(factory, params = {}) {
     ? `<button class="fab" data-fab>${esc(screen.fab.label)}</button>` : '');
 
   view.scrollTop = 0;
-  window.scrollTo({ top: 0 });
+  window.scrollTo({ top: keepScroll });
 
   screen.mount?.(view, rerender);
 
