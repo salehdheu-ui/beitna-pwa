@@ -6,7 +6,7 @@
 import { $, esc } from './util.js';
 import {
   getState, subscribe, update, applyRemote, setCloudBridge, setCloudUid,
-  setLogoutHook, setupHousehold, signOut as signOutLocal,
+  setLogoutHook, setupHousehold, signOut as signOutLocal, uploadLocalData,
 } from './store.js';
 import * as cloud from './cloud.js';
 const amHelper = () => cloud.isHelper();
@@ -246,6 +246,20 @@ function startCloudSession(hid) {
   });
 
   cloud.recordSession();
+  flushPendingUpload();
+}
+
+/** يرفع بيانات جهاز كان يعمل بلا حساب، بعد ربطه بحساب سحابي */
+function flushPendingUpload() {
+  let pending = false;
+  try { pending = localStorage.getItem('beitna:pending-upload') === '1'; } catch { /* تجاهل */ }
+  if (!pending) return;
+  try { localStorage.removeItem('beitna:pending-upload'); } catch { /* تجاهل */ }
+  /* نمهل المزامنة الأولى حتى لا تُطمَس الرفعة بردّ الخادم */
+  setTimeout(() => {
+    const n = uploadLocalData();
+    if (n) toast(`رُفع ${n} عنصرًا من هذا الجهاز إلى بيتك ✓`, 4000);
+  }, 2500);
 }
 
 cloud.setWriteErrorHandler?.((msg) => toast(msg, 4000));

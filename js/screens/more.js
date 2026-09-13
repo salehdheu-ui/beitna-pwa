@@ -4,6 +4,7 @@ import { esc, fmtDate, relTime } from '../util.js';
 import {
   getState, updateProfile, addMember, removeMember, addCategory, removeCategory,
   setNotification, setDarkMode, profileStats, archiveItems, signOut, resetAll,
+  uploadLocalData, persistNow,
   generateInviteCode, update, isCloud, CURRENCY,
 } from '../store.js';
 import { emptyState, toast, confirmDialog, openSheet, switchEl, iosInstallSheet } from '../ui.js';
@@ -22,14 +23,18 @@ import {
 /** شريط حالة المزامنة — يوضّح العمل بدون إنترنت وعدد التغييرات المنتظرة */
 function syncBar() {
   if (!isCloud()) {
+    const st = getState();
+    const n = st.shopping.length + st.faults.length + st.occasions.length;
     return `
       <div class="install-bar mt" style="background:var(--surface-2)">
         <span style="font-size:20px">📱</span>
         <div class="grow">
           <div class="strong small">وضع محلي — هذا الجهاز فقط</div>
-          <div class="tiny muted">سجّل خروجًا ثم ادخل بحساب لتتزامن بياناتك بين الأجهزة.</div>
+          <div class="tiny muted">اربطه بحساب لتتزامن بياناتك مع بقية الأجهزة.</div>
         </div>
-      </div>`;
+        <button class="btn sm" data-act="link">🔗 ربط</button>
+      </div>
+      ${n ? `<p class="tiny muted mt-s">${n} عنصرًا على هذا الجهاز سيُرفع كما هو عند الربط.</p>` : ''}`;
   }
   let pending = 0;
   try { pending = pendingWrites(); } catch { pending = 0; }
@@ -132,6 +137,7 @@ export function moreScreen() {
     `,
     mount(root, rerender) {
       root.addEventListener('click', async (e) => {
+        if (e.target.closest('[data-act="link"]')) { linkDeviceToAccount(); return; }
         const nav = e.target.closest('[data-nav]');
         if (nav) { go(nav.dataset.nav); return; }
 
@@ -495,6 +501,30 @@ export function notificationsScreen() {
   };
 }
 
+/**
+ * يربط جهازًا يعمل بلا حساب بحساب سحابي دون فقدان ما عليه.
+ * كان التطبيق ينصح بتسجيل الخروج، و signOut() يستدعي blankState()
+ * فيمحو كل ما أدخله المستخدم — فخّ فقدان بيانات صامت.
+ */
+async function linkDeviceToAccount() {
+  const st = getState();
+  const n = st.shopping.length + st.faults.length + st.occasions.length;
+  const ok = await confirmDialog({
+    title: 'ربط الجهاز بحساب',
+    message: n
+      ? `سيُرفع ${n} عنصرًا من هذا الجهاز إلى البيت الذي تدخل إليه، وتبقى نسخته هنا. `
+        + 'ستُنقل إلى شاشة الدخول الآن.'
+      : 'ستُنقل إلى شاشة الدخول لربط هذا الجهاز بحساب.',
+    confirmText: 'متابعة',
+  });
+  if (!ok) return;
+  /* العلامة تُقرأ بعد الدخول فتُرفع بيانات الجهاز تلقائيًا */
+  try { localStorage.setItem('beitna:pending-upload', '1'); } catch { /* تجاهل */ }
+  signOut({ keepData: true });      // الهوية فقط — البيانات تبقى
+  persistNow();                     // الحفظ مؤجَّل، وإعادة التحميل تليه فورًا
+  location.replace(location.origin + location.pathname);
+}
+
 /* ============================ بيوتي ============================ */
 const PERM_BADGE = { owner: 'مالك', member: 'عضو', helper: 'عاملة' };
 
@@ -551,6 +581,7 @@ export function housesScreen() {
           const hh = await switchHousehold(id);
           toast(`انتقلت إلى ${hh.name}`);
           /* البيانات كلها تخصّ البيت السابق — نعيد التشغيل على البيت الجديد */
+          persistNow();
           setTimeout(() => location.replace(location.origin + location.pathname), 700);
         } catch (err) {
           btn.disabled = false;
@@ -591,6 +622,7 @@ export function joinHouseScreen() {
         try {
           const hh = await joinHousehold(code, name);
           toast(`انضممت إلى ${hh.name}`);
+          persistNow();
           setTimeout(() => location.replace(location.origin + location.pathname), 800);
         } catch (ex) {
           btn.disabled = false; btn.textContent = 'الانضمام';
@@ -795,12 +827,81 @@ async function confirmDeleteAccount() {
           const r = await deleteAccount(pass);
           close();
           resetAll();
+          persistNow();
           toast(r.householdsDeleted ? 'حُذف حسابك وبيتك نهائيًا' : 'حُذف حسابك نهائيًا');
           setTimeout(() => location.replace(location.origin + location.pathname), 1200);
         } catch (e) {
           btn.disabled = false; btn.textContent = 'حذف حسابي نهائيًا';
           el.querySelector('#err').innerHTML = `<div class="err">${esc(arabicError(e))}</div>`;
         }
+      };
+    },
+  });
+}
+
+/* ============================ تصدير البيانات ============================ */
+
+function download(name, text, mime) {
+  const url = URL.createObjectURL(new Blob([text], { type: mime + ';charset=utf-8' }));
+  const a = document.createElement('a');
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+const stamp = () => new Date().toISOString().slice(0, 10);
+
+/** CSV بفاصلة مع BOM حتى يفتح Excel العربية بلا تشويه */
+const BOM = String.fromCharCode(0xFEFF);
+const CRLF = String.fromCharCode(13, 10);
+const LF = String.fromCharCode(10);
+const QUOTE = String.fromCharCode(34);
+
+function toCsv(rows) {
+  const cell = (v) => {
+    const text = String(v == null ? '' : v);
+    const needsQuotes = text.includes(',') || text.includes(QUOTE) || text.includes(LF);
+    return needsQuotes ? QUOTE + text.split(QUOTE).join(QUOTE + QUOTE) + QUOTE : text;
+  };
+  return BOM + rows.map((r) => r.map(cell).join(',')).join(CRLF);
+}
+
+function exportSheet() {
+  const s = getState();
+  openSheet(`
+    <h3>تصدير بيانات بيتك</h3>
+    <p class="muted small" style="margin:0 0 14px">
+      نسخة كاملة على جهازك. ${esc(s.household.name || '')} —
+      ${s.shopping.length} مشتريات، ${s.faults.length} أعطال، ${s.occasions.length} مناسبات.
+    </p>
+    <button class="btn block" data-json>📦 ملف JSON — كل شيء</button>
+    <button class="btn ghost block mt-s" data-csv>📊 ملف CSV — المشتريات لإكسل</button>
+    <button class="btn ghost block mt-s" data-close>إغلاق</button>
+  `, {
+    onMount(el, close) {
+      el.querySelector('[data-close]').onclick = close;
+
+      el.querySelector('[data-json]').onclick = () => {
+        const st = getState();
+        download(`beitna-${stamp()}.json`, JSON.stringify({
+          exportedAt: new Date().toISOString(),
+          household: { name: st.household.name, inviteCode: undefined },
+          profile: { name: st.profile.name, role: st.profile.role },
+          members: (st.members || []).map((m) => ({ name: m.name, role: m.role })),
+          shopping: st.shopping, faults: st.faults, occasions: st.occasions,
+          categories: st.categories, favoriteLists: st.favoriteLists,
+        }, null, 2), 'application/json');
+        toast('نُزّل ملف JSON ✓');
+      };
+
+      el.querySelector('[data-csv]').onclick = () => {
+        const st = getState();
+        const rows = [['الصنف', 'الكمية', 'التصنيف', 'الأولوية', 'الحالة', 'السعر', 'من أضافه', 'ملاحظة']];
+        st.shopping.forEach((i) => rows.push([
+          i.name, i.quantity, i.category, i.priority, i.status, i.price, i.owner, i.note,
+        ]));
+        download(`beitna-shopping-${stamp()}.csv`, toCsv(rows), 'text/csv');
+        toast('نُزّل ملف CSV ✓');
       };
     },
   });
@@ -971,6 +1072,16 @@ export function supportScreen() {
       </div>
 
       <div class="section">
+        <div class="section-title">بياناتك</div>
+        <div class="list">
+          <button class="list-row" data-act="export"><span class="ic">📦</span>
+            <span class="grow"><span class="t">تصدير نسخة من بيانات بيتك</span>
+              <br><span class="d">JSON كامل، أو CSV للمشتريات</span></span>
+            <span class="arrow">‹</span></button>
+        </div>
+      </div>
+
+      <div class="section">
         <div class="section-title">خطر — منطقة الحذف</div>
         <button class="btn danger-soft block" data-act="reset">🗑️ حذف بيانات هذا الجهاز وإعادة الضبط</button>
         ${isCloud() ? `
@@ -989,6 +1100,7 @@ export function supportScreen() {
       }
 
       root.addEventListener('click', async (e) => {
+        if (e.target.closest('[data-act="export"]')) { exportSheet(); return; }
         if (e.target.closest('[data-act="chpass"]')) { changePasswordSheet(); return; }
         if (e.target.closest('[data-act="newrec"]')) { newRecoverySheet(); return; }
         if (e.target.closest('[data-act="stats"]')) { openStatsSheet(); return; }
