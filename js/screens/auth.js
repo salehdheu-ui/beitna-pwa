@@ -4,6 +4,8 @@ import { $, esc } from '../util.js';
 import { setupHousehold, seedDemo } from '../store.js';
 import { toast } from '../ui.js';
 import * as cloud from '../cloud.js';
+import { langSheet } from './helper.js';
+import { applyLangToDocument } from '../i18n.js';
 
 export function renderAuth(onDone) {
   const root = $('#authRoot');
@@ -36,6 +38,7 @@ export function renderAuth(onDone) {
       <button class="btn ghost block" data-go="signup">✨ إنشاء حساب جديد</button>
       <hr class="divider">
       <button class="btn soft block" data-go="localSetup">📱 استخدام بدون حساب (هذا الجهاز فقط)</button>
+      <button class="btn ghost block mt-s" data-act="lang">🌐 Language / भाषा / භාෂාව</button>
       <p class="hint center" style="margin-top:10px">
         الوضع المحلي يعمل بدون إنترنت لكنه لا يتزامن مع بقية أفراد البيت.
       </p>
@@ -134,6 +137,11 @@ export function renderAuth(onDone) {
   };
 
   root.onclick = async (e) => {
+    if (e.target.closest('[data-act="lang"]')) {
+      /* تختار العاملة لغتها قبل الدخول — لا تقرأ العربية */
+      langSheet(() => { applyLangToDocument(); draw(); });
+      return;
+    }
     const goBtn = e.target.closest('[data-go]');
     if (goBtn) {
       setBusy(false);

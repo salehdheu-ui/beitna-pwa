@@ -3,7 +3,7 @@
    يعمل بدون إنترنت، ويحدّث نفسه فورًا عند نشر نسخة جديدة.
    ============================================================ */
 
-const VERSION = 'beitna-v2.4.0';
+const VERSION = 'beitna-v2.5.0';
 const NET_TIMEOUT = 2500;
 
 const CORE = [
@@ -18,6 +18,8 @@ const CORE = [
   './js/ui.js',
   './js/router.js',
   './js/notify.js',
+  './js/i18n.js',
+  './js/screens/helper.js',
   './js/cloud.js',
   './js/screens/auth.js',
   './js/screens/home.js',

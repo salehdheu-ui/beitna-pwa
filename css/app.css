@@ -552,6 +552,21 @@ html[data-theme="dark"] .toast { background: #E8EDF2; color: #10161C; }
   border-radius: var(--r); margin-bottom: 14px;
 }
 
+/* خطوط اللغات غير العربية — Tajawal لا يغطّي الديفاناغري والسنهالية والأمهرية */
+html:not([data-lang="ar"]) body,
+html:not([data-lang="ar"]) .input,
+html:not([data-lang="ar"]) button {
+  font-family: "Noto Sans", "Noto Sans Devanagari", "Noto Sans Sinhala",
+               "Noto Sans Tamil", "Noto Sans Ethiopic", "Segoe UI", system-ui, sans-serif;
+}
+
+/* وضع العاملة: لا شريط تنقّل، فلا داعي لمساحته السفلية */
+body.helper-mode .view { padding-bottom: 28px; }
+body.helper-mode .bottomnav, body.helper-mode .sidenav { display: none !important; }
+@media (min-width: 960px) {
+  body.helper-mode .shell { grid-template-columns: 1fr; grid-template-areas: "top" "view"; }
+}
+
 /* شريط التثبيت العائم — خارج ‎#view‎ فلا تمسحه إعادة الرسم */
 .install-root {
   position: fixed; z-index: 45; inset-inline: 0;

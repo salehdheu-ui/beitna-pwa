@@ -9,6 +9,7 @@ import {
   setLogoutHook, setupHousehold, signOut as signOutLocal,
 } from './store.js';
 import * as cloud from './cloud.js';
+const amHelper = () => cloud.isHelper();
 import { route, setNotFound, setOnChange, start, go, back, currentPath } from './router.js';
 import { renderAuth } from './screens/auth.js';
 import { homeScreen } from './screens/home.js';
@@ -22,6 +23,8 @@ import {
 } from './screens/more.js';
 import { emptyState, toast, iosInstallSheet } from './ui.js';
 import { startReminderLoop, notifyPartner, isIOS, isStandalone } from './notify.js';
+import { helperScreen, langSheet } from './screens/helper.js';
+import { t, applyLangToDocument, currentLang } from './i18n.js';
 
 /* ============================================================
    مسارات الإنقاذ:
@@ -68,13 +71,15 @@ if (location.search.includes('reset')) {
 }
 
 /* ---------- التنقل السفلي ---------- */
-const NAV = [
+const FAMILY_NAV = [
   { route: '/home', label: 'الرئيسية', icon: '🏠' },
   { route: '/shopping', label: 'المشتريات', icon: '🛒' },
   { route: '/faults', label: 'الأعطال', icon: '🔧' },
   { route: '/occasions', label: 'المناسبات', icon: '🎉' },
   { route: '/more', label: 'المزيد', icon: '☰' },
 ];
+/** العاملة لا ترى شريط تنقّل أصلًا — شاشتها واحدة */
+const navItems = () => (amHelper() ? [] : FAMILY_NAV);
 
 let current = null;   // آخر شاشة معروضة
 let currentFactory = null;
@@ -135,15 +140,19 @@ function navHtml(withBrand) {
   const path = currentPath();
   const root = '/' + (path.split('/')[1] || 'home');
   return (withBrand ? `<div class="brand"><span class="logo">🏡</span> بيتنا</div>` : '') +
-    NAV.map((n) => `
+    navItems().map((n) => `
       <button class="navitem ${n.route === root ? 'active' : ''}" data-go="${n.route}">
         <span class="ic">${n.icon}</span><span>${n.label}</span>
       </button>`).join('');
 }
 
 function paintNav() {
-  $('#bottomnav').innerHTML = navHtml(false);
-  $('#sidenav').innerHTML = navHtml(true);
+  const helper = amHelper();
+  $('#bottomnav').innerHTML = helper ? '' : navHtml(false);
+  $('#sidenav').innerHTML = helper ? '' : navHtml(true);
+  $('#bottomnav').hidden = helper;
+  $('#sidenav').hidden = helper;
+  document.body.classList.toggle('helper-mode', helper);
 }
 
 document.addEventListener('click', (e) => {
@@ -152,30 +161,37 @@ document.addEventListener('click', (e) => {
 });
 
 /* ---------- المسارات ---------- */
-route('/home', () => render(homeScreen));
+route('/helper', () => render(helperScreen));
 
-route('/shopping', () => render(shoppingScreen));
-route('/shopping/new', () => render(shoppingFormScreen));
-route('/shopping/session', () => render(shoppingSessionScreen));
-route('/shopping/:id', (p) => render(shoppingDetailsScreen, p));
+/** حارس: العاملة لا تصل إلا شاشتها مهما كان المسار */
+function guarded(factory) {
+  return (p) => (amHelper() ? render(helperScreen) : render(factory, p));
+}
 
-route('/faults', () => render(faultsScreen));
-route('/faults/new', () => render(faultFormScreen));
-route('/faults/:id', (p) => render(faultDetailsScreen, p));
+route('/home', guarded(homeScreen));
 
-route('/occasions', () => render(occasionsScreen));
-route('/occasions/new', () => render(occasionFormScreen));
-route('/occasions/:id', (p) => render(occasionDetailsScreen, p));
+route('/shopping', guarded(shoppingScreen));
+route('/shopping/new', guarded(shoppingFormScreen));
+route('/shopping/session', guarded(shoppingSessionScreen));
+route('/shopping/:id', guarded(shoppingDetailsScreen));
 
-route('/more', () => render(moreScreen));
-route('/profile', () => render(profileScreen));
-route('/household', () => render(householdScreen));
-route('/houses', () => render(housesScreen));
-route('/join-house', () => render(joinHouseScreen));
-route('/notifications', () => render(notificationsScreen));
-route('/categories', () => render(categoriesScreen));
-route('/archive', () => render(archiveScreen));
-route('/support', () => render(supportScreen));
+route('/faults', guarded(faultsScreen));
+route('/faults/new', guarded(faultFormScreen));
+route('/faults/:id', guarded(faultDetailsScreen));
+
+route('/occasions', guarded(occasionsScreen));
+route('/occasions/new', guarded(occasionFormScreen));
+route('/occasions/:id', guarded(occasionDetailsScreen));
+
+route('/more', guarded(moreScreen));
+route('/profile', guarded(profileScreen));
+route('/household', guarded(householdScreen));
+route('/houses', guarded(housesScreen));
+route('/join-house', guarded(joinHouseScreen));
+route('/notifications', guarded(notificationsScreen));
+route('/categories', guarded(categoriesScreen));
+route('/archive', guarded(archiveScreen));
+route('/support', guarded(supportScreen));
 
 setNotFound(() => render(() => ({
   title: 'الصفحة غير موجودة',
@@ -272,6 +288,7 @@ function showApp() {
 }
 
 async function boot() {
+  applyLangToDocument();
   applyTheme();
   failsafe();
   await cloud.initCloud();
@@ -330,6 +347,10 @@ async function restoreCloud() {
 function startApp() {
   $('#authRoot').hidden = true;
   paintNav();
+  /* العاملة تُفتح على شاشتها مباشرة مهما كان المسار المحفوظ */
+  if (amHelper() && !location.hash.startsWith('#/helper')) {
+    history.replaceState(null, '', '#/helper');
+  }
   start();
   startReminderLoop();
   subscribe(applyTheme);
