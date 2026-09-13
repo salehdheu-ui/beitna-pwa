@@ -33,7 +33,7 @@ try {
 }
 
 /* ---------- قاعدة البيانات ---------- */
-const blank = () => ({ users: {}, emails: {}, households: {}, codes: {} });
+const blank = () => ({ users: {}, emails: {}, households: {}, codes: {}, helperCodes: {} });
 let db;
 try {
   db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
@@ -172,7 +172,8 @@ function newHousehold(name, user, memberName) {
   COLS.forEach((c) => { hh.cols[c] = {}; });
   hh.members[user.uid] = {
     uid: user.uid, name: memberName || user.displayName || 'مستخدم', email: user.email || '',
-    role: 'مالك البيت', isOwner: true, joinedAt: t, updatedAt: t, deleted: false,
+    role: 'مالك البيت', isOwner: true, perm: 'owner',
+    joinedAt: t, updatedAt: t, deleted: false,
   };
   DEFAULT_CATEGORIES.forEach(([cid, cname, icon, type]) => {
     hh.cols.categories[String(cid)] = {
@@ -237,6 +238,29 @@ const publicUser = (u, token) => ({
 });
 
 const normEmail = (e) => String(e || '').trim().toLowerCase();
+
+/* ============================================================
+   الأدوار والصلاحيات
+   owner  : مالك البيت — كل شيء
+   member : فرد من العائلة — كل شيء عدا إدارة الأعضاء
+   helper : العاملة — المشتريات والإبلاغ عن الأعطال فقط،
+            بلا مناسبات ولا أسعار ولا بيانات الأفراد
+   ============================================================ */
+const PERMS = ['owner', 'member', 'helper'];
+const HELPER_COLS = ['shopping', 'faults'];
+const PRICE_FIELDS = ['price', 'priceValue', 'budget', 'cost'];
+
+/** الأدوار القديمة لا تحمل perm — نشتقّه من isOwner */
+const permOf = (m) => (m && PERMS.includes(m.perm) ? m.perm : (m && m.isOwner ? 'owner' : 'member'));
+const roleLabel = (perm) =>
+  (perm === 'owner' ? 'مالك البيت' : perm === 'helper' ? 'العاملة' : 'عضو');
+
+/** ينزع الأسعار من عنصر مشتريات قبل إرساله للعاملة */
+function stripPrices(doc) {
+  const out = { ...doc };
+  for (const f of PRICE_FIELDS) delete out[f];
+  return out;
+}
 
 const isAdmin = (u) => !!u && ADMIN_EMAILS.has(String(u.email || '').toLowerCase());
 
@@ -370,6 +394,7 @@ async function route(req, res, url) {
     return send(res, 200, {
       ...publicUser(user, null),
       isAdmin: isAdmin(user),
+      perm: hh ? permOf(hh.members[user.uid]) : null,
       householdId: hh ? hh.id : null,
       household: hh ? { id: hh.id, name: hh.name, inviteCode: hh.inviteCode, createdAt: hh.createdAt } : null,
     });
@@ -379,6 +404,40 @@ async function route(req, res, url) {
     const b = await readBody(req);
     if (b.displayName) { user.displayName = String(b.displayName).slice(0, 60); user.updatedAt = now(); save(); }
     return send(res, 200, { ok: true });
+  }
+
+  /* ===== كل بيوتي ===== */
+  if (p === '/households' && method === 'GET') {
+    const mine = Object.values(db.households)
+      .filter((hh) => hh.members[user.uid] && !hh.members[user.uid].deleted)
+      .map((hh) => {
+        const m = hh.members[user.uid];
+        const perm = permOf(m);
+        return {
+          id: hh.id, name: hh.name, perm, role: roleLabel(perm),
+          isOwner: perm === 'owner',
+          members: Object.values(hh.members).filter((x) => !x.deleted).length,
+          active: hh.id === user.householdId,
+          createdAt: hh.createdAt,
+        };
+      })
+      .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+    return send(res, 200, { households: mine });
+  }
+
+  /* ===== تبديل البيت النشط ===== */
+  if (p === '/household/switch' && method === 'POST') {
+    const b = await readBody(req);
+    const target = db.households[String(b.id || '')];
+    const m = target?.members[user.uid];
+    if (!target || !m || m.deleted) return fail(res, 404, 'not-a-member');
+    user.householdId = target.id; user.updatedAt = now();
+    save();
+    const perm = permOf(m);
+    return send(res, 200, {
+      id: target.id, name: target.name, perm, role: roleLabel(perm),
+      inviteCode: perm === 'owner' ? target.inviteCode : null,
+    });
   }
 
   /* ===== حذف الحساب نهائيًا =====
@@ -413,15 +472,18 @@ async function route(req, res, url) {
     if (rateLimited('join:' + clientIp(req), 10, 3600000)) return fail(res, 429, 'too-many-requests');
     const b = await readBody(req);
     const code = String(b.code || '').trim().toUpperCase();
-    const hid = db.codes[code];
+    const asHelper = !!db.helperCodes[code];
+    const hid = db.codes[code] || db.helperCodes[code];
     const hh = hid ? db.households[hid] : null;
     if (!hh) return fail(res, 404, 'bad-code');
     const t = now();
     const memberName = String(b.memberName || user.displayName || 'مستخدم').slice(0, 60);
     const existing = hh.members[user.uid];
+    /* عضو قديم يحتفظ بدوره؛ القادم الجديد يأخذ دوره من نوع الكود */
+    const perm = existing ? permOf(existing) : (asHelper ? 'helper' : 'member');
     hh.members[user.uid] = {
       uid: user.uid, name: memberName, email: user.email || '',
-      role: existing?.isOwner ? 'مالك البيت' : 'عضو', isOwner: !!existing?.isOwner,
+      role: roleLabel(perm), isOwner: perm === 'owner', perm,
       joinedAt: existing?.joinedAt || t, updatedAt: t, deleted: false,
     };
     hh.updatedAt = t;
@@ -433,13 +495,60 @@ async function route(req, res, url) {
   const hh = myHousehold(user);
   if (!hh) return fail(res, 404, 'no-household');
 
+  const myPerm = permOf(hh.members[user.uid]);
+  const isHelper = myPerm === 'helper';
+  const isOwner = myPerm === 'owner';
+
   if (p === '/household' && method === 'GET') {
-    return send(res, 200, { id: hh.id, name: hh.name, inviteCode: hh.inviteCode, createdAt: hh.createdAt });
+    return send(res, 200, {
+      id: hh.id, name: hh.name, createdAt: hh.createdAt,
+      perm: myPerm, role: roleLabel(myPerm),
+      /* كود الدعوة لا يُسلَّم للعاملة — به تُضاف أعضاء للبيت */
+      inviteCode: isHelper ? null : hh.inviteCode,
+    });
   }
 
   if (p === '/household/rename' && method === 'POST') {
+    if (!isOwner) return fail(res, 403, 'owner-only');
     const b = await readBody(req);
     if (b.name) { hh.name = String(b.name).slice(0, 80); hh.updatedAt = now(); save(); }
+    return send(res, 200, { ok: true });
+  }
+
+  /* ===== كود دعوة خاص بالعاملة — من المالك فقط ===== */
+  if (p === '/household/helper-code' && method === 'POST') {
+    if (!isOwner) return fail(res, 403, 'owner-only');
+    if (hh.helperCode) delete db.helperCodes[hh.helperCode];
+    let code;
+    do { code = makeInviteCode().replace('BEITNA-', 'AMEL-'); }
+    while (db.codes[code] || db.helperCodes[code]);
+    hh.helperCode = code;
+    db.helperCodes[code] = hh.id;
+    hh.updatedAt = now(); save();
+    return send(res, 200, { helperCode: code });
+  }
+
+  if (p === '/household/helper-code' && method === 'GET') {
+    if (!isOwner) return fail(res, 403, 'owner-only');
+    return send(res, 200, { helperCode: hh.helperCode || null });
+  }
+
+  /* ===== تغيير دور عضو — من المالك فقط ===== */
+  if (p.startsWith('/member/') && p.endsWith('/role') && method === 'POST') {
+    if (!isOwner) return fail(res, 403, 'owner-only');
+    const target = decodeURIComponent(p.slice('/member/'.length, -'/role'.length));
+    const b = await readBody(req);
+    const perm = String(b.perm || '');
+    if (!PERMS.includes(perm)) return fail(res, 400, 'bad-perm');
+    const m = hh.members[target];
+    if (!m || m.deleted) return fail(res, 404, 'no-member');
+    /* لا يجوز أن يبقى البيت بلا مالك */
+    if (target === user.uid && perm !== 'owner') {
+      const owners = Object.values(hh.members).filter((x) => !x.deleted && permOf(x) === 'owner');
+      if (owners.length <= 1) return fail(res, 400, 'last-owner');
+    }
+    m.perm = perm; m.isOwner = perm === 'owner'; m.role = roleLabel(perm); m.updatedAt = now();
+    hh.updatedAt = now(); save();
     return send(res, 200, { ok: true });
   }
 
@@ -447,18 +556,34 @@ async function route(req, res, url) {
   if (p === '/sync' && method === 'GET') {
     const since = Number(url.searchParams.get('since') || 0);
     const full = since <= 0;
-    const out = { now: now(), household: { id: hh.id, name: hh.name, inviteCode: hh.inviteCode }, full };
+    const out = {
+      now: now(), full,
+      household: {
+        id: hh.id, name: hh.name,
+        /* كود الدعوة يضيف أعضاء للبيت — لا يصل العاملة بأي طريق */
+        inviteCode: isHelper ? null : hh.inviteCode,
+      },
+    };
     out.cols = {};
+    /* العاملة لا ترى إلا المشتريات والأعطال، وبلا أسعار */
+    const visible = isHelper ? HELPER_COLS : COLS;
     for (const c of COLS) {
+      if (!visible.includes(c)) { out.cols[c] = []; continue; }
       const bucket = hh.cols[c] || {};
       const list = [];
       for (const k of Object.keys(bucket)) {
         const d = bucket[k];
-        if ((d.updatedAt || 0) > since) list.push(d);
+        if ((d.updatedAt || 0) <= since) continue;
+        list.push(isHelper && c === 'shopping' ? stripPrices(d) : d);
       }
       out.cols[c] = list;
     }
-    out.members = Object.values(hh.members).filter((m) => (m.updatedAt || 0) > since);
+    /* ولا ترى بيانات الأفراد — الاسم فقط لتمييز من أضاف ماذا */
+    out.members = Object.values(hh.members)
+      .filter((m) => (m.updatedAt || 0) > since)
+      .map((m) => (isHelper
+        ? { uid: m.uid, name: m.name, role: m.role, deleted: !!m.deleted, updatedAt: m.updatedAt }
+        : m));
     return send(res, 200, out);
   }
 
@@ -467,10 +592,19 @@ async function route(req, res, url) {
     const b = await readBody(req);
     const ops = Array.isArray(b.ops) ? b.ops.slice(0, 500) : [];
     const t = now();
-    let applied = 0;
+    let applied = 0, denied = 0;
     for (const op of ops) {
       const col = String(op.col || '');
       if (!COLS.includes(col)) continue;
+
+      /* حدود العاملة تُفرض هنا، لا في الواجهة فقط:
+         مجموعات محددة، بلا حذف، وبلا أي مساس بالأسعار */
+      if (isHelper) {
+        if (!HELPER_COLS.includes(col)) { denied++; continue; }
+        if (op.op === 'delete') { denied++; continue; }
+        if (op.data) op.data = stripPrices(op.data);
+      }
+
       const id = String(op.id ?? '');
       if (!id) continue;
       const bucket = hh.cols[col] || (hh.cols[col] = {});
@@ -482,8 +616,12 @@ async function route(req, res, url) {
         bucket[id] = { ...prev, ...(op.data || {}), id: prev.id, deleted: false, updatedAt: t };
       } else {
         const data = op.data || {};
+        /* العاملة لا ترى الأسعار، فلا يجوز أن تمحوها بإعادة حفظ العنصر */
+        const keep = (isHelper && prev)
+          ? Object.fromEntries(PRICE_FIELDS.filter((f) => f in prev).map((f) => [f, prev[f]]))
+          : {};
         bucket[id] = {
-          ...(prev || {}), ...data,
+          ...(prev || {}), ...data, ...keep,
           id: data.id ?? prev?.id ?? (Number(id) || id),
           createdAt: data.createdAt || prev?.createdAt || t,
           deleted: false, updatedAt: t,
@@ -492,12 +630,17 @@ async function route(req, res, url) {
       applied++;
     }
     if (applied) { hh.updatedAt = t; save(); }
-    return send(res, 200, { ok: true, applied, now: t });
+    return send(res, 200, { ok: true, applied, denied, now: t });
   }
 
   /* ===== الأعضاء ===== */
   if (p === '/members' && method === 'GET') {
-    return send(res, 200, { members: Object.values(hh.members).filter((m) => !m.deleted) });
+    const list = Object.values(hh.members).filter((m) => !m.deleted);
+    return send(res, 200, {
+      members: isHelper
+        ? list.map((m) => ({ uid: m.uid, name: m.name, role: m.role }))
+        : list.map((m) => ({ ...m, perm: permOf(m) })),
+    });
   }
 
   if (p === '/member' && method === 'POST') {
