@@ -3,7 +3,7 @@
    يعمل بدون إنترنت، ويحدّث نفسه فورًا عند نشر نسخة جديدة.
    ============================================================ */
 
-const VERSION = 'beitna-v2.7.0';
+const VERSION = 'beitna-v2.8.0';
 const NET_TIMEOUT = 2500;
 
 const CORE = [
@@ -19,6 +19,7 @@ const CORE = [
   './js/router.js',
   './js/notify.js',
   './js/i18n.js',
+  './js/push.js',
   './js/screens/helper.js',
   './js/cloud.js',
   './js/screens/auth.js',
@@ -155,6 +156,47 @@ self.addEventListener('fetch', (event) => {
 
   /* الباقي (الصور والأيقونات): المحفوظ أولًا */
   event.respondWith(cacheFirst(req).catch(() => caches.match(req)));
+});
+
+/* ============================================================
+   الإشعارات
+   ============================================================ */
+const APP_URL = './';
+
+/** فتح/تركيز التطبيق عند الضغط على الإشعار */
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const data = event.notification.data || {};
+  const target = new URL(data.url || APP_URL, self.registration.scope).href;
+
+  event.waitUntil((async () => {
+    const clientsList = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const c of clientsList) {
+      if (!c.url.startsWith(self.registration.scope)) continue;
+      try { await c.focus(); } catch { /* تجاهل */ }
+      try { c.postMessage({ type: 'notification-click', url: data.url || APP_URL }); } catch { /* تجاهل */ }
+      return;
+    }
+    if (self.clients.openWindow) await self.clients.openWindow(target);
+  })());
+});
+
+/** رسائل Web Push (تحتاج خادمًا يرسلها — جاهزة للاستخدام عند تفعيلها) */
+self.addEventListener('push', (event) => {
+  let payload = {};
+  try { payload = event.data ? event.data.json() : {}; }
+  catch { payload = { body: (event.data && event.data.text && event.data.text()) || '' }; }
+
+  const title = payload.title || 'بيتنا';
+  event.waitUntil(self.registration.showNotification(title, {
+    body: payload.body || '',
+    icon: 'assets/icons/icon-192.png',
+    badge: 'assets/icons/icon-192.png',
+    lang: 'ar',
+    dir: 'rtl',
+    tag: payload.tag || 'beitna-push',
+    data: { url: payload.url || APP_URL },
+  }));
 });
 
 self.addEventListener('message', (e) => {

@@ -8,12 +8,14 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const push = require('./push.js');
 
 const PORT = Number(process.env.PORT || 3000);
 const DATA_DIR = process.env.DATA_DIR || '/data';
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 const SECRET_FILE = path.join(DATA_DIR, 'secret.key');
 const TOKEN_DAYS = 400;
+const PUSH_SUBJECT = process.env.PUSH_SUBJECT || 'mailto:admin@beitna.local';
 
 /* بريد المشرفين (يفصل بينها فاصلة). بدونها لا يرى أحد إحصائيات النظام. */
 const ADMIN_EMAILS = new Set(
@@ -246,6 +248,83 @@ setInterval(() => {
   for (const [k, v] of attempts) if (now() - v.at > 15 * 60000) attempts.delete(k);
 }, 60000).unref();
 
+/* ============================================================
+   Web Push — الإشعارات والتطبيق مغلق
+   ============================================================ */
+const VAPID = push.loadVapid(DATA_DIR);
+
+const subsOf = (u) => (Array.isArray(u.pushSubs) ? u.pushSubs : (u.pushSubs = []));
+
+/** ساعات الهدوء تُحترم على الخادم أيضًا، لا في الواجهة فقط */
+function inQuietHours(u) {
+  if (!u.prefs || u.prefs.quietHours !== true) return false;
+  const h = new Date().getHours();
+  return h >= 23 || h < 7;
+}
+
+/**
+ * يرسل إلى كل أجهزة المستخدم، ويحذف الاشتراكات الميتة.
+ * لا ينتظر الردّ: الكتابة يجب ألا تتأخّر بسبب خدمة الدفع.
+ */
+async function pushToUser(u, payload) {
+  const subs = subsOf(u);
+  if (!subs.length || inQuietHours(u)) return;
+
+  const results = await Promise.all(subs.map((sub) =>
+    push.sendPush(sub, payload, VAPID, { subject: PUSH_SUBJECT })
+      .then((r) => ({ sub, r }))
+      .catch(() => ({ sub, r: { ok: false, status: 0 } }))));
+
+  const dead = results.filter(({ r }) => r.status === 404 || r.status === 410);
+  if (dead.length) {
+    u.pushSubs = subs.filter((sub) => !dead.some((d) => d.sub.endpoint === sub.endpoint));
+    save();
+  }
+}
+
+const PUSH_COL_NAMES = { shopping: 'المشتريات', faults: 'الأعطال', occasions: 'المناسبات' };
+const PUSH_ONE = {
+  shopping: (d) => '🛒 أُضيف للمشتريات: ' + (d.name || ''),
+  faults: (d) => '🔧 عطل جديد: ' + (d.title || ''),
+  occasions: (d) => '🎉 مناسبة جديدة: ' + (d.title || ''),
+};
+
+/** صيغة العدد بالعربية: المثنى، ثم جمع القلة، ثم التمييز المفرد */
+const countWord = (n, dual, few, many) =>
+  (n === 2 ? dual : n <= 10 ? `${n} ${few}` : `${n} ${many}`);
+
+/**
+ * إشعار واحد لكل دفعة كتابة، لا إشعار لكل عنصر — وإلا وصلت
+ * عشرات الإشعارات دفعة واحدة عند إضافة قائمة أو رفع طابور متراكم.
+ */
+function activityPayload(added, actor) {
+  const notifiable = added.filter((x) => PUSH_ONE[x.col]);
+  if (!notifiable.length) return null;
+
+  const who = actor.displayName || 'أحد أفراد البيت';
+  if (notifiable.length === 1) {
+    const { col, data } = notifiable[0];
+    return { title: 'بيتنا — ' + who, body: PUSH_ONE[col](data), tag: 'beitna-activity', url: './#/' + col };
+  }
+  const cols = [...new Set(notifiable.map((x) => x.col))];
+  const n = notifiable.length;
+  const body = cols.length === 1
+    ? `➕ أُضيفت ${countWord(n, 'عنصران', 'عناصر', 'عنصرًا')} إلى ${PUSH_COL_NAMES[cols[0]]}`
+    : `🏡 ${countWord(n, 'إضافتان جديدتان', 'إضافات جديدة', 'إضافة جديدة')}`;
+  return { title: 'بيتنا — ' + who, body, tag: 'beitna-activity', url: './#/home' };
+}
+
+/** يُبلّغ بقية أفراد البيت بما أضافه غيرهم */
+function pushHouseholdActivity(hh, actorUid, payload) {
+  if (!payload) return;
+  for (const m of Object.values(hh.members)) {
+    if (m.deleted || m.uid === actorUid) continue;
+    const target = db.users[m.uid];
+    if (!target) continue;
+    pushToUser(target, payload).catch(() => { /* لا يوقف الكتابة */ });
+  }
+}
+
 /* ---------- حدّ المعدل حسب مصدر الطلب ---------- */
 const hits = new Map();
 function clientIp(req) {
@@ -473,6 +552,9 @@ async function route(req, res, url) {
 
   if (p === '/health') return send(res, 200, { ok: true, at: now() });
 
+  /* المفتاح العام لـ VAPID — يحتاجه المتصفح قبل الاشتراك */
+  if (p === '/push/key' && method === 'GET') return send(res, 200, { key: VAPID.publicKey });
+
   /* ===== حساب جديد ===== */
   if (p === '/signup' && method === 'POST') {
     /* بلا هذا الحدّ يستطيع أي أحد إنشاء حسابات بلا نهاية حتى يمتلئ القرص */
@@ -589,6 +671,49 @@ async function route(req, res, url) {
     return send(res, 200, {
       id: target.id, name: target.name, perm, role: roleLabel(perm),
       inviteCode: perm === 'owner' ? target.inviteCode : null,
+    });
+  }
+
+  /* ===== اشتراك الدفع ===== */
+  if (p === '/push/subscribe' && method === 'POST') {
+    const b = await readBody(req);
+    const sub = b.subscription || {};
+    if (!sub.endpoint || !sub.keys?.p256dh || !sub.keys?.auth) return fail(res, 400, 'bad-subscription');
+    const subs = subsOf(user);
+    /* الجهاز نفسه قد يُجدّد اشتراكه — نستبدل ولا نكرّر */
+    const kept = subs.filter((x) => x.endpoint !== sub.endpoint);
+    kept.push({
+      endpoint: String(sub.endpoint).slice(0, 1000),
+      keys: { p256dh: String(sub.keys.p256dh), auth: String(sub.keys.auth) },
+      at: now(),
+    });
+    user.pushSubs = kept.slice(-8);       // ٨ أجهزة لكل حساب تكفي
+    user.updatedAt = now();
+    save();
+    return send(res, 200, { ok: true, devices: user.pushSubs.length });
+  }
+
+  if (p === '/push/subscribe' && method === 'DELETE') {
+    const b = await readBody(req);
+    const ep = String(b.endpoint || '');
+    user.pushSubs = subsOf(user).filter((x) => x.endpoint !== ep);
+    save();
+    return send(res, 200, { ok: true, devices: user.pushSubs.length });
+  }
+
+  /* إشعار تجريبي إلى أجهزة صاحب الحساب نفسه */
+  if (p === '/push/test' && method === 'POST') {
+    const subs = subsOf(user);
+    if (!subs.length) return fail(res, 400, 'no-subscription');
+    const results = await Promise.all(subs.map((sub) =>
+      push.sendPush(sub, {
+        title: 'بيتنا ✓',
+        body: 'الإشعارات تصلك حتى والتطبيق مغلق.',
+        tag: 'beitna-test',
+      }, VAPID, { subject: PUSH_SUBJECT }).catch(() => ({ ok: false, status: 0 }))));
+    return send(res, 200, {
+      sent: results.filter((r) => r.ok).length,
+      failed: results.filter((r) => !r.ok).map((r) => r.status),
     });
   }
 
@@ -788,6 +913,7 @@ async function route(req, res, url) {
     const ops = Array.isArray(b.ops) ? b.ops.slice(0, 500) : [];
     const t = now();
     let applied = 0, denied = 0;
+    const added = [];        // العناصر الجديدة فقط — للإشعار
     for (const op of ops) {
       const col = String(op.col || '');
       if (!COLS.includes(col)) continue;
@@ -810,6 +936,7 @@ async function route(req, res, url) {
       } else if (op.op === 'merge' && prev) {
         bucket[id] = { ...prev, ...(op.data || {}), id: prev.id, deleted: false, updatedAt: t };
       } else {
+        if (!prev) added.push({ col, data: op.data || {} });
         const data = op.data || {};
         /* العاملة لا ترى الأسعار، فلا يجوز أن تمحوها بإعادة حفظ العنصر */
         const keep = (isHelper && prev)
@@ -825,6 +952,7 @@ async function route(req, res, url) {
       applied++;
     }
     if (applied) { hh.updatedAt = t; save(); }
+    if (added.length) pushHouseholdActivity(hh, user.uid, activityPayload(added, user));
     return send(res, 200, { ok: true, applied, denied, now: t });
   }
 

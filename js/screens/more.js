@@ -10,6 +10,7 @@ import {
 import { emptyState, toast, confirmDialog, openSheet, switchEl, iosInstallSheet } from '../ui.js';
 import { go } from '../router.js';
 import { requestNotificationPermission, notificationStatus, testNotification } from '../notify.js';
+import { pushSupported, pushState, enablePush, disablePush, sendTestPush } from '../push.js';
 import {
   pendingWrites, apiBase, checkServer, currentEmail,
   deleteAccount, loadStats, amAdmin, arabicError,
@@ -462,12 +463,54 @@ export function notificationsScreen() {
           </div>`).join('')}
       </div>
 
+      ${status === 'granted' && isCloud() && pushSupported() ? `
+        <div class="section">
+          <div class="section-title">حتى والتطبيق مغلق</div>
+          <div class="list">
+            <div class="list-row" data-push>
+              <span class="ic">📡</span>
+              <span class="grow"><span class="t">إشعارات فورية من الخادم</span><br>
+                <span class="d">تصلك إضافات أفراد البيت والتطبيق مغلق تمامًا</span></span>
+              <span id="pushSw"><span class="switch" role="switch" aria-checked="false"></span></span>
+            </div>
+          </div>
+          <button class="btn ghost block mt-s" data-act="pushtest">📨 إشعار تجريبي من الخادم</button>
+        </div>` : ''}
+
       <p class="tiny muted mt">
-        التذكيرات تُحسب على هذا الجهاز، فتصل ما دام التطبيق مفتوحًا أو يعمل في الخلفية.
+        التذكيرات (المناسبات والملخص اليومي) تُحسب على هذا الجهاز، فتصل ما دام
+        التطبيق مفتوحًا أو يعمل في الخلفية. أمّا إضافات أفراد البيت فتصل من الخادم
+        متى فعّلت الخيار أعلاه.
       </p>`,
     mount(root, rerender) {
+      const pushRow = root.querySelector('[data-push]');
+      const paintPush = (state) => {
+        const box = root.querySelector('#pushSw');
+        if (box) box.innerHTML = switchEl(state === 'on', 'push');
+      };
+      if (pushRow) pushState().then(paintPush).catch(() => paintPush('off'));
+
       root.addEventListener('click', async (e) => {
         if (e.target.closest('[data-act="ios"]')) { iosInstallSheet(); return; }
+
+        if (e.target.closest('[data-push]')) {
+          const now = await pushState();
+          paintPush('...');
+          try {
+            if (now === 'on') { await disablePush(); toast('أُوقفت الإشعارات الخلفية'); }
+            else { await enablePush(); toast('فُعّلت الإشعارات الخلفية ✓'); }
+          } catch (ex) { toast(arabicError(ex), 3500); }
+          paintPush(await pushState());
+          return;
+        }
+
+        if (e.target.closest('[data-act="pushtest"]')) {
+          try {
+            const r = await sendTestPush();
+            toast(r.sent ? `أُرسل إلى ${r.sent} جهاز 📨` : 'لم يصل أي جهاز — فعّل الخيار أولًا', 3500);
+          } catch (ex) { toast(arabicError(ex), 3500); }
+          return;
+        }
 
         if (e.target.closest('[data-act="test"]')) {
           const sent = await testNotification();

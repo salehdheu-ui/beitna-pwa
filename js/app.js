@@ -24,6 +24,7 @@ import {
 import { emptyState, toast, iosInstallSheet } from './ui.js';
 import { startReminderLoop, notifyPartner, isIOS, isStandalone } from './notify.js';
 import { helperScreen, langSheet } from './screens/helper.js';
+import { refreshPush } from './push.js';
 import { t, applyLangToDocument, currentLang } from './i18n.js';
 
 /* ============================================================
@@ -247,6 +248,8 @@ function startCloudSession(hid) {
 
   cloud.recordSession();
   flushPendingUpload();
+  /* الاشتراكات تنتهي أحيانًا من تلقائها — نجدّدها بصمت لمن فعّلها */
+  refreshPush();
 }
 
 /** يرفع بيانات جهاز كان يعمل بلا حساب، بعد ربطه بحساب سحابي */

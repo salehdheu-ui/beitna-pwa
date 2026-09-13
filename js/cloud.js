@@ -252,6 +252,8 @@ export function arabicError(e) {
   if (code.includes('no-household')) return 'لم يعد لك بيت — أنشئ بيتًا أو انضم بكود';
   if (code.includes('owner-only')) return 'هذه العملية لمالك البيت فقط';
   if (code.includes('admin-only')) return 'هذه الشاشة للمشرف فقط';
+  if (code.includes('no-subscription')) return 'لم تُفعّل الإشعارات الخلفية على هذا الجهاز بعد';
+  if (code.includes('bad-subscription')) return 'بيانات الاشتراك غير صحيحة';
   if (code.includes('bad-recovery')) return 'رمز الاسترداد أو البريد غير صحيح';
   if (code.includes('backup-failed')) return 'تعذّرت النسخة الاحتياطية — راجع سجل الخادم';
   if (code.includes('not-a-member')) return 'لم تعد عضوًا في هذا البيت';
@@ -586,6 +588,14 @@ export function removeItem(hid, col, id) {
   localApply(col, id, null, true);
   enqueue({ col, id: String(id), op: 'delete', numericId: Number(id) || id });
 }
+
+/* ---------- Web Push ---------- */
+export const pushPublicKey = () => req('/push/key', { auth: false, timeout: 10000 });
+export const savePushSubscription = (subscription) =>
+  req('/push/subscribe', { method: 'POST', body: { subscription }, timeout: 15000 });
+export const dropPushSubscription = (endpoint) =>
+  req('/push/subscribe', { method: 'DELETE', body: { endpoint }, timeout: 15000 });
+export const sendTestPush = () => req('/push/test', { method: 'POST', timeout: 20000 });
 
 /* ---------- كلمة المرور والاسترداد ---------- */
 
