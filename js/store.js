@@ -48,6 +48,27 @@ const DEFAULT_NOTIFICATIONS = {
   quietHours: false,
 };
 
+/* ============================================================
+   الأقسام: أسماؤها وأيقوناتها.
+   هذه هي الافتراضية، ويغيّرها مالك البيت من لوحة التحكم فتُخزَّن
+   في ui.sections وتصل كل الأجهزة عبر المزامنة. المفتاح الداخلي
+   لا يتغيّر أبدًا (occasions يبقى occasions) حتى لا تُهاجَر بيانات.
+   ============================================================ */
+export const SECTION_KEYS = ['home', 'shopping', 'faults', 'occasions', 'more'];
+export const DEFAULT_SECTIONS = {
+  home:      { label: 'الرئيسية',  icon: '🏠' },
+  shopping:  { label: 'المشتريات', icon: '🛒' },
+  faults:    { label: 'الأعطال',   icon: '🔧' },
+  occasions: { label: 'التذكيرات', icon: '🔔' },
+  more:      { label: 'المزيد',    icon: '☰' },
+};
+
+/* صلاحيات كاملة — الجهاز الواحد بلا حساب لا يُقيَّد */
+const FULL_CAPS = {
+  shopping: 'write', faults: 'write', occasions: 'write',
+  prices: true, members: true, invite: true, remove: true,
+};
+
 function blankState() {
   return {
     version: 1,
@@ -63,6 +84,8 @@ function blankState() {
     activities: [],
     notifications: { ...DEFAULT_NOTIFICATIONS },
     settings: { darkMode: false, language: 'العربية' },
+    ui: { sections: {} },
+    caps: null,          // يأتي من الخادم؛ null = بلا قيود (محلي)
   };
 }
 
@@ -142,6 +165,27 @@ function emit() {
 export const getState = () => state;
 export function subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 
+/* ---------- الأقسام: المخصَّص فوق الافتراضي ---------- */
+export function sectionsOf() {
+  const custom = (state.ui && state.ui.sections) || {};
+  const out = {};
+  for (const k of SECTION_KEYS) out[k] = { ...DEFAULT_SECTIONS[k], ...(custom[k] || {}) };
+  return out;
+}
+export const sectionLabel = (k) => (sectionsOf()[k] || {}).label || k;
+export const sectionIcon = (k) => (sectionsOf()[k] || {}).icon || '•';
+
+/* ---------- الصلاحيات: مرآة لما يفرضه الخادم ----------
+   الواجهة تُخفي فقط؛ المنع الحقيقي في الخادم. */
+export const myCaps = () => state.caps || FULL_CAPS;
+export const canSee = (col) => myCaps()[col] !== 'none';
+export const canWrite = (col) => (myCaps()[col] || 'write') === 'write';
+export const canPrices = () => myCaps().prices !== false;
+export const canMembers = () => myCaps().members !== false;
+export const canInvite = () => myCaps().invite !== false;
+export const canRemove = () => myCaps().remove !== false;
+export const amOwner = () => !!state.profile.isOwner;
+
 /** تعديل الحالة بأمان */
 export function update(mutator) {
   mutator(state);
@@ -199,7 +243,7 @@ export function setLogoutHook(fn) { logoutHook = fn; }
 
 /**
  * تسجيل الخروج.
- * keepData: يُبقي بيانات الجهاز (مشتريات وأعطال ومناسبات وتصنيفات)
+ * keepData: يُبقي بيانات الجهاز (مشتريات وأعطال وتذكيرات وتصنيفات)
  * ويُخرج الهوية فقط — يُستخدم عند ربط جهاز محلي بحساب سحابي،
  * فالمسح هناك يعني فقدان كل ما أدخله المستخدم قبل الربط.
  */
@@ -358,7 +402,7 @@ export function deleteFault(id) {
 }
 
 /* ============================================================
-   المناسبات
+   التذكيرات
    ============================================================ */
 export function addOccasion({ title, type = 'مناسبة عامة', dateMillis, note = '', recurring = 'بدون',
   reminderTime = '09:00', reminderOffsets = ['DAY'] }) {
@@ -378,7 +422,7 @@ export function addOccasion({ title, type = 'مناسبة عامة', dateMillis,
       createdAt: Date.now(),
     };
     s.occasions.unshift(created);
-    logActivity(`تمت إضافة مناسبة: ${title}`);
+    logActivity(`تمت إضافة تذكير: ${title}`);
   });
   push('save', 'occasions', created);
   return created;
@@ -402,12 +446,12 @@ export function completeOccasion(id) {
       const d = new Date(it.dateMillis);
       d.setFullYear(d.getFullYear() + 1);
       it.dateMillis = startOfDay(d.getTime());
-      logActivity(`تم تجديد مناسبة سنوية: ${it.title}`);
+      logActivity(`تم تجديد تذكير سنوي: ${it.title}`);
       push('patch', 'occasions', id, { dateMillis: it.dateMillis });
     } else {
       it.done = true;
       it.doneAt = Date.now();
-      logActivity('تم إنهاء مناسبة');
+      logActivity('تم إنهاء تذكير');
       push('patch', 'occasions', id, { done: true });
     }
   });
@@ -416,7 +460,7 @@ export function completeOccasion(id) {
 export function deleteOccasion(id) {
   update((s) => {
     s.occasions = s.occasions.filter((x) => x.id !== id);
-    logActivity('تم حذف مناسبة');
+    logActivity('تم حذف تذكير');
     push('remove', 'occasions', id);
   });
 }

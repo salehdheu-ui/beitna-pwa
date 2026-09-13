@@ -369,7 +369,7 @@ const MAPPERS = {
 const LABELS = {
   shopping: (x) => `🛒 أُضيف للمشتريات: ${x.name}`,
   faults: (x) => `🔧 عطل جديد: ${x.title}`,
-  occasions: (x) => `🎉 مناسبة جديدة: ${x.title}`,
+  occasions: (x) => `🔔 تذكير جديد: ${x.title}`,
 };
 
 const COLS = ['shopping', 'faults', 'occasions', 'categories', 'favoriteLists'];
@@ -479,6 +479,10 @@ function applySync(res) {
     listeners?.onData?.('members', shapeMembers());
   }
 
+  /* تخصيص الأقسام وصلاحياتي — يصلان مع كل مزامنة فتتبع الأجهزة بعضها */
+  if (res.household && 'ui' in res.household) listeners?.onData?.('ui', res.household.ui);
+  if (res.caps) listeners?.onData?.('caps', res.caps);
+
   cursor = res.now || cursor;
   if (changed || res.full) persistDocs();
   firstEmit = false;
@@ -486,7 +490,7 @@ function applySync(res) {
   notifyFresh(fresh);
 }
 
-const COL_NAMES = { shopping: 'المشتريات', faults: 'الأعطال', occasions: 'المناسبات' };
+const COL_NAMES = { shopping: 'المشتريات', faults: 'الأعطال', occasions: 'التذكيرات' };
 
 /** صيغة العدد بالعربية: المثنى، ثم جمع القلة (٣–١٠)، ثم التمييز المفرد */
 function countWord(n, dual, few, many) {
@@ -653,6 +657,16 @@ export async function switchHousehold(id) {
 }
 
 /** كود دعوة العاملة — للمالك فقط */
+/* ---------- لوحة التحكم: من المالك فقط (والخادم يتحقق) ---------- */
+export function saveSections(sections) {
+  return req('/household/ui', { method: 'POST', body: { ui: { sections } }, timeout: 12000 });
+}
+export function setMemberCaps(uid, caps) {
+  return req('/member/' + encodeURIComponent(uid) + '/caps', {
+    method: 'POST', body: { caps }, timeout: 12000,
+  });
+}
+
 export function getHelperCode() { return req('/household/helper-code', { timeout: 10000 }); }
 export function newHelperCode() { return req('/household/helper-code', { method: 'POST', timeout: 12000 }); }
 

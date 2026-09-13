@@ -7,6 +7,7 @@ import { $, esc } from './util.js';
 import {
   getState, subscribe, update, applyRemote, setCloudBridge, setCloudUid,
   setLogoutHook, setupHousehold, signOut as signOutLocal, uploadLocalData,
+  sectionsOf, canSee, amOwner,
 } from './store.js';
 import * as cloud from './cloud.js';
 const amHelper = () => cloud.isHelper();
@@ -21,6 +22,7 @@ import {
   categoriesScreen, archiveScreen, supportScreen,
   housesScreen, joinHouseScreen,
 } from './screens/more.js';
+import { controlScreen } from './screens/control.js';
 import { emptyState, toast, iosInstallSheet } from './ui.js';
 import { startReminderLoop, notifyPartner, isIOS, isStandalone } from './notify.js';
 import { helperScreen, langSheet } from './screens/helper.js';
@@ -71,16 +73,17 @@ if (location.search.includes('reset')) {
   }
 }
 
-/* ---------- التنقل السفلي ---------- */
-const FAMILY_NAV = [
-  { route: '/home', label: 'الرئيسية', icon: '🏠' },
-  { route: '/shopping', label: 'المشتريات', icon: '🛒' },
-  { route: '/faults', label: 'الأعطال', icon: '🔧' },
-  { route: '/occasions', label: 'المناسبات', icon: '🎉' },
-  { route: '/more', label: 'المزيد', icon: '☰' },
-];
-/** العاملة لا ترى شريط تنقّل أصلًا — شاشتها واحدة */
-const navItems = () => (amHelper() ? [] : FAMILY_NAV);
+/* ---------- التنقل السفلي ----------
+   الأسماء والأيقونات من لوحة التحكم، وما مُنع عن هذا الفرد لا يظهر له. */
+const NAV_ORDER = ['home', 'shopping', 'faults', 'occasions', 'more'];
+
+function navItems() {
+  if (amHelper()) return [];          // العاملة شاشتها واحدة بلا شريط
+  const s = sectionsOf();
+  return NAV_ORDER
+    .filter((key) => (key === 'home' || key === 'more') || canSee(key))
+    .map((key) => ({ route: '/' + key, label: s[key].label, icon: s[key].icon }));
+}
 
 let current = null;   // آخر شاشة معروضة
 let currentFactory = null;
@@ -191,6 +194,7 @@ route('/houses', guarded(housesScreen));
 route('/join-house', guarded(joinHouseScreen));
 route('/notifications', guarded(notificationsScreen));
 route('/categories', guarded(categoriesScreen));
+route('/control', guarded(controlScreen));
 route('/archive', guarded(archiveScreen));
 route('/support', guarded(supportScreen));
 
@@ -233,6 +237,12 @@ function startCloudSession(hid) {
             if (me.phone) st.profile.phone = me.phone;
           }
         });
+      } else if (col === 'ui') {
+        /* تخصيص الأقسام من لوحة تحكم المالك */
+        update((st) => { st.ui = items || { sections: {} }; });
+      } else if (col === 'caps') {
+        /* صلاحياتي كما يراها الخادم — الواجهة تُخفي، والخادم يمنع */
+        update((st) => { st.caps = items; });
       } else if (col === 'categories' && items.length === 0) {
         /* لا نفرّغ التصنيفات إن لم تصل من السحابة — نبقي الافتراضية */
       } else {

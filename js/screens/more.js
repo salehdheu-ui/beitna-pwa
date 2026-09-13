@@ -86,7 +86,7 @@ export function moreScreen() {
       <div class="stats mt">
         <div class="stat"><div class="n">${st.shoppingAdded}</div><div class="l">مشتريات أضفتها</div></div>
         <div class="stat"><div class="n">${st.faultsReported}</div><div class="l">أعطال سجّلتها</div></div>
-        <div class="stat"><div class="n">${st.occasionsTotal}</div><div class="l">مناسبات</div></div>
+        <div class="stat"><div class="n">${st.occasionsTotal}</div><div class="l">تذكيرات</div></div>
       </div>
 
       <div class="section">
@@ -99,11 +99,19 @@ export function moreScreen() {
         </div>
       </div>
 
+      ${s.profile.isOwner ? `
+      <div class="section">
+        <div class="section-title">إدارة</div>
+        <div class="list">
+          ${listRow('🎛️', 'لوحة التحكم', 'أسماء الأقسام وأيقوناتها وصلاحيات كل فرد', '/control')}
+        </div>
+      </div>` : ''}
+
       <div class="section">
         <div class="section-title">التفضيلات</div>
         <div class="list">
           ${listRow('🗂️', 'التصنيفات والأماكن', 'إدارة الأقسام والأنواع', '/categories')}
-          ${listRow('📦', 'الأرشيف', 'مشتريات وأعطال ومناسبات منتهية', '/archive')}
+          ${listRow('📦', 'الأرشيف', 'مشتريات وأعطال وتذكيرات منتهية', '/archive')}
           <div class="list-row" data-toggle="dark">
             <span class="ic">🌙</span>
             <span class="grow"><span class="t">الوضع الليلي</span><br>
@@ -274,7 +282,7 @@ export function householdScreen() {
         <div class="strong small">👩‍🍳 دعوة العاملة المنزلية</div>
         <p class="tiny muted" style="margin:4px 0 10px">
           كود منفصل يفتح لها واجهة محدودة بلغتها: المشتريات والإبلاغ عن الأعطال فقط —
-          بلا مناسبات ولا أسعار ولا بيانات الأفراد.
+          بلا تذكيرات ولا أسعار ولا بيانات الأفراد.
         </p>
         <div class="invite-code" id="hcode">—</div>
         <div class="row mt-s" style="gap:8px">
@@ -384,7 +392,7 @@ export function householdScreen() {
 const NOTIF_ROWS = [
   ['shoppingReminders', '🛒', 'تذكيرات المشتريات', 'يوجد عناصر ضرورية لم تُشترَ بعد'],
   ['faultUpdates', '🔧', 'تحديثات الأعطال', 'إشعار عند تغيير حالة عطل'],
-  ['occasionAlerts', '🎉', 'تنبيهات المناسبات', 'تذكير قبل المناسبة بوقت كافٍ'],
+  ['occasionAlerts', '🔔', 'تنبيهات التذكيرات', 'ينبّهك قبل الموعد بوقت كافٍ'],
   ['partnerActivity', '👥', 'نشاط الشريك', 'نبهني عند أي إضافة من شريك البيت'],
   ['dailySummary', '📋', 'ملخص يومي', 'تقرير قصير كل صباح'],
   ['sound', '🔊', 'الصوت', 'تشغيل صوت مع الإشعارات'],
@@ -439,7 +447,7 @@ function notifBanner(status) {
       <span style="font-size:22px">🔔</span>
       <div class="grow">
         <div class="strong small">تفعيل التذكيرات والتنبيهات</div>
-        <div class="tiny muted">اسمح للمتصفح بإرسال الإشعارات لتصلك تذكيرات المناسبات.</div>
+        <div class="tiny muted">اسمح للمتصفح بإرسال الإشعارات لتصلك تذكيراتك في وقتها.</div>
       </div>
       <button class="btn sm" data-act="perm">تفعيل</button>
     </div>`;
@@ -478,7 +486,7 @@ export function notificationsScreen() {
         </div>` : ''}
 
       <p class="tiny muted mt">
-        التذكيرات (المناسبات والملخص اليومي) تُحسب على هذا الجهاز، فتصل ما دام
+        التذكيرات (المواعيد والملخص اليومي) تُحسب على هذا الجهاز، فتصل ما دام
         التطبيق مفتوحًا أو يعمل في الخلفية. أمّا إضافات أفراد البيت فتصل من الخادم
         متى فعّلت الخيار أعلاه.
       </p>`,
@@ -680,7 +688,7 @@ export function joinHouseScreen() {
 const CAT_TABS = [
   { id: 'Shopping', label: 'تصنيف مشتريات' },
   { id: 'FaultLocation', label: 'مكان في البيت' },
-  { id: 'OccasionType', label: 'نوع مناسبة' },
+  { id: 'OccasionType', label: 'نوع تذكير' },
 ];
 let catTab = 'Shopping';
 
@@ -737,7 +745,7 @@ export function categoriesScreen() {
 }
 
 /* ============================ الأرشيف ============================ */
-const ARCH_TABS = ['مشتريات', 'أعطال', 'مناسبات'];
+const ARCH_TABS = ['مشتريات', 'أعطال', 'تذكيرات'];
 let archTab = 'مشتريات';
 
 export function archiveScreen() {
@@ -746,7 +754,7 @@ export function archiveScreen() {
 
   return {
     title: 'الأرشيف',
-    subtitle: 'مشتريات وأعطال ومناسبات منتهية',
+    subtitle: 'مشتريات وأعطال وتذكيرات منتهية',
     back: true,
     html: `
       <div class="tabs" style="margin-bottom:12px">
@@ -915,7 +923,7 @@ function exportSheet() {
     <h3>تصدير بيانات بيتك</h3>
     <p class="muted small" style="margin:0 0 14px">
       نسخة كاملة على جهازك. ${esc(s.household.name || '')} —
-      ${s.shopping.length} مشتريات، ${s.faults.length} أعطال، ${s.occasions.length} مناسبات.
+      ${s.shopping.length} مشتريات، ${s.faults.length} أعطال، ${s.occasions.length} تذكيرات.
     </p>
     <button class="btn block" data-json>📦 ملف JSON — كل شيء</button>
     <button class="btn ghost block mt-s" data-csv>📊 ملف CSV — المشتريات لإكسل</button>

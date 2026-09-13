@@ -152,8 +152,8 @@ export function checkReminders() {
         const key = `occ:${o.id}:${offId}:${today}`;
         if (sent.has(key)) return;
         sent.add(key); changed = true;
-        show('لديك مناسبة: ' + o.title,
-          off.days === 0 ? 'المناسبة اليوم 🎉' : off.label,
+        show('🔔 تذكير: ' + o.title,
+          off.days === 0 ? 'موعده اليوم' : off.label,
           { tag: key, url: './#/occasions/' + o.id });
       });
     });
