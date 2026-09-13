@@ -282,11 +282,11 @@ async function pushToUser(u, payload) {
   }
 }
 
-const PUSH_COL_NAMES = { shopping: 'المشتريات', faults: 'الأعطال', occasions: 'المناسبات' };
+const PUSH_COL_NAMES = { shopping: 'المشتريات', faults: 'الأعطال', occasions: 'التذكيرات' };
 const PUSH_ONE = {
   shopping: (d) => '🛒 أُضيف للمشتريات: ' + (d.name || ''),
   faults: (d) => '🔧 عطل جديد: ' + (d.title || ''),
-  occasions: (d) => '🎉 مناسبة جديدة: ' + (d.title || ''),
+  occasions: (d) => '🔔 تذكير جديد: ' + (d.title || ''),
 };
 
 /** صيغة العدد بالعربية: المثنى، ثم جمع القلة، ثم التمييز المفرد */
@@ -441,16 +441,76 @@ const normEmail = (e) => String(e || '').trim().toLowerCase();
    owner  : مالك البيت — كل شيء
    member : فرد من العائلة — كل شيء عدا إدارة الأعضاء
    helper : العاملة — المشتريات والإبلاغ عن الأعطال فقط،
-            بلا مناسبات ولا أسعار ولا بيانات الأفراد
+            بلا تذكيرات ولا أسعار ولا بيانات الأفراد
    ============================================================ */
 const PERMS = ['owner', 'member', 'helper'];
-const HELPER_COLS = ['shopping', 'faults'];
 const PRICE_FIELDS = ['price', 'priceValue', 'budget', 'cost'];
 
 /** الأدوار القديمة لا تحمل perm — نشتقّه من isOwner */
 const permOf = (m) => (m && PERMS.includes(m.perm) ? m.perm : (m && m.isOwner ? 'owner' : 'member'));
 const roleLabel = (perm) =>
   (perm === 'owner' ? 'مالك البيت' : perm === 'helper' ? 'العاملة' : 'عضو');
+
+/* ============================================================
+   الصلاحيات المفصّلة
+   لكل مجموعة مستوى: none (لا يراها) | read (يقرأ فقط) | write
+   ولكل راية نعم/لا. الدور مجرد قالب جاهز، والمالك يعدّل فوقه
+   لكل فرد على حدة من لوحة التحكم.
+   ============================================================ */
+const CAP_COLS = ['shopping', 'faults', 'occasions'];
+const CAP_LEVELS = ['none', 'read', 'write'];
+const CAP_FLAGS = ['prices', 'members', 'invite', 'remove'];
+
+const CAP_PRESETS = {
+  owner:  { shopping: 'write', faults: 'write', occasions: 'write',
+            prices: true,  members: true,  invite: true,  remove: true },
+  member: { shopping: 'write', faults: 'write', occasions: 'write',
+            prices: true,  members: true,  invite: false, remove: true },
+  helper: { shopping: 'write', faults: 'write', occasions: 'none',
+            prices: false, members: false, invite: false, remove: false },
+};
+
+/** يقبل ما يفهمه فقط — أي مفتاح أو قيمة غريبة تُهمل */
+function sanitizeCaps(raw) {
+  const out = {};
+  if (!raw || typeof raw !== 'object') return out;
+  for (const c of CAP_COLS) if (CAP_LEVELS.includes(raw[c])) out[c] = raw[c];
+  for (const f of CAP_FLAGS) if (typeof raw[f] === 'boolean') out[f] = raw[f];
+  return out;
+}
+
+/** صلاحيات فرد: قالب دوره ثم تعديلات المالك فوقه. المالك لا يُقيَّد أبدًا. */
+function capsOf(m) {
+  const perm = permOf(m);
+  const base = CAP_PRESETS[perm] || CAP_PRESETS.member;
+  if (perm === 'owner') return { ...base };
+  return { ...base, ...sanitizeCaps(m && m.caps) };
+}
+
+/* ============================================================
+   تخصيص الأقسام: يسمّي المالك أقسام بيته ويختار أيقوناتها.
+   الاسم نص قصير، والأيقونة محرفان على الأكثر (إيموجي واحد).
+   نخزّن ما يفهمه الخادم فقط، فلا يتسلل HTML من هنا إلى الأجهزة.
+   ============================================================ */
+const UI_SECTIONS = ['home', 'shopping', 'faults', 'occasions', 'more'];
+
+function sanitizeUi(raw) {
+  const sections = {};
+  const src = (raw && typeof raw === 'object' && raw.sections) || {};
+  for (const key of UI_SECTIONS) {
+    const s = src[key];
+    if (!s || typeof s !== 'object') continue;
+    const out = {};
+    if (typeof s.label === 'string' && s.label.trim()) {
+      out.label = s.label.trim().replace(/[<>]/g, '').slice(0, 24);
+    }
+    if (typeof s.icon === 'string' && s.icon.trim()) {
+      out.icon = [...s.icon.trim()].slice(0, 2).join('');
+    }
+    if (Object.keys(out).length) sections[key] = out;
+  }
+  return Object.keys(sections).length ? { sections } : null;
+}
 
 /** ينزع الأسعار من عنصر مشتريات قبل إرساله للعاملة */
 function stripPrices(doc) {
@@ -625,12 +685,19 @@ async function route(req, res, url) {
 
   if (p === '/me' && method === 'GET') {
     const hh = myHousehold(user);
+    const caps = hh ? capsOf(hh.members[user.uid]) : null;
     return send(res, 200, {
       ...publicUser(user, null),
       isAdmin: isAdmin(user),
       perm: hh ? permOf(hh.members[user.uid]) : null,
+      caps,
       householdId: hh ? hh.id : null,
-      household: hh ? { id: hh.id, name: hh.name, inviteCode: hh.inviteCode, createdAt: hh.createdAt } : null,
+      household: hh ? {
+        id: hh.id, name: hh.name, createdAt: hh.createdAt,
+        ui: hh.ui || null,
+        /* كود الدعوة يضيف أعضاء للبيت — لمن يملك رايته فقط */
+        inviteCode: caps && caps.invite ? hh.inviteCode : null,
+      } : null,
     });
   }
 
@@ -816,16 +883,40 @@ async function route(req, res, url) {
   if (!hh) return fail(res, 404, 'no-household');
 
   const myPerm = permOf(hh.members[user.uid]);
-  const isHelper = myPerm === 'helper';
+  const myCaps = capsOf(hh.members[user.uid]);
   const isOwner = myPerm === 'owner';
 
   if (p === '/household' && method === 'GET') {
     return send(res, 200, {
       id: hh.id, name: hh.name, createdAt: hh.createdAt,
-      perm: myPerm, role: roleLabel(myPerm),
-      /* كود الدعوة لا يُسلَّم للعاملة — به تُضاف أعضاء للبيت */
-      inviteCode: isHelper ? null : hh.inviteCode,
+      perm: myPerm, role: roleLabel(myPerm), caps: myCaps,
+      ui: hh.ui || null,
+      /* كود الدعوة به تُضاف أعضاء للبيت — لا يصل من لا يملك الراية */
+      inviteCode: myCaps.invite ? hh.inviteCode : null,
     });
+  }
+
+  /* ===== تخصيص الأقسام: الاسم والأيقونة — من المالك فقط ===== */
+  if (p === '/household/ui' && method === 'POST') {
+    if (!isOwner) return fail(res, 403, 'owner-only');
+    const b = await readBody(req);
+    hh.ui = sanitizeUi(b.ui);
+    hh.updatedAt = now(); save();
+    return send(res, 200, { ok: true, ui: hh.ui });
+  }
+
+  /* ===== صلاحيات فرد بالتفصيل — من المالك فقط ===== */
+  if (p.startsWith('/member/') && p.endsWith('/caps') && method === 'POST') {
+    if (!isOwner) return fail(res, 403, 'owner-only');
+    const target = decodeURIComponent(p.slice('/member/'.length, -'/caps'.length));
+    const m = hh.members[target];
+    if (!m || m.deleted) return fail(res, 404, 'no-member');
+    /* المالك غير قابل للتقييد — ولو قُيّد لأغلق على نفسه بيته */
+    if (permOf(m) === 'owner') return fail(res, 400, 'owner-unrestricted');
+    const b = await readBody(req);
+    m.caps = sanitizeCaps(b.caps);
+    m.updatedAt = now(); hh.updatedAt = now(); save();
+    return send(res, 200, { ok: true, caps: capsOf(m) });
   }
 
   if (p === '/household/rename' && method === 'POST') {
@@ -880,30 +971,32 @@ async function route(req, res, url) {
       now: now(), full,
       household: {
         id: hh.id, name: hh.name,
-        /* كود الدعوة يضيف أعضاء للبيت — لا يصل العاملة بأي طريق */
-        inviteCode: isHelper ? null : hh.inviteCode,
+        ui: hh.ui || null,
+        /* كود الدعوة يضيف أعضاء للبيت — لا يصل من لا يملك الراية */
+        inviteCode: myCaps.invite ? hh.inviteCode : null,
       },
+      caps: myCaps,
     };
     out.cols = {};
-    /* العاملة لا ترى إلا المشتريات والأعطال، وبلا أسعار */
-    const visible = isHelper ? HELPER_COLS : COLS;
+    /* ما مستواه none لا يُرسل أصلًا، والأسعار تُنزع عمّن لا يملك رايتها */
     for (const c of COLS) {
-      if (!visible.includes(c)) { out.cols[c] = []; continue; }
+      const level = CAP_COLS.includes(c) ? myCaps[c] : 'write';
+      if (level === 'none') { out.cols[c] = []; continue; }
       const bucket = hh.cols[c] || {};
       const list = [];
       for (const k of Object.keys(bucket)) {
         const d = bucket[k];
         if ((d.updatedAt || 0) <= since) continue;
-        list.push(isHelper && c === 'shopping' ? stripPrices(d) : d);
+        list.push(!myCaps.prices ? stripPrices(d) : d);
       }
       out.cols[c] = list;
     }
-    /* ولا ترى بيانات الأفراد — الاسم فقط لتمييز من أضاف ماذا */
+    /* من لا يملك راية الأفراد يرى الاسم فقط — يكفي لتمييز من أضاف ماذا */
     out.members = Object.values(hh.members)
       .filter((m) => (m.updatedAt || 0) > since)
-      .map((m) => (isHelper
-        ? { uid: m.uid, name: m.name, role: m.role, deleted: !!m.deleted, updatedAt: m.updatedAt }
-        : m));
+      .map((m) => (myCaps.members
+        ? m
+        : { uid: m.uid, name: m.name, role: m.role, deleted: !!m.deleted, updatedAt: m.updatedAt }));
     return send(res, 200, out);
   }
 
@@ -918,13 +1011,13 @@ async function route(req, res, url) {
       const col = String(op.col || '');
       if (!COLS.includes(col)) continue;
 
-      /* حدود العاملة تُفرض هنا، لا في الواجهة فقط:
-         مجموعات محددة، بلا حذف، وبلا أي مساس بالأسعار */
-      if (isHelper) {
-        if (!HELPER_COLS.includes(col)) { denied++; continue; }
-        if (op.op === 'delete') { denied++; continue; }
-        if (op.data) op.data = stripPrices(op.data);
-      }
+      /* الحدود تُفرض هنا، لا في الواجهة فقط:
+         الكتابة تحتاج مستوى write، والحذف راية remove،
+         ومن لا يرى الأسعار لا يمسّها */
+      const level = CAP_COLS.includes(col) ? myCaps[col] : 'write';
+      if (level !== 'write') { denied++; continue; }
+      if (op.op === 'delete' && !myCaps.remove) { denied++; continue; }
+      if (!myCaps.prices && op.data) op.data = stripPrices(op.data);
 
       const id = String(op.id ?? '');
       if (!id) continue;
@@ -938,8 +1031,8 @@ async function route(req, res, url) {
       } else {
         if (!prev) added.push({ col, data: op.data || {} });
         const data = op.data || {};
-        /* العاملة لا ترى الأسعار، فلا يجوز أن تمحوها بإعادة حفظ العنصر */
-        const keep = (isHelper && prev)
+        /* من لا يرى الأسعار لا يجوز أن يمحوها بإعادة حفظ العنصر */
+        const keep = (!myCaps.prices && prev)
           ? Object.fromEntries(PRICE_FIELDS.filter((f) => f in prev).map((f) => [f, prev[f]]))
           : {};
         bucket[id] = {
@@ -960,9 +1053,9 @@ async function route(req, res, url) {
   if (p === '/members' && method === 'GET') {
     const list = Object.values(hh.members).filter((m) => !m.deleted);
     return send(res, 200, {
-      members: isHelper
-        ? list.map((m) => ({ uid: m.uid, name: m.name, role: m.role }))
-        : list.map((m) => ({ ...m, perm: permOf(m) })),
+      members: myCaps.members
+        ? list.map((m) => ({ ...m, perm: permOf(m), caps: capsOf(m) }))
+        : list.map((m) => ({ uid: m.uid, name: m.name, role: m.role })),
     });
   }
 

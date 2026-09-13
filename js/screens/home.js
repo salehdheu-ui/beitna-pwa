@@ -29,7 +29,7 @@ export function homeScreen() {
         <div class="chips">
           <span class="chip">🛒 ${c.shopping} مشتريات</span>
           <span class="chip">🔧 ${c.faults} أعطال</span>
-          <span class="chip">🎉 ${c.occasions} مناسبات</span>
+          <span class="chip">🔔 ${c.occasions} تذكيرات</span>
         </div>
       </div>
 
@@ -38,7 +38,7 @@ export function homeScreen() {
         <div class="quick">
           <button class="q" data-nav="/shopping/new"><span class="ic">🛒</span>إضافة مشتريات</button>
           <button class="q" data-nav="/faults/new"><span class="ic">🔧</span>إضافة عطل</button>
-          <button class="q" data-nav="/occasions/new"><span class="ic">🎉</span>إضافة مناسبة</button>
+          <button class="q" data-nav="/occasions/new"><span class="ic">🔔</span>إضافة تذكير</button>
         </div>
       </div>
 
@@ -50,7 +50,7 @@ export function homeScreen() {
 
       ${upcoming.length ? `
       <div class="section">
-        <div class="section-title">📅 مناسبات قريبة <button class="more" data-nav="/occasions">عرض الكل</button></div>
+        <div class="section-title">🔔 تذكيرات قريبة <button class="more" data-nav="/occasions">عرض الكل</button></div>
         <div class="stack">
           ${upcoming.map((o) => `
             <div class="item card tap" data-nav="/occasions/${o.id}">

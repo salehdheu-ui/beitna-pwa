@@ -1,9 +1,9 @@
-/* شاشات المناسبات */
+/* شاشات التذكيرات */
 
 import { esc, fmtDate, fmtTime, countdownText, todayStart, toInputDate, monthName, dayName, startOfDay } from '../util.js';
 import {
   getState, categoriesOf, addOccasion, updateOccasion, completeOccasion, deleteOccasion,
-  REMINDER_OFFSETS,
+  REMINDER_OFFSETS, sectionLabel,
 } from '../store.js';
 import { emptyState, toast, confirmDialog, chipSelect, bindChips, openSheet } from '../ui.js';
 import { go, back } from '../router.js';
@@ -30,9 +30,9 @@ export function occasionsScreen() {
   items = [...items].sort((a, b) => a.dateMillis - b.dateMillis);
 
   return {
-    title: 'مناسبات البيت',
-    subtitle: `${items.length} مناسبة في هذا العرض`,
-    fab: { label: '＋ إضافة مناسبة', to: '/occasions/new' },
+    title: sectionLabel('occasions'),
+    subtitle: `${items.length} تذكيرًا في هذا العرض`,
+    fab: { label: '＋ إضافة تذكير', to: '/occasions/new' },
     html: `
       <div class="tabs" style="margin-bottom:12px">
         ${TABS.map((t) => `<button class="tab ${t === tab ? 'active' : ''}" data-tab="${esc(t)}">${esc(t)}</button>`).join('')}
@@ -41,7 +41,7 @@ export function occasionsScreen() {
       ${tab === 'التقويم' ? calendarHtml(active) : `
         <div class="stack">
           ${items.length ? items.map(row).join('')
-            : emptyState('🎉', 'لا توجد مناسبات', 'أضف أول مناسبة أو تذكير عائلي')}
+            : emptyState('🔔', 'لا توجد تذكيرات', 'أضف أول تذكير: عيد ميلاد، فاتورة أو صيانة')}
         </div>`}
     `,
     mount(root, rerender) {
@@ -117,9 +117,9 @@ function calendarHtml(items) {
       </div>
     </div>
     <div class="section">
-      <div class="section-title">مناسبات ${monthName(m)}</div>
+      <div class="section-title">تذكيرات ${monthName(m)}</div>
       <div class="stack">
-        ${monthItems.length ? monthItems.map(row).join('') : `<div class="card center muted small" style="padding:20px">لا توجد مناسبات في هذا الشهر</div>`}
+        ${monthItems.length ? monthItems.map(row).join('') : `<div class="card center muted small" style="padding:20px">لا توجد تذكيرات في هذا الشهر</div>`}
       </div>
     </div>`;
 }
@@ -127,16 +127,16 @@ function calendarHtml(items) {
 /* ============================ النموذج ============================ */
 export function occasionFormScreen() {
   const types = categoriesOf('OccasionType');
-  const typeOpts = [...types.map((t) => ({ value: t.name, label: `${t.icon} ${t.name}` })), { value: 'مناسبة عامة', label: '🎉 مناسبة عامة' }];
+  const typeOpts = [...types.map((t) => ({ value: t.name, label: `${t.icon} ${t.name}` })), { value: 'مناسبة عامة', label: '🔔 تذكير عام' }];
 
   return {
-    title: 'مناسبة جديدة',
+    title: 'تذكير جديد',
     back: true,
     html: `
       <div class="card">
         <div id="err"></div>
         <div class="field">
-          <label for="title">اسم المناسبة</label>
+          <label for="title">اسم التذكير</label>
           <input class="input" id="title" placeholder="عيد ميلاد سارة" autocomplete="off">
         </div>
         <div class="field">
@@ -166,7 +166,7 @@ export function occasionFormScreen() {
           <label for="note">ملاحظات</label>
           <textarea class="input" id="note" placeholder="اختياري"></textarea>
         </div>
-        <button class="btn block" data-save>حفظ المناسبة</button>
+        <button class="btn block" data-save>حفظ التذكير</button>
       </div>`,
     mount(root) {
       const values = bindChips(root);
@@ -182,8 +182,8 @@ export function occasionFormScreen() {
       root.querySelector('[data-save]').onclick = () => {
         const title = root.querySelector('#title').value.trim();
         const date = root.querySelector('#date').value;
-        if (!title) { root.querySelector('#err').innerHTML = `<div class="err">اكتب اسم المناسبة</div>`; return; }
-        if (!date) { root.querySelector('#err').innerHTML = `<div class="err">اختر تاريخ المناسبة</div>`; return; }
+        if (!title) { root.querySelector('#err').innerHTML = `<div class="err">اكتب اسم التذكير</div>`; return; }
+        if (!date) { root.querySelector('#err').innerHTML = `<div class="err">اختر تاريخ التذكير</div>`; return; }
         addOccasion({
           title,
           type: values.type,
@@ -193,7 +193,7 @@ export function occasionFormScreen() {
           recurring: values.recurring,
           note: root.querySelector('#note').value.trim(),
         });
-        toast(`تمت إضافة مناسبة: ${title}`);
+        toast(`تمت إضافة تذكير: ${title}`);
         go('/occasions', { replace: true });
       };
       root.querySelector('#title')?.focus();
@@ -204,13 +204,13 @@ export function occasionFormScreen() {
 /* ============================ التفاصيل ============================ */
 export function occasionDetailsScreen({ id }) {
   const o = getState().occasions.find((x) => x.id === Number(id));
-  if (!o) return { title: 'تفاصيل المناسبة', back: true, html: emptyState('🎉', 'المناسبة غير موجودة', 'ربما تم إنهاؤها أو حذفها') };
+  if (!o) return { title: 'تفاصيل التذكير', back: true, html: emptyState('🔔', 'التذكير غير موجود', 'ربما تم إنهاؤه أو حذفه') };
 
   const offLabels = (o.reminderOffsets || []).map((x) => REMINDER_OFFSETS.find((r) => r.id === x)?.label).filter(Boolean);
   const d = new Date(o.dateMillis);
 
   return {
-    title: 'تفاصيل المناسبة',
+    title: 'تفاصيل التذكير',
     back: true,
     html: `
       <div class="hero" style="background:linear-gradient(150deg,var(--emerald),var(--emerald-dark))">
@@ -228,12 +228,12 @@ export function occasionDetailsScreen({ id }) {
         ${o.note ? `<hr class="divider"><div class="small"><span class="muted">ملاحظة:</span> ${esc(o.note)}</div>` : ''}
       </div>
 
-      ${o.recurring === 'سنويًا' ? `<div class="card mt small muted">هذه مناسبة سنوية. ستتجدّد تلقائيًا للسنة القادمة بنفس الوقت والتذكير.</div>` : ''}
+      ${o.recurring === 'سنويًا' ? `<div class="card mt small muted">هذا تذكير سنوي. يتجدّد تلقائيًا للسنة القادمة بنفس الوقت.</div>` : ''}
 
       <div class="mt stack">
         <button class="btn ghost block" data-edit>⏰ تعديل التذكير</button>
-        <button class="btn block" data-done>${o.recurring === 'سنويًا' ? '🔄 تمت — جدّد للسنة القادمة' : '✓ تمت المناسبة'}</button>
-        <button class="btn danger-soft block" data-del>🗑️ حذف المناسبة</button>
+        <button class="btn block" data-done>${o.recurring === 'سنويًا' ? '🔄 تمت — جدّد للسنة القادمة' : '✓ تم'}</button>
+        <button class="btn danger-soft block" data-del>🗑️ حذف التذكير</button>
       </div>`,
     mount(root, rerender) {
       root.addEventListener('click', async (e) => {
@@ -244,7 +244,7 @@ export function occasionDetailsScreen({ id }) {
               <input class="input" id="etime" type="time" value="${esc(o.reminderTime || '09:00')}"></div>
             <div class="field"><label for="edate">التاريخ</label>
               <input class="input" id="edate" type="date" value="${toInputDate(o.dateMillis)}"></div>
-            <div class="field"><label>قبل المناسبة بـ</label>
+            <div class="field"><label>نبّهني قبل الموعد بـ</label>
               <div class="chip-select" id="eoffs">
                 ${REMINDER_OFFSETS.map((r) => `<button type="button" class="chip-opt ${(o.reminderOffsets || []).includes(r.id) ? 'active' : ''}" data-off="${r.id}">${esc(r.label)}</button>`).join('')}
               </div></div>
@@ -266,7 +266,7 @@ export function occasionDetailsScreen({ id }) {
                   reminderOffsets: [...offs],
                   reminder: offs.size ? 'مفعّل' : 'بدون تذكير',
                 });
-                close(); toast('تم تعديل تذكير المناسبة'); rerender();
+                close(); toast('تم تعديل التنبيه'); rerender();
               };
             },
           });
@@ -275,10 +275,10 @@ export function occasionDetailsScreen({ id }) {
 
         if (e.target.closest('[data-done]')) {
           const ok = await confirmDialog({
-            title: o.recurring === 'سنويًا' ? 'تجديد المناسبة السنوية' : 'تمت المناسبة',
+            title: o.recurring === 'سنويًا' ? 'تجديد التذكير السنوي' : 'تم التذكير',
             message: o.recurring === 'سنويًا'
               ? 'أعياد الميلاد ستتجدّد تلقائيًا كل سنة. هل تريد التجديد الآن؟'
-              : 'هل تريد إنهاء المناسبة وحذفها من القائمة؟',
+              : 'هل تريد إنهاء التذكير وحذفه من القائمة؟',
             confirmText: 'تأكيد',
           });
           if (ok) { completeOccasion(o.id); toast('تم ✓'); back('/occasions'); }
@@ -287,10 +287,10 @@ export function occasionDetailsScreen({ id }) {
 
         if (e.target.closest('[data-del]')) {
           const ok = await confirmDialog({
-            title: 'حذف المناسبة', message: `هل أنت متأكد من حذف "${o.title}"؟`,
+            title: 'حذف التذكير', message: `هل أنت متأكد من حذف "${o.title}"؟`,
             confirmText: 'حذف', danger: true,
           });
-          if (ok) { deleteOccasion(o.id); toast('تم حذف مناسبة'); back('/occasions'); }
+          if (ok) { deleteOccasion(o.id); toast('تم حذف تذكير'); back('/occasions'); }
         }
       });
     },
