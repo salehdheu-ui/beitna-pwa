@@ -314,6 +314,38 @@ function activityPayload(added, actor) {
   return { title: 'بيتنا — ' + who, body, tag: 'beitna-activity', url: './#/home' };
 }
 
+/* نصّ التكفّل والإنجاز — الفائدة الحقيقية: ألّا يشتري اثنان الشيء نفسه */
+const ACT_TEXT = {
+  claim:   (title) => '🙋 تكفّل بـ: ' + title,
+  unclaim: (title) => '↩️ تراجع عن: ' + title,
+  done:    (title) => '✅ أنجز: ' + title,
+  reopen:  (title) => '🔄 أعاد فتح: ' + title,
+  status:  (title, to) => `🔁 ${title} → ${to}`,
+};
+
+function actsPayload(acts, actor) {
+  const list = acts.filter((x) => ACT_TEXT[x.act]);
+  if (!list.length) return null;
+  const who = actor.displayName || 'أحد أفراد البيت';
+  const nameOf = (d) => d.name || d.title || 'عنصر';
+
+  if (list.length === 1) {
+    const { col, doc, act } = list[0];
+    return {
+      title: 'بيتنا — ' + who,
+      body: ACT_TEXT[act](nameOf(doc), doc.status || ''),
+      tag: 'beitna-act',
+      url: './#/' + col,
+    };
+  }
+  return {
+    title: 'بيتنا — ' + who,
+    body: `🏡 ${countWord(list.length, 'تحديثان', 'تحديثات', 'تحديثًا')} على عناصر البيت`,
+    tag: 'beitna-act',
+    url: './#/home',
+  };
+}
+
 /** يُبلّغ بقية أفراد البيت بما أضافه غيرهم */
 function pushHouseholdActivity(hh, actorUid, payload) {
   if (!payload) return;
@@ -485,6 +517,66 @@ function capsOf(m) {
   const base = CAP_PRESETS[perm] || CAP_PRESETS.member;
   if (perm === 'owner') return { ...base };
   return { ...base, ...sanitizeCaps(m && m.caps) };
+}
+
+/* ============================================================
+   سلسلة العهدة — من طلب، ومن تكفّل، ومن أنجز.
+   يختمها الخادم من هوية صاحب الطلب، ولا يُقرأ أيّ منها مما
+   يرسله الجهاز؛ وإلا نسب أيّ أحد فعلَ غيره إلى نفسه.
+   ============================================================ */
+const TRAIL_MAX = 24;
+const STAMPED = ['createdBy', 'claimedBy', 'claimedAt', 'doneBy', 'doneAt', 'trail'];
+const ACTS = ['claim', 'unclaim', 'done', 'reopen', 'status', 'edit', 'create'];
+
+/** ينزع كل حقول النسبة مما أرسله الجهاز — الخادم وحده يكتبها */
+function stripStamped(d) {
+  const o = { ...(d || {}) };
+  for (const f of STAMPED) delete o[f];
+  return o;
+}
+
+function trailPush(doc, by, act, to) {
+  const prev = Array.isArray(doc.trail) ? doc.trail : [];
+  const entry = { at: now(), by, act };
+  if (to) entry.to = String(to).slice(0, 40);
+  doc.trail = [...prev, entry].slice(-TRAIL_MAX);
+}
+
+/**
+ * يضع النسبة على العنصر بعد دمج ما أرسله الجهاز.
+ * `prev` قد يكون غير موجود (عنصر جديد). يرجع الفعل المسجَّل أو null.
+ */
+function stampDoc(doc, prev, act, uid) {
+  doc.createdBy = (prev && prev.createdBy) || uid;
+
+  if (act === 'claim') {
+    doc.claimedBy = uid; doc.claimedAt = now();
+    trailPush(doc, uid, 'claim');
+    return 'claim';
+  }
+  if (act === 'unclaim') {
+    doc.claimedBy = null; doc.claimedAt = 0;
+    trailPush(doc, uid, 'unclaim');
+    return 'unclaim';
+  }
+  if (act === 'done') {
+    doc.doneBy = uid; doc.doneAt = now();
+    trailPush(doc, uid, 'done', doc.status);
+    return 'done';
+  }
+  if (act === 'reopen') {
+    doc.doneBy = null; doc.doneAt = 0;
+    trailPush(doc, uid, 'reopen');
+    return 'reopen';
+  }
+  if (!prev) { trailPush(doc, uid, 'create'); return 'create'; }
+
+  /* تغيّرت الحالة دون فعل صريح — نسجّلها كما هي */
+  if (doc.status && prev.status && doc.status !== prev.status) {
+    trailPush(doc, uid, 'status', doc.status);
+    return 'status';
+  }
+  return null;   /* تعديل عادي: لا نُثقل السجل به */
 }
 
 /* ============================================================
@@ -1007,6 +1099,7 @@ async function route(req, res, url) {
     const t = now();
     let applied = 0, denied = 0;
     const added = [];        // العناصر الجديدة فقط — للإشعار
+    const acts = [];         // تكفُّل وإنجاز — يُشعَر بها بقية أفراد البيت
     for (const op of ops) {
       const col = String(op.col || '');
       if (!COLS.includes(col)) continue;
@@ -1027,25 +1120,34 @@ async function route(req, res, url) {
         const keepId = op.numericId ?? prev?.id ?? (Number(id) || id);
         bucket[id] = { ...(prev || {}), id: keepId, deleted: true, updatedAt: t };
       } else if (op.op === 'merge' && prev) {
-        bucket[id] = { ...prev, ...(op.data || {}), id: prev.id, deleted: false, updatedAt: t };
+        const doc = { ...prev, ...stripStamped(op.data), id: prev.id, deleted: false, updatedAt: t };
+        const act = ACTS.includes(op.act) ? op.act : 'edit';
+        const done = stampDoc(doc, prev, act, user.uid);
+        bucket[id] = doc;
+        if (done && done !== 'create') acts.push({ col, doc, act: done });
       } else {
         if (!prev) added.push({ col, data: op.data || {} });
-        const data = op.data || {};
+        const data = stripStamped(op.data);
         /* من لا يرى الأسعار لا يجوز أن يمحوها بإعادة حفظ العنصر */
         const keep = (!myCaps.prices && prev)
           ? Object.fromEntries(PRICE_FIELDS.filter((f) => f in prev).map((f) => [f, prev[f]]))
           : {};
-        bucket[id] = {
+        const doc = {
           ...(prev || {}), ...data, ...keep,
           id: data.id ?? prev?.id ?? (Number(id) || id),
           createdAt: data.createdAt || prev?.createdAt || t,
           deleted: false, updatedAt: t,
         };
+        const act = ACTS.includes(op.act) ? op.act : (prev ? 'edit' : 'create');
+        const done = stampDoc(doc, prev, act, user.uid);
+        bucket[id] = doc;
+        if (done && done !== 'create') acts.push({ col, doc, act: done });
       }
       applied++;
     }
     if (applied) { hh.updatedAt = t; save(); }
     if (added.length) pushHouseholdActivity(hh, user.uid, activityPayload(added, user));
+    if (acts.length) pushHouseholdActivity(hh, user.uid, actsPayload(acts, user));
     return send(res, 200, { ok: true, applied, denied, now: t });
   }
 

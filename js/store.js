@@ -186,6 +186,41 @@ export const canInvite = () => myCaps().invite !== false;
 export const canRemove = () => myCaps().remove !== false;
 export const amOwner = () => !!state.profile.isOwner;
 
+/* ============================================================
+   سلسلة العهدة — من طلب، من تكفّل، من أنجز.
+   الخادم يختم الهوية؛ ما هنا عرضٌ وتفاؤلٌ محليّ فقط.
+   ============================================================ */
+export const myUid = () => cloudUid || 'local';
+
+/** اسم صاحب المعرّف كما يعرفه البيت */
+export function nameOfUid(uid) {
+  if (!uid) return '';
+  if (uid === myUid() || uid === 'local') return state.profile.name || 'أنا';
+  const m = (state.members || []).find((x) => x.uid === uid);
+  return (m && m.name) || 'أحد أفراد البيت';
+}
+
+const COL_OF = { shopping: 'shopping', faults: 'faults', occasions: 'occasions' };
+
+/** فعل موقَّع على عنصر: claim | unclaim | done | reopen */
+export function actOnItem(col, id, act, patch = {}) {
+  if (!COL_OF[col]) return;
+  const mine = myUid();
+  const t = Date.now();
+  update((s) => {
+    const it = s[col].find((x) => x.id === id);
+    if (!it) return;
+    Object.assign(it, patch);
+    if (act === 'claim') { it.claimedBy = mine; it.claimedAt = t; }
+    if (act === 'unclaim') { it.claimedBy = ''; it.claimedAt = 0; }
+    if (act === 'done') { it.doneBy = mine; it.doneAt = t; }
+    if (act === 'reopen') { it.doneBy = ''; it.doneAt = 0; }
+    /* السجل المعروض قبل وصول ختم الخادم — يُستبدل بما يرسله عند المزامنة */
+    it.trail = [...(it.trail || []), { at: t, by: mine, act, ...(patch.status ? { to: patch.status } : {}) }].slice(-24);
+  });
+  push('act', col, id, act, patch);
+}
+
 /** تعديل الحالة بأمان */
 export function update(mutator) {
   mutator(state);

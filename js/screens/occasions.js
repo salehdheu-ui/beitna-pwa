@@ -3,9 +3,9 @@
 import { esc, fmtDate, fmtTime, countdownText, todayStart, toInputDate, monthName, dayName, startOfDay } from '../util.js';
 import {
   getState, categoriesOf, addOccasion, updateOccasion, completeOccasion, deleteOccasion,
-  REMINDER_OFFSETS, sectionLabel,
+  REMINDER_OFFSETS, sectionLabel, actOnItem, nameOfUid,
 } from '../store.js';
-import { emptyState, toast, confirmDialog, chipSelect, bindChips, openSheet } from '../ui.js';
+import { emptyState, toast, confirmDialog, chipSelect, bindChips, openSheet, claimBar, trailCard, whoLine } from '../ui.js';
 import { go, back } from '../router.js';
 import { iconForType } from './home.js';
 
@@ -223,6 +223,7 @@ export function occasionDetailsScreen({ id }) {
 
       <div class="card mt">
         <div class="kv"><span class="k">النوع</span><span class="v">${esc(o.type)}</span></div>
+        <div class="kv"><span class="k">أضافه</span><span class="v">${esc(nameOfUid(o.createdBy || o.ownerUid) || '—')}</span></div>
         <div class="kv"><span class="k">وقت التذكير</span><span class="v">${esc(fmtTime(o.reminderTime))}</span></div>
         <div class="kv"><span class="k">التذكير</span><span class="v">${offLabels.length ? esc(offLabels.join('، ')) : 'بدون تذكير'}</span></div>
         ${o.note ? `<hr class="divider"><div class="small"><span class="muted">ملاحظة:</span> ${esc(o.note)}</div>` : ''}
@@ -232,9 +233,12 @@ export function occasionDetailsScreen({ id }) {
 
       <div class="mt stack">
         <button class="btn ghost block" data-edit>⏰ تعديل التذكير</button>
+        ${claimBar(o)}
         <button class="btn block" data-done>${o.recurring === 'سنويًا' ? '🔄 تمت — جدّد للسنة القادمة' : '✓ تم'}</button>
         <button class="btn danger-soft block" data-del>🗑️ حذف التذكير</button>
-      </div>`,
+      </div>
+
+      ${trailCard(o, 'occasions')}`,
     mount(root, rerender) {
       root.addEventListener('click', async (e) => {
         if (e.target.closest('[data-edit]')) {
@@ -281,8 +285,20 @@ export function occasionDetailsScreen({ id }) {
               : 'هل تريد إنهاء التذكير وحذفه من القائمة؟',
             confirmText: 'تأكيد',
           });
-          if (ok) { completeOccasion(o.id); toast('تم ✓'); back('/occasions'); }
+          if (ok) {
+            /* نختم من أنجزه قبل الإنهاء — وإلا ضاع اسمه مع العنصر */
+            actOnItem('occasions', o.id, 'done');
+            completeOccasion(o.id);
+            toast('تم ✓'); back('/occasions');
+          }
           return;
+        }
+
+        if (e.target.closest('[data-act="claim"]')) {
+          actOnItem('occasions', o.id, 'claim'); toast('تكفّلت به — يعرف البيت الآن 🙋'); rerender(); return;
+        }
+        if (e.target.closest('[data-act="unclaim"]')) {
+          actOnItem('occasions', o.id, 'unclaim'); toast('تراجعت عن التكفّل'); rerender(); return;
         }
 
         if (e.target.closest('[data-del]')) {

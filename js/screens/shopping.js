@@ -4,9 +4,10 @@ import { esc, relTime, haptic } from '../util.js';
 import {
   getState, categoriesOf, addShopping, updateShopping, setShoppingStatus, deleteShopping,
   saveFavoriteList, deleteFavoriteList, applyFavoriteList,
+  actOnItem, nameOfUid,
   SHOP_STATUS, SHOP_PRIORITY, CURRENCY,
 } from '../store.js';
-import { emptyState, toast, confirmDialog, openSheet, chipSelect, bindChips } from '../ui.js';
+import { emptyState, toast, confirmDialog, openSheet, chipSelect, bindChips, claimBar, trailCard, whoLine } from '../ui.js';
 import { go, back } from '../router.js';
 
 const FILTERS = ['الكل', 'الناقصة', 'قيد الشراء', 'تم الشراء', 'المؤجلة'];
@@ -121,6 +122,7 @@ function itemRow(i) {
           ${!done ? `<span class="badge ${statusTone(i.status)}">${esc(i.status)}</span>` : ''}
           ${i.priceValue ? `<span>${i.priceValue} ${CURRENCY}</span>` : ''}
         </div>
+        <div class="meta">${whoLine(i, 'shopping')}</div>
       </div>
     </div>`;
 }
@@ -207,10 +209,12 @@ export function shoppingDetailsScreen({ id }) {
         <div class="kv"><span class="k">الأولوية</span><span class="v"><span class="badge ${priorityTone(item.priority)}">${esc(item.priority)}</span></span></div>
         <div class="kv"><span class="k">التصنيف</span><span class="v">${esc(item.category || '—')}</span></div>
         <div class="kv"><span class="k">السعر</span><span class="v">${item.priceValue ? `${item.priceValue} ${CURRENCY}` : '—'}</span></div>
-        <div class="kv"><span class="k">أضافه</span><span class="v">${esc(item.owner || '—')}</span></div>
+        <div class="kv"><span class="k">طلبها</span><span class="v">${esc(nameOfUid(item.createdBy || item.ownerUid) || item.owner || '—')}</span></div>
         <div class="kv"><span class="k">التاريخ</span><span class="v">${esc(relTime(item.createdAt))}</span></div>
         ${item.note ? `<hr class="divider"><div class="small"><span class="muted">ملاحظة:</span> ${esc(item.note)}</div>` : ''}
       </div>
+
+      <div class="mt">${claimBar(item)}</div>
 
       <div class="section">
         <div class="section-title">تغيير الحالة</div>
@@ -219,13 +223,30 @@ export function shoppingDetailsScreen({ id }) {
         </div>
       </div>
 
+      ${trailCard(item, 'shopping')}
+
       <div class="mt">
         <button class="btn danger-soft block" data-del>🗑️ حذف العنصر</button>
       </div>`,
     mount(root, rerender) {
       root.addEventListener('click', async (e) => {
+        if (e.target.closest('[data-act="claim"]')) {
+          actOnItem('shopping', item.id, 'claim');
+          toast('تكفّلت بها — يعرف البيت الآن 🙋'); rerender(); return;
+        }
+        if (e.target.closest('[data-act="unclaim"]')) {
+          actOnItem('shopping', item.id, 'unclaim');
+          toast('تراجعت عن التكفّل'); rerender(); return;
+        }
         const st = e.target.closest('[data-status]');
-        if (st) { setShoppingStatus(item.id, st.dataset.status); toast('تم التحديث ✓'); rerender(); return; }
+        if (st) {
+          const to = st.dataset.status;
+          /* «تم الشراء» فعلٌ مُنجَز — يُختم باسم فاعله */
+          if (to === 'تم الشراء') actOnItem('shopping', item.id, 'done', { status: to });
+          else if (item.status === 'تم الشراء') actOnItem('shopping', item.id, 'reopen', { status: to });
+          else setShoppingStatus(item.id, to);
+          toast('تم التحديث ✓'); rerender(); return;
+        }
         if (e.target.closest('[data-del]')) {
           const ok = await confirmDialog({
             title: 'حذف العنصر',

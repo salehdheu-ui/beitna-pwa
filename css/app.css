@@ -596,3 +596,22 @@ body.helper-mode .bottomnav, body.helper-mode .sidenav { display: none !importan
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+/* ---------- سلسلة العهدة: من طلب، من تكفّل، من أنجز ---------- */
+.who { color: var(--muted, #6b7280); font-size: 12px; }
+.claimbar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 12px 14px; border-radius: var(--r, 14px);
+  background: var(--mint); font-weight: 700; font-size: 14px;
+}
+.claimbar.done { background: var(--mint); }
+.claimbar.taken { background: var(--sand); }
+.claimbar .tiny { margin-inline-start: auto; font-weight: 500; }
+.trail-row {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 9px 0; border-bottom: 1px solid var(--line);
+}
+.trail-row:last-child { border-bottom: 0; }
+.trail-who { font-weight: 800; font-size: 14px; }
+.trail-act { flex: 1; font-size: 14px; }
+.trail-at { white-space: nowrap; }
