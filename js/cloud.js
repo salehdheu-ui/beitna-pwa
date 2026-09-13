@@ -123,6 +123,8 @@ let listeners = null;
 let firstEmit = true;
 let selfWrites = new Set();
 let flushing = false;
+let lastUiSig = null;       // بصمة آخر تخصيص أقسام مُمرَّر
+let lastCapsSig = null;     // وبصمة آخر صلاحيات — نمنع رسمةً بلا تغيير
 
 export function setWriteErrorHandler(fn) { onWriteError = fn; }
 
@@ -485,9 +487,18 @@ function applySync(res) {
     listeners?.onData?.('members', shapeMembers());
   }
 
-  /* تخصيص الأقسام وصلاحياتي — يصلان مع كل مزامنة فتتبع الأجهزة بعضها */
-  if (res.household && 'ui' in res.household) listeners?.onData?.('ui', res.household.ui);
-  if (res.caps) listeners?.onData?.('caps', res.caps);
+  /* تخصيص الأقسام وصلاحياتي يصلان مع كل نبضة مزامنة (كل 6 ثوانٍ).
+     لا نمرّرهما إلا إذا تغيّرا فعلًا: تمريرهما بلا تغيير يكتب في الحالة
+     فتُطلق رسمة كاملة للشاشة كل نبضة، فتقفز الصفحة للأعلى وتبدو
+     كأنها تُحدِّث نفسها. */
+  if (res.household && 'ui' in res.household) {
+    const sig = JSON.stringify(res.household.ui || null);
+    if (sig !== lastUiSig) { lastUiSig = sig; listeners?.onData?.('ui', res.household.ui); }
+  }
+  if (res.caps) {
+    const sig = JSON.stringify(res.caps);
+    if (sig !== lastCapsSig) { lastCapsSig = sig; listeners?.onData?.('caps', res.caps); }
+  }
 
   cursor = res.now || cursor;
   if (changed || res.full) persistDocs();
