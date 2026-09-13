@@ -18,6 +18,7 @@ import { occasionsScreen, occasionFormScreen, occasionDetailsScreen } from './sc
 import {
   moreScreen, profileScreen, householdScreen, notificationsScreen,
   categoriesScreen, archiveScreen, supportScreen,
+  housesScreen, joinHouseScreen,
 } from './screens/more.js';
 import { emptyState, toast, iosInstallSheet } from './ui.js';
 import { startReminderLoop, notifyPartner, isIOS, isStandalone } from './notify.js';
@@ -169,6 +170,8 @@ route('/occasions/:id', (p) => render(occasionDetailsScreen, p));
 route('/more', () => render(moreScreen));
 route('/profile', () => render(profileScreen));
 route('/household', () => render(householdScreen));
+route('/houses', () => render(housesScreen));
+route('/join-house', () => render(joinHouseScreen));
 route('/notifications', () => render(notificationsScreen));
 route('/categories', () => render(categoriesScreen));
 route('/archive', () => render(archiveScreen));

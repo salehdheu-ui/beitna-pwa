@@ -12,6 +12,8 @@ import { requestNotificationPermission, notificationStatus, testNotification } f
 import {
   pendingWrites, apiBase, checkServer, currentEmail,
   deleteAccount, loadStats, amAdmin, arabicError,
+  listHouseholds, switchHousehold, getHelperCode, newHelperCode,
+  setMemberRole, currentPerm, isOwner as amOwner, joinHousehold,
 } from '../cloud.js';
 
 /* ============================ المزيد ============================ */
@@ -85,7 +87,8 @@ export function moreScreen() {
         <div class="list">
           ${listRow('👤', 'الملف الشخصي', 'المعلومات الشخصية', '/profile')}
           ${listRow('👨‍👩‍👧', 'أفراد البيت', `${s.members.length} أعضاء • كود الدعوة`, '/household')}
-          ${listRow('🔔', 'الإشعارات', 'التنبيهات والتفضيلات', '/notifications')}
+          ${isCloud() ? listRow('🏘️', 'بيوتي', 'التبديل بين بيتك وبيت أهلك', '/houses') : ''}
+        ${listRow('🔔', 'الإشعارات', 'التنبيهات والتفضيلات', '/notifications')}
         </div>
       </div>
 
@@ -258,6 +261,20 @@ export function householdScreen() {
         </div>
       </div>
 
+      ${amOwner() && isCloud() ? `
+      <div class="card mt" id="helperCard">
+        <div class="strong small">👩‍🍳 دعوة العاملة المنزلية</div>
+        <p class="tiny muted" style="margin:4px 0 10px">
+          كود منفصل يفتح لها واجهة محدودة بلغتها: المشتريات والإبلاغ عن الأعطال فقط —
+          بلا مناسبات ولا أسعار ولا بيانات الأفراد.
+        </p>
+        <div class="invite-code" id="hcode">—</div>
+        <div class="row mt-s" style="gap:8px">
+          <button class="btn soft grow" data-act="hcopy">📋 نسخ</button>
+          <button class="btn ghost grow" data-act="hnew">🔄 كود جديد</button>
+        </div>
+      </div>` : ''}
+
       <div class="section">
         <div class="section-title">الأعضاء (${s.members.length})</div>
         <div class="stack">
@@ -279,8 +296,35 @@ export function householdScreen() {
           : `<button class="btn ghost block mt">＋ إضافة عضو جديد</button>`}
       </div>`,
     mount(root, rerender) {
+      const hbox = root.querySelector('#hcode');
+      if (hbox) {
+        getHelperCode()
+          .then((r) => { hbox.textContent = r.helperCode || 'لم يُنشأ بعد'; })
+          .catch(() => { hbox.textContent = '—'; });
+      }
+
       root.addEventListener('click', async (e) => {
         const act = e.target.closest('[data-act]')?.dataset.act;
+
+        if (act === 'hnew') {
+          const ok = await confirmDialog({
+            title: 'كود جديد للعاملة',
+            message: 'سيتوقف الكود القديم عن العمل. من انضمّت به سابقًا تبقى في البيت.',
+            confirmText: 'توليد',
+          });
+          if (!ok) return;
+          try { const r = await newHelperCode(); hbox.textContent = r.helperCode; toast('تم توليد كود جديد ✓'); }
+          catch (ex) { toast(arabicError(ex), 3500); }
+          return;
+        }
+        if (act === 'hcopy') {
+          const code = hbox?.textContent?.trim();
+          if (!code || code === '—' || code === 'لم يُنشأ بعد') return toast('ولّد كودًا أولًا');
+          await navigator.clipboard.writeText(code);
+          toast('تم نسخ كود العاملة ✓');
+          return;
+        }
+
         if (act === 'copy') {
           await navigator.clipboard.writeText(getState().household.inviteCode);
           toast('تم نسخ الكود ✓');
@@ -446,6 +490,112 @@ export function notificationsScreen() {
           rerender();
         }
       });
+    },
+  };
+}
+
+/* ============================ بيوتي ============================ */
+const PERM_BADGE = { owner: 'مالك', member: 'عضو', helper: 'عاملة' };
+
+export function housesScreen() {
+  return {
+    title: 'بيوتي',
+    back: true,
+    html: `
+      <div id="hhList"><div class="card small muted center">جارٍ التحميل...</div></div>
+      <div class="section">
+        <button class="btn ghost block" data-act="join">🔑 الانضمام إلى بيت بكود دعوة</button>
+      </div>
+      <p class="tiny muted mt">
+        البيت النشط هو الذي تراه في كل الشاشات. التبديل لا يؤثّر على بيانات البيت الآخر.
+      </p>`,
+    mount(root, rerender) {
+      const box = root.querySelector('#hhList');
+
+      const draw = (list) => {
+        const active = list.find((h) => h.active);
+        box.innerHTML = `
+          <div class="section">
+            <div class="section-title">البيوت التي تنتمي إليها (${list.length})</div>
+            <div class="stack">
+              ${list.map((h) => `
+                <button class="item" data-hh="${esc(h.id)}" ${h.active ? 'disabled' : ''}
+                        style="${h.active ? 'border-color:var(--emerald)' : ''};text-align:inherit;width:100%">
+                  <div class="avatar" style="background:${h.active ? 'var(--emerald)' : 'var(--surface-2)'};
+                       color:${h.active ? '#fff' : 'var(--text)'};font-weight:800">🏡</div>
+                  <div class="grow col">
+                    <div class="title">${esc(h.name)}
+                      <span class="badge">${esc(PERM_BADGE[h.perm] || h.role)}</span></div>
+                    <div class="meta">${h.members} من الأفراد${h.active ? ' • البيت النشط' : ''}</div>
+                  </div>
+                  ${h.active ? '<span class="badge">✓</span>' : '<span class="arrow">‹</span>'}
+                </button>`).join('')}
+            </div>
+          </div>`;
+        if (active) box.dataset.active = active.id;
+      };
+
+      listHouseholds()
+        .then(draw)
+        .catch((e) => { box.innerHTML = `<div class="err">${esc(arabicError(e))}</div>`; });
+
+      root.addEventListener('click', async (e) => {
+        if (e.target.closest('[data-act="join"]')) { go('/join-house'); return; }
+
+        const btn = e.target.closest('[data-hh]');
+        if (!btn || btn.disabled) return;
+        const id = btn.dataset.hh;
+        btn.disabled = true;
+        try {
+          const hh = await switchHousehold(id);
+          toast(`انتقلت إلى ${hh.name}`);
+          /* البيانات كلها تخصّ البيت السابق — نعيد التشغيل على البيت الجديد */
+          setTimeout(() => location.replace(location.origin + location.pathname), 700);
+        } catch (err) {
+          btn.disabled = false;
+          toast(arabicError(err), 3500);
+        }
+      });
+    },
+  };
+}
+
+/** الانضمام إلى بيت إضافي بكود دعوة، دون مغادرة البيت الحالي */
+export function joinHouseScreen() {
+  return {
+    title: 'الانضمام إلى بيت',
+    back: true,
+    html: `
+      <div class="card">
+        <div class="strong">أدخل كود الدعوة</div>
+        <p class="muted small" style="margin:4px 0 0">
+          اطلب الكود من مالك البيت. ستبقى عضوًا في بيتك الحالي، ويمكنك التبديل بينهما متى شئت.
+        </p>
+      </div>
+      <div id="err"></div>
+      <div class="field mt"><label for="jcode">كود الدعوة</label>
+        <input class="input" id="jcode" placeholder="BEITNA-XXXXXX"
+               style="direction:ltr;text-align:left" autocapitalize="characters"></div>
+      <div class="field"><label for="jname">اسمك في ذلك البيت</label>
+        <input class="input" id="jname" placeholder="صالح"></div>
+      <button class="btn block" data-act="join">الانضمام</button>`,
+    mount(root) {
+      const err = (m) => { root.querySelector('#err').innerHTML = `<div class="err">${esc(m)}</div>`; };
+      root.querySelector('[data-act="join"]').onclick = async (e) => {
+        const code = root.querySelector('#jcode').value.trim().toUpperCase();
+        const name = root.querySelector('#jname').value.trim() || getState().profile.name || 'عضو';
+        if (!code) return err('أدخل كود الدعوة');
+        const btn = e.currentTarget;
+        btn.disabled = true; btn.textContent = 'جارٍ الانضمام...';
+        try {
+          const hh = await joinHousehold(code, name);
+          toast(`انضممت إلى ${hh.name}`);
+          setTimeout(() => location.replace(location.origin + location.pathname), 800);
+        } catch (ex) {
+          btn.disabled = false; btn.textContent = 'الانضمام';
+          err(arabicError(ex));
+        }
+      };
     },
   };
 }

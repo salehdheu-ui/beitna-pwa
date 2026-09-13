@@ -206,6 +206,7 @@ export async function waitForUser() {
   /* تحديث صامت من الخادم إن توفّر الاتصال */
   req('/me', { timeout: 8000 }).then((u) => {
     me = { uid: u.uid, email: u.email, displayName: u.displayName, householdId: u.householdId };
+    setPerm(u.perm);
     lsSet(K_USER, me);
   }).catch((e) => {
     if (e.code === 'no-user') { /* انتهت الجلسة */ token = null; me = null; lsDel(K_TOKEN); lsDel(K_USER); }
@@ -276,6 +277,8 @@ export async function signUp(email, password, displayName) {
 /** يمسح كل ما خزّنته السحابة على هذا الجهاز — بما فيه ذاكرة أي بيت سابق */
 function purgeLocalCloudCache() {
   lsDel(K_TOKEN); lsDel(K_USER); lsDel(K_QUEUE);
+  myPerm = 'member';
+  try { localStorage.removeItem(K_PERM); } catch { /* تجاهل */ }
   try {
     Object.keys(localStorage)
       .filter((k) => k.startsWith('beitna:docs:'))
@@ -302,12 +305,14 @@ export async function loadHouseholdId() {
 
 export async function createHousehold(name, memberName) {
   const hh = await req('/household', { method: 'POST', body: { name, memberName } });
+  setPerm('owner');
   if (me) { me.householdId = hh.id; me.displayName = memberName || me.displayName; lsSet(K_USER, me); }
   return hh;
 }
 
 export async function joinHousehold(code, memberName) {
   const hh = await req('/household/join', { method: 'POST', body: { code, memberName } });
+  setPerm(hh.perm);
   if (me) { me.householdId = hh.id; me.displayName = memberName || me.displayName; lsSet(K_USER, me); }
   return hh;
 }
@@ -315,6 +320,7 @@ export async function joinHousehold(code, memberName) {
 export async function loadHousehold(hid) {
   try {
     const hh = await req('/household', { timeout: 10000 });
+    setPerm(hh.perm);
     return hh;
   } catch {
     const cached = lsGet(K_DOCS(hid));
@@ -574,6 +580,42 @@ export function removeItem(hid, col, id) {
   mark(col, id);
   localApply(col, id, null, true);
   enqueue({ col, id: String(id), op: 'delete', numericId: Number(id) || id });
+}
+
+/* ---------- البيوت المتعددة والأدوار ---------- */
+const K_PERM = 'beitna:perm';
+let myPerm = (() => { try { return localStorage.getItem(K_PERM) || 'member'; } catch { return 'member'; } })();
+export const currentPerm = () => myPerm;
+export const isHelper = () => myPerm === 'helper';
+export const isOwner = () => myPerm === 'owner';
+export function setPerm(p) {
+  if (!p || p === myPerm) return;
+  myPerm = p;
+  /* يُحفظ حتى تبقى حدود العاملة قائمة عند الفتح بلا إنترنت */
+  try { localStorage.setItem(K_PERM, p); } catch { /* تجاهل */ }
+}
+
+/** كل البيوت التي أنا عضو فيها */
+export async function listHouseholds() {
+  const r = await req('/households', { timeout: 12000 });
+  return r.households || [];
+}
+
+/** يبدّل البيت النشط على الخادم ويرجع بياناته */
+export async function switchHousehold(id) {
+  const hh = await req('/household/switch', { method: 'POST', body: { id }, timeout: 15000 });
+  setPerm(hh.perm);
+  if (me) { me.householdId = hh.id; lsSet(K_USER, me); }
+  return hh;
+}
+
+/** كود دعوة العاملة — للمالك فقط */
+export function getHelperCode() { return req('/household/helper-code', { timeout: 10000 }); }
+export function newHelperCode() { return req('/household/helper-code', { method: 'POST', timeout: 12000 }); }
+
+/** تغيير دور عضو — للمالك فقط */
+export function setMemberRole(uid, perm) {
+  return req('/member/' + encodeURIComponent(uid) + '/role', { method: 'POST', body: { perm }, timeout: 12000 });
 }
 
 /* ---------- الأعضاء ---------- */
