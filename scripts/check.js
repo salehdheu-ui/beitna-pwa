@@ -81,6 +81,28 @@ else {
   if (!mismatch) ok('تطابق المفاتيح تام');
 }
 
+
+/* ---------- حاوية الخادم: كل ما يُستدعى محليًا يجب أن يُنسخ ---------- */
+console.log('حاوية الخادم:');
+const dockerfile = read('server/Dockerfile');
+const copied = [];
+for (const line of dockerfile.split(NL)) {
+  const m = line.match(/^COPY (.+) \.\/?$/);
+  if (m) copied.push.apply(copied, m[1].trim().split(/ +/));
+}
+if (!copied.length) bad('لم يُقرأ أي سطر COPY من server/Dockerfile');
+else {
+  ok('COPY ينسخ: ' + copied.join(', '));
+  const entry = read('server/server.js');
+  const needed = (entry.match(/require\('\.\/[^']+'\)/g) || [])
+    .map((s) => s.slice(11, -2))
+    .map((d) => (d.slice(-3) === '.js' ? d : d + '.js'));
+  if (!needed.length) ok('لا استدعاءات محلية في server.js');
+  for (const file of needed) {
+    if (copied.indexOf(file) >= 0 || copied.indexOf('.') >= 0) ok('مستدعى محليًا ومنسوخ: ' + file);
+    else bad('server.js يستدعي ' + file + ' والـ Dockerfile لا ينسخه — الحاوية تموت عند الإقلاع');
+  }
+}
 console.log('');
 console.log(failed ? (failed + ' فحصًا فشل') : 'كل الفحوص سليمة');
 process.exit(failed ? 1 : 0);
