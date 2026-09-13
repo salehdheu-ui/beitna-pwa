@@ -1,6 +1,72 @@
 /* عناصر واجهة مشتركة: التنبيهات، النوافذ، الأوراق السفلية */
 
-import { $, esc, haptic } from './util.js';
+import { $, esc, haptic, relTime } from './util.js';
+import { nameOfUid, myUid } from './store.js';
+
+/* ============================================================
+   سلسلة العهدة — من طلب، من تكفّل، من أنجز.
+   الخادم هو من يختم هذه الحقول؛ ما هنا عرضٌ لها فقط.
+   ============================================================ */
+const DONE_VERB = { shopping: 'اشتراها', faults: 'أصلحه', occasions: 'نفّذه' };
+const ASK_VERB = { shopping: 'طلبها', faults: 'سجّله', occasions: 'أضافه' };
+
+const who = (uid) => (uid === myUid() ? 'أنت' : nameOfUid(uid));
+
+/** سطر مختصر لصفوف القوائم: من طلب ومن تكفّل */
+export function whoLine(item, col = 'shopping') {
+  const bits = [];
+  const asked = item.createdBy || item.ownerUid;
+  if (asked) bits.push(`${ASK_VERB[col] || 'أضافه'} ${esc(who(asked))}`);
+  if (item.doneBy) bits.push(`✅ ${esc(who(item.doneBy))}`);
+  else if (item.claimedBy) bits.push(`🙋 ${esc(who(item.claimedBy))} تكفّل`);
+  return bits.length ? `<span class="who">${bits.join(' · ')}</span>` : '';
+}
+
+/** زرّ التكفّل — أو من أخذها على عاتقه */
+export function claimBar(item) {
+  if (item.doneBy) {
+    return `<div class="claimbar done">✅ أنجزها ${esc(who(item.doneBy))}
+      <span class="muted tiny">${item.doneAt ? esc(relTime(item.doneAt)) : ''}</span></div>`;
+  }
+  if (item.claimedBy) {
+    const mine = item.claimedBy === myUid();
+    return `<div class="claimbar taken">
+      🙋 ${esc(mine ? 'أنت تكفّلت بها' : who(item.claimedBy) + ' تكفّل بها')}
+      <span class="muted tiny">${item.claimedAt ? esc(relTime(item.claimedAt)) : ''}</span>
+      ${mine ? `<button class="btn sm ghost" data-act="unclaim">تراجع</button>` : ''}
+    </div>`;
+  }
+  return `<button class="btn block soft" data-act="claim">🙋 أتكفّل بها</button>`;
+}
+
+const ACT_LINE = {
+  create: (col) => ASK_VERB[col] || 'أضافه',
+  claim: () => 'تكفّل بها',
+  unclaim: () => 'تراجع عن التكفّل',
+  done: (col) => DONE_VERB[col] || 'أنجزه',
+  reopen: () => 'أعاد فتحها',
+  status: (col, to) => `غيّر الحالة إلى ${to || ''}`,
+};
+
+/** السجل الكامل: كل فعل ومن فعله ومتى */
+export function trailCard(item, col = 'shopping') {
+  const trail = Array.isArray(item.trail) ? item.trail : [];
+  if (!trail.length) return '';
+  return `
+  <div class="section">
+    <div class="section-title">🧾 من فعل ماذا</div>
+    <div class="card">
+      ${[...trail].reverse().map((e) => {
+        const line = (ACT_LINE[e.act] || (() => e.act))(col, e.to);
+        return `<div class="trail-row">
+          <span class="trail-who">${esc(who(e.by))}</span>
+          <span class="trail-act">${esc(line)}</span>
+          <span class="trail-at muted tiny">${esc(relTime(e.at))}</span>
+        </div>`;
+      }).join('')}
+    </div>
+  </div>`;
+}
 
 /* ---------- التنبيهات ---------- */
 export function toast(message, ms = 2200) {

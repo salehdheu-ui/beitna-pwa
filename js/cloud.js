@@ -345,6 +345,8 @@ const MAPPERS = {
     status: d.status || 'ناقص', owner: d.owner || '', ownerUid: d.ownerUid || '',
     price: d.price || '', priceValue: Number(d.priceValue) || 0,
     createdAt: Number(d.createdAt) || Date.now(), purchasedAt: d.purchasedAt || 0,
+    createdBy: d.createdBy || '', claimedBy: d.claimedBy || '', claimedAt: Number(d.claimedAt) || 0,
+    doneBy: d.doneBy || '', doneAt: Number(d.doneAt) || 0, trail: Array.isArray(d.trail) ? d.trail : [],
   }),
   faults: (d) => ({
     id: Number(d.id), title: d.title || '', location: d.location || '',
@@ -353,11 +355,15 @@ const MAPPERS = {
     estimatedCost: Number(d.estimatedCost) || 0, actualCost: Number(d.actualCost) || 0,
     technician: d.technician || '', repairDate: Number(d.repairDate) || 0,
     createdAt: Number(d.createdAt) || Date.now(),
+    createdBy: d.createdBy || '', claimedBy: d.claimedBy || '', claimedAt: Number(d.claimedAt) || 0,
+    doneBy: d.doneBy || '', doneAt: Number(d.doneAt) || 0, trail: Array.isArray(d.trail) ? d.trail : [],
   }),
   occasions: (d) => ({
     id: Number(d.id), title: d.title || '', type: d.type || 'مناسبة عامة',
     date: d.date || '', dateMillis: Number(d.dateMillis) || Date.now(),
     reminder: d.reminder || '', note: d.note || '', linkedItems: d.linkedItems || [],
+    createdBy: d.createdBy || '', claimedBy: d.claimedBy || '', claimedAt: Number(d.claimedAt) || 0,
+    doneBy: d.doneBy || '', doneAt: Number(d.doneAt) || 0, trail: Array.isArray(d.trail) ? d.trail : [],
     recurring: d.recurring || 'بدون', reminderTime: d.reminderTime || '09:00',
     reminderOffsets: d.reminderOffsets || [], done: !!d.done,
     createdAt: Number(d.createdAt) || Date.now(),
@@ -579,6 +585,13 @@ export function saveItem(hid, col, item) {
   delete data.purchasedAt;
   localApply(col, item.id, data, false);
   enqueue({ col, id: String(item.id), op: 'set', data });
+}
+
+/** فعل موقَّع: التكفّل والإنجاز. الخادم يختم الهوية، فلا يُنسب لأحد فعل غيره. */
+export function actItem(hid, col, id, act, patch = {}) {
+  mark(col, id);
+  localApply(col, id, patch, false);
+  enqueue({ col, id: String(id), op: 'merge', act, data: patch });
 }
 
 export function patchItem(hid, col, id, patch) {

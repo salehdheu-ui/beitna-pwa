@@ -113,7 +113,13 @@ function render(factory, params = {}) {
     </div>
     ${screen.actions || ''}`;
 
-  const view = $('#view');
+  /* الشاشات تسجّل مستمعاتها على #view نفسه، وهو عنصر ثابت لا يُستبدل
+     إلا محتواه — فتتراكم المستمعات رسمةً بعد رسمة ويُنفَّذ الفعل الواحد
+     بعددها. نستبدل العقدة كلها فتموت مستمعات الشاشة السابقة معها. */
+  const stale = $('#view');
+  const view = stale.cloneNode(false);
+  stale.replaceWith(view);
+
   view.innerHTML = screen.html + (screen.fab
     ? `<button class="fab" data-fab>${esc(screen.fab.label)}</button>` : '');
 
@@ -213,6 +219,7 @@ function cloudBridge(hid) {
   return {
     save: (col, item) => cloud.saveItem(hid, col, item),
     patch: (col, id, patch) => cloud.patchItem(hid, col, id, patch),
+    act: (col, id, act, patch) => cloud.actItem(hid, col, id, act, patch),
     remove: (col, id) => cloud.removeItem(hid, col, id),
     profile: (_, patch) => cloud.updateMemberProfile(hid, patch),
     removeMember: (_, uid) => cloud.removeMemberCloud(hid, uid),

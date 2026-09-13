@@ -3,9 +3,9 @@
 import { esc, relTime, fmtDate, toInputDate } from '../util.js';
 import {
   getState, categoriesOf, addFault, updateFault, deleteFault,
-  FAULT_STATUS, FAULT_PRIORITY, CURRENCY,
+  FAULT_STATUS, FAULT_PRIORITY, CURRENCY, actOnItem, nameOfUid,
 } from '../store.js';
-import { emptyState, toast, confirmDialog, chipSelect, bindChips, openSheet } from '../ui.js';
+import { emptyState, toast, confirmDialog, chipSelect, bindChips, openSheet, claimBar, trailCard, whoLine } from '../ui.js';
 import { go, back } from '../router.js';
 
 const FILTERS = ['الكل', 'الجديدة', 'قيد المتابعة', 'بانتظار فني', 'تم الإصلاح'];
@@ -188,6 +188,7 @@ export function faultDetailsScreen({ id }) {
         <div class="kv"><span class="k">التكلفة الفعلية</span><span class="v">${f.actualCost ? `${f.actualCost} ${CURRENCY}` : '—'}</span></div>
         ${f.repairDate ? `<div class="kv"><span class="k">موعد الإصلاح</span><span class="v">${esc(fmtDate(f.repairDate))}${f.technician ? ` — ${esc(f.technician)}` : ''}</span></div>` : ''}
         <div class="kv"><span class="k">سُجّل</span><span class="v">${esc(relTime(f.createdAt))}</span></div>
+        <div class="kv"><span class="k">سجّله</span><span class="v">${esc(nameOfUid(f.createdBy || f.ownerUid) || '—')}</span></div>
         ${f.note ? `<hr class="divider"><div class="small"><span class="muted">ملاحظة:</span> ${esc(f.note)}</div>` : ''}
       </div>
 
@@ -198,6 +199,10 @@ export function faultDetailsScreen({ id }) {
         </div>
       </div>
 
+      <div class="mt">${claimBar(f)}</div>
+
+      ${trailCard(f, 'faults')}
+
       <div class="mt stack">
         <button class="btn ghost block" data-schedule>🗓️ جدولة إصلاح</button>
         <button class="btn ghost block" data-cost>💰 تسجيل التكلفة الفعلية</button>
@@ -205,8 +210,20 @@ export function faultDetailsScreen({ id }) {
       </div>`,
     mount(root, rerender) {
       root.addEventListener('click', async (e) => {
+        if (e.target.closest('[data-act="claim"]')) {
+          actOnItem('faults', f.id, 'claim'); toast('تكفّلت به — يعرف البيت الآن 🙋'); rerender(); return;
+        }
+        if (e.target.closest('[data-act="unclaim"]')) {
+          actOnItem('faults', f.id, 'unclaim'); toast('تراجعت عن التكفّل'); rerender(); return;
+        }
         const st = e.target.closest('[data-status]');
-        if (st) { updateFault(f.id, { status: st.dataset.status }); toast('تم التحديث ✓'); rerender(); return; }
+        if (st) {
+          const to = st.dataset.status;
+          if (to === 'تم الإصلاح') actOnItem('faults', f.id, 'done', { status: to });
+          else if (f.status === 'تم الإصلاح') actOnItem('faults', f.id, 'reopen', { status: to });
+          else updateFault(f.id, { status: to });
+          toast('تم التحديث ✓'); rerender(); return;
+        }
 
         if (e.target.closest('[data-schedule]')) {
           openSheet(`
