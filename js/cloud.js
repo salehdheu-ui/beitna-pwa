@@ -470,10 +470,39 @@ function applySync(res) {
   if (changed || res.full) persistDocs();
   firstEmit = false;
 
-  for (const [col, x] of fresh) {
-    if (x.ownerUid && x.ownerUid === currentUid()) continue;
-    listeners?.onPartnerActivity?.(LABELS[col](x));
+  notifyFresh(fresh);
+}
+
+const COL_NAMES = { shopping: 'المشتريات', faults: 'الأعطال', occasions: 'المناسبات' };
+
+/** صيغة العدد بالعربية: المثنى، ثم جمع القلة (٣–١٠)، ثم التمييز المفرد */
+function countWord(n, dual, few, many) {
+  if (n === 2) return dual;
+  return n <= 10 ? `${n} ${few}` : `${n} ${many}`;
+}
+
+/**
+ * إشعار واحد لكل دفعة مزامنة، لا إشعار لكل عنصر.
+ * إضافة قائمة كاملة، أو رفع طابور تراكم بلا إنترنت، كانت تصل
+ * كعشرات المستندات الجديدة في مزامنة واحدة فتُطلق عشرات الإشعارات.
+ */
+function notifyFresh(fresh) {
+  const mine = currentUid();
+  const others = fresh.filter(([, x]) => !(x.ownerUid && x.ownerUid === mine));
+  if (!others.length) return;
+
+  if (others.length === 1) {
+    const [col, x] = others[0];
+    listeners?.onPartnerActivity?.(LABELS[col](x), 1);
+    return;
   }
+
+  const cols = [...new Set(others.map(([col]) => col))];
+  const n = others.length;
+  const text = cols.length === 1
+    ? `➕ أُضيفت ${countWord(n, 'عنصران', 'عناصر', 'عنصرًا')} إلى ${COL_NAMES[cols[0]] || 'بيتك'}`
+    : `🏡 ${countWord(n, 'إضافتان جديدتان', 'إضافات جديدة', 'إضافة جديدة')} من أفراد البيت`;
+  listeners?.onPartnerActivity?.(text, n);
 }
 
 /* ============================================================
