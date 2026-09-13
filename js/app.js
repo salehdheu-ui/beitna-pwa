@@ -6,9 +6,10 @@
 import { $, esc } from './util.js';
 import {
   getState, subscribe, update, applyRemote, setCloudBridge, setCloudUid,
-  setLogoutHook, setupHousehold, signOut as signOutLocal,
+  setLogoutHook, setupHousehold, signOut as signOutLocal, uploadLocalData,
 } from './store.js';
 import * as cloud from './cloud.js';
+const amHelper = () => cloud.isHelper();
 import { route, setNotFound, setOnChange, start, go, back, currentPath } from './router.js';
 import { renderAuth } from './screens/auth.js';
 import { homeScreen } from './screens/home.js';
@@ -18,9 +19,13 @@ import { occasionsScreen, occasionFormScreen, occasionDetailsScreen } from './sc
 import {
   moreScreen, profileScreen, householdScreen, notificationsScreen,
   categoriesScreen, archiveScreen, supportScreen,
+  housesScreen, joinHouseScreen,
 } from './screens/more.js';
-import { emptyState, toast } from './ui.js';
-import { startReminderLoop, notifyPartner } from './notify.js';
+import { emptyState, toast, iosInstallSheet } from './ui.js';
+import { startReminderLoop, notifyPartner, isIOS, isStandalone } from './notify.js';
+import { helperScreen, langSheet } from './screens/helper.js';
+import { refreshPush } from './push.js';
+import { t, applyLangToDocument, currentLang } from './i18n.js';
 
 /* ============================================================
    مسارات الإنقاذ:
@@ -50,19 +55,32 @@ export async function wipeEverything(includeData) {
 
 if (location.search.includes('reset')) {
   const all = location.search.includes('all');
-  wipeEverything(all).finally(() => {
-    location.replace(location.origin + location.pathname);
-  });
+  /* ‎?reset=1‎ يمسح الذاكرة المؤقتة فقط فيمرّ مباشرة.
+     ‎?reset=all‎ يمحو البيانات والحساب — لا يمرّ إلا بتأكيد صريح،
+     وإلا كفى إرسال رابط واحد لأي فرد ليفقد كل ما على جهازه. */
+  const go = !all || window.confirm(
+    'سيتم محو كل بيانات بيتنا على هذا الجهاز وتسجيل الخروج. '
+    + 'إن لم تكن أنت من فتح هذا الرابط بنفسك، اضغط «إلغاء».'
+  );
+  if (go) {
+    wipeEverything(all).finally(() => {
+      location.replace(location.origin + location.pathname);
+    });
+  } else {
+    history.replaceState(null, '', location.origin + location.pathname);
+  }
 }
 
 /* ---------- التنقل السفلي ---------- */
-const NAV = [
+const FAMILY_NAV = [
   { route: '/home', label: 'الرئيسية', icon: '🏠' },
   { route: '/shopping', label: 'المشتريات', icon: '🛒' },
   { route: '/faults', label: 'الأعطال', icon: '🔧' },
   { route: '/occasions', label: 'المناسبات', icon: '🎉' },
   { route: '/more', label: 'المزيد', icon: '☰' },
 ];
+/** العاملة لا ترى شريط تنقّل أصلًا — شاشتها واحدة */
+const navItems = () => (amHelper() ? [] : FAMILY_NAV);
 
 let current = null;   // آخر شاشة معروضة
 let currentFactory = null;
@@ -123,15 +141,19 @@ function navHtml(withBrand) {
   const path = currentPath();
   const root = '/' + (path.split('/')[1] || 'home');
   return (withBrand ? `<div class="brand"><span class="logo">🏡</span> بيتنا</div>` : '') +
-    NAV.map((n) => `
+    navItems().map((n) => `
       <button class="navitem ${n.route === root ? 'active' : ''}" data-go="${n.route}">
         <span class="ic">${n.icon}</span><span>${n.label}</span>
       </button>`).join('');
 }
 
 function paintNav() {
-  $('#bottomnav').innerHTML = navHtml(false);
-  $('#sidenav').innerHTML = navHtml(true);
+  const helper = amHelper();
+  $('#bottomnav').innerHTML = helper ? '' : navHtml(false);
+  $('#sidenav').innerHTML = helper ? '' : navHtml(true);
+  $('#bottomnav').hidden = helper;
+  $('#sidenav').hidden = helper;
+  document.body.classList.toggle('helper-mode', helper);
 }
 
 document.addEventListener('click', (e) => {
@@ -140,28 +162,37 @@ document.addEventListener('click', (e) => {
 });
 
 /* ---------- المسارات ---------- */
-route('/home', () => render(homeScreen));
+route('/helper', () => render(helperScreen));
 
-route('/shopping', () => render(shoppingScreen));
-route('/shopping/new', () => render(shoppingFormScreen));
-route('/shopping/session', () => render(shoppingSessionScreen));
-route('/shopping/:id', (p) => render(shoppingDetailsScreen, p));
+/** حارس: العاملة لا تصل إلا شاشتها مهما كان المسار */
+function guarded(factory) {
+  return (p) => (amHelper() ? render(helperScreen) : render(factory, p));
+}
 
-route('/faults', () => render(faultsScreen));
-route('/faults/new', () => render(faultFormScreen));
-route('/faults/:id', (p) => render(faultDetailsScreen, p));
+route('/home', guarded(homeScreen));
 
-route('/occasions', () => render(occasionsScreen));
-route('/occasions/new', () => render(occasionFormScreen));
-route('/occasions/:id', (p) => render(occasionDetailsScreen, p));
+route('/shopping', guarded(shoppingScreen));
+route('/shopping/new', guarded(shoppingFormScreen));
+route('/shopping/session', guarded(shoppingSessionScreen));
+route('/shopping/:id', guarded(shoppingDetailsScreen));
 
-route('/more', () => render(moreScreen));
-route('/profile', () => render(profileScreen));
-route('/household', () => render(householdScreen));
-route('/notifications', () => render(notificationsScreen));
-route('/categories', () => render(categoriesScreen));
-route('/archive', () => render(archiveScreen));
-route('/support', () => render(supportScreen));
+route('/faults', guarded(faultsScreen));
+route('/faults/new', guarded(faultFormScreen));
+route('/faults/:id', guarded(faultDetailsScreen));
+
+route('/occasions', guarded(occasionsScreen));
+route('/occasions/new', guarded(occasionFormScreen));
+route('/occasions/:id', guarded(occasionDetailsScreen));
+
+route('/more', guarded(moreScreen));
+route('/profile', guarded(profileScreen));
+route('/household', guarded(householdScreen));
+route('/houses', guarded(housesScreen));
+route('/join-house', guarded(joinHouseScreen));
+route('/notifications', guarded(notificationsScreen));
+route('/categories', guarded(categoriesScreen));
+route('/archive', guarded(archiveScreen));
+route('/support', guarded(supportScreen));
 
 setNotFound(() => render(() => ({
   title: 'الصفحة غير موجودة',
@@ -216,6 +247,22 @@ function startCloudSession(hid) {
   });
 
   cloud.recordSession();
+  flushPendingUpload();
+  /* الاشتراكات تنتهي أحيانًا من تلقائها — نجدّدها بصمت لمن فعّلها */
+  refreshPush();
+}
+
+/** يرفع بيانات جهاز كان يعمل بلا حساب، بعد ربطه بحساب سحابي */
+function flushPendingUpload() {
+  let pending = false;
+  try { pending = localStorage.getItem('beitna:pending-upload') === '1'; } catch { /* تجاهل */ }
+  if (!pending) return;
+  try { localStorage.removeItem('beitna:pending-upload'); } catch { /* تجاهل */ }
+  /* نمهل المزامنة الأولى حتى لا تُطمَس الرفعة بردّ الخادم */
+  setTimeout(() => {
+    const n = uploadLocalData();
+    if (n) toast(`رُفع ${n} عنصرًا من هذا الجهاز إلى بيتك ✓`, 4000);
+  }, 2500);
 }
 
 cloud.setWriteErrorHandler?.((msg) => toast(msg, 4000));
@@ -258,6 +305,7 @@ function showApp() {
 }
 
 async function boot() {
+  applyLangToDocument();
   applyTheme();
   failsafe();
   await cloud.initCloud();
@@ -316,9 +364,14 @@ async function restoreCloud() {
 function startApp() {
   $('#authRoot').hidden = true;
   paintNav();
+  /* العاملة تُفتح على شاشتها مباشرة مهما كان المسار المحفوظ */
+  if (amHelper() && !location.hash.startsWith('#/helper')) {
+    history.replaceState(null, '', '#/helper');
+  }
   start();
   startReminderLoop();
   subscribe(applyTheme);
+  maybeShowInstall();
 }
 
 function hideSplash() {
@@ -339,6 +392,13 @@ if ('serviceWorker' in navigator) {
     location.reload();                          // نسخة جديدة وصلت
   });
 
+  /* الضغط على الإشعار: الـ Service Worker يركّز النافذة ويرسل لنا الوجهة */
+  navigator.serviceWorker.addEventListener('message', (e) => {
+    if (e.data?.type !== 'notification-click') return;
+    const hash = String(e.data.url || '').split('#')[1];
+    if (hash) go('/' + hash.replace(/^\/+/, ''));
+  });
+
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('sw.js')
       .then((reg) => {
@@ -349,43 +409,80 @@ if ('serviceWorker' in navigator) {
   });
 }
 
-/* ---------- التثبيت على الجهاز ---------- */
+/* ============================================================
+   التثبيت على الجهاز
+   أندرويد: يعطي المتصفح حدث beforeinstallprompt.
+   iPhone: لا يوجد حدث إطلاقًا — نعرض خطوات «إضافة إلى الشاشة الرئيسية».
+   الشريط يُرسم في ‎#installRoot‎ لأن ‎#view‎ يُمسح مع كل إعادة رسم.
+   ============================================================ */
+const INSTALL_DISMISS_KEY = 'beitna:install-dismissed';
 let deferredPrompt = null;
+let installShown = false;
+
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   deferredPrompt = e;
-  showInstallHint();
+  maybeShowInstall();
 });
 
-function showInstallHint() {
-  if (localStorage.getItem('beitna:install-dismissed')) return;
-  const view = $('#view');
-  if (!view || view.querySelector('.install-bar')) return;
-  const bar = document.createElement('div');
-  bar.className = 'install-bar';
-  bar.innerHTML = `
-    <span style="font-size:22px">📲</span>
-    <div class="grow"><div class="strong small">ثبّت بيتنا على جهازك</div>
-      <div class="tiny muted">يعمل بدون إنترنت وكأنه تطبيق مستقل.</div></div>
-    <button class="btn sm" data-install>تثبيت</button>
-    <button class="icon-btn" data-dismiss aria-label="إغلاق">✕</button>`;
-  view.prepend(bar);
-  bar.querySelector('[data-install]').onclick = async () => {
-    if (!deferredPrompt) return;
-    deferredPrompt.prompt();
-    const res = await deferredPrompt.userChoice;
+/** يعرض الشريط متى ما صار ذلك ممكنًا — يُستدعى عند الحدث وبعد ظهور الواجهة */
+function maybeShowInstall() {
+  if (installShown || !booted) return;
+  if (isStandalone()) return;                                   // مثبّت بالفعل
+  try { if (localStorage.getItem(INSTALL_DISMISS_KEY)) return; } catch { /* تجاهل */ }
+
+  /* على iOS لا يوجد زر تثبيت تلقائي إطلاقًا — الخطوات اليدوية هي الطريق الوحيد */
+  const iosMode = isIOS();
+  if (!deferredPrompt && !iosMode) return;                      // لا طريقة تثبيت معروفة
+  renderInstallBar(iosMode);
+}
+
+function renderInstallBar(iosMode) {
+  const root = $('#installRoot');
+  if (!root) return;
+  installShown = true;
+  root.hidden = false;
+  root.innerHTML = `
+    <div class="install-bar">
+      <span style="font-size:22px">📲</span>
+      <div class="grow">
+        <div class="strong small">ثبّت بيتنا على جهازك</div>
+        <div class="tiny muted">${iosMode
+          ? 'خطوتان من متصفح Safari — وتصلك الإشعارات.'
+          : 'يعمل بدون إنترنت وكأنه تطبيق مستقل.'}</div>
+      </div>
+      <button class="btn sm" data-install>${iosMode ? 'الطريقة' : 'تثبيت'}</button>
+      <button class="icon-btn" data-dismiss aria-label="إغلاق">✕</button>
+    </div>`;
+
+  root.querySelector('[data-install]').onclick = async () => {
+    if (iosMode) { iosInstallSheet(); return; }
+    const evt = deferredPrompt;
+    if (!evt) return;
     deferredPrompt = null;
-    bar.remove();
-    if (res.outcome === 'accepted') toast('تم التثبيت ✓');
+    evt.prompt();
+    const res = await evt.userChoice.catch(() => ({ outcome: 'dismissed' }));
+    hideInstallBar();
+    if (res.outcome !== 'accepted') toast('يمكنك التثبيت لاحقًا من قائمة المتصفح');
   };
-  bar.querySelector('[data-dismiss]').onclick = () => {
-    localStorage.setItem('beitna:install-dismissed', '1');
-    bar.remove();
+  root.querySelector('[data-dismiss]').onclick = () => {
+    try { localStorage.setItem(INSTALL_DISMISS_KEY, '1'); } catch { /* تجاهل */ }
+    hideInstallBar();
   };
+}
+
+function hideInstallBar() {
+  const root = $('#installRoot');
+  if (!root) return;
+  root.hidden = true;
+  root.innerHTML = '';
+  installShown = false;
 }
 
 window.addEventListener('appinstalled', () => {
   deferredPrompt = null;
+  hideInstallBar();
+  try { localStorage.removeItem(INSTALL_DISMISS_KEY); } catch { /* تجاهل */ }
   toast('تم تثبيت بيتنا على جهازك 🎉');
 });
 

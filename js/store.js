@@ -115,13 +115,23 @@ function load() {
   }
 }
 
+const PERSIST_MS = 60;
 let saveTimer = null;
 function persist() {
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    try { localStorage.setItem(KEY, JSON.stringify(state)); }
-    catch (e) { console.warn('تعذّر الحفظ المحلي', e); }
-  }, 60);
+  saveTimer = setTimeout(persistNow, PERSIST_MS);
+}
+
+/**
+ * حفظ فوري متزامن.
+ * الحفظ العادي مؤجَّل، فأي إعادة تحميل تليه مباشرة — تبديل بيت،
+ * ربط جهاز، حذف حساب — قد تسبق الكتابة فتضيع.
+ */
+export function persistNow() {
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  try { localStorage.setItem(KEY, JSON.stringify(state)); }
+  catch (e) { console.warn('تعذّر الحفظ المحلي', e); }
 }
 
 function emit() {
@@ -187,12 +197,41 @@ export function setupHousehold({ householdName, memberName, email = '', joinCode
 let logoutHook = null;
 export function setLogoutHook(fn) { logoutHook = fn; }
 
-export function signOut() {
+/**
+ * تسجيل الخروج.
+ * keepData: يُبقي بيانات الجهاز (مشتريات وأعطال ومناسبات وتصنيفات)
+ * ويُخرج الهوية فقط — يُستخدم عند ربط جهاز محلي بحساب سحابي،
+ * فالمسح هناك يعني فقدان كل ما أدخله المستخدم قبل الربط.
+ */
+export function signOut({ keepData = false } = {}) {
   try { logoutHook?.(); } catch (e) { console.warn(e); }
   const keepSettings = { ...state.settings };
+  const carried = keepData ? {
+    shopping: state.shopping, faults: state.faults, occasions: state.occasions,
+    categories: state.categories, favoriteLists: state.favoriteLists,
+    activities: state.activities,
+    profile: { ...blankState().profile, name: state.profile.name },
+  } : null;
+
   state = blankState();
   state.settings = keepSettings;
+  if (carried) Object.assign(state, carried);
   emit();
+}
+
+/**
+ * يرفع كل ما على هذا الجهاز إلى البيت السحابي الحالي.
+ * يُستدعى بعد ربط جهاز كان يعمل بلا حساب. يرجع عدد ما رُفع.
+ */
+export function uploadLocalData() {
+  if (mode !== 'cloud' || !bridge) return 0;
+  let n = 0;
+  for (const col of ['categories', 'shopping', 'faults', 'occasions', 'favoriteLists']) {
+    for (const item of state[col] || []) {
+      try { bridge.save(col, item); n++; } catch (e) { console.warn('تعذّر رفع عنصر', e); }
+    }
+  }
+  return n;
 }
 
 /* ============================================================

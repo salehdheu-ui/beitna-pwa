@@ -8,12 +8,20 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const push = require('./push.js');
 
 const PORT = Number(process.env.PORT || 3000);
 const DATA_DIR = process.env.DATA_DIR || '/data';
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 const SECRET_FILE = path.join(DATA_DIR, 'secret.key');
 const TOKEN_DAYS = 400;
+const PUSH_SUBJECT = process.env.PUSH_SUBJECT || 'mailto:admin@beitna.local';
+
+/* بريد المشرفين (يفصل بينها فاصلة). بدونها لا يرى أحد إحصائيات النظام. */
+const ADMIN_EMAILS = new Set(
+  String(process.env.ADMIN_EMAILS || '')
+    .split(',').map((e) => e.trim().toLowerCase()).filter(Boolean)
+);
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
@@ -26,13 +34,91 @@ try {
   fs.writeFileSync(SECRET_FILE, SECRET, { mode: 0o600 });
 }
 
-/* ---------- قاعدة البيانات ---------- */
-const blank = () => ({ users: {}, emails: {}, households: {}, codes: {} });
-let db;
-try {
-  db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-  for (const k of Object.keys(blank())) if (!db[k]) db[k] = {};
-} catch { db = blank(); }
+/* ============================================================
+   قاعدة البيانات والنسخ الاحتياطي
+   كل البيانات في ملف JSON واحد. لذلك:
+   1) ملف تالف لا يُفسَّر أبدًا كقاعدة فارغة — كان ذلك يمحو كل شيء
+      عند أول حفظ بعد أي كتابة مقطوعة أو خطأ قرص.
+   2) نسخة احتياطية دورية تُدوَّر تلقائيًا داخل المجلد الدائم.
+   ============================================================ */
+const BACKUP_DIR = path.join(DATA_DIR, 'backups');
+const BACKUP_KEEP = Number(process.env.BACKUP_KEEP || 24);
+const BACKUP_HOURS = Number(process.env.BACKUP_HOURS || 1);
+
+fs.mkdirSync(BACKUP_DIR, { recursive: true });
+
+const blank = () => ({ users: {}, emails: {}, households: {}, codes: {}, helperCodes: {} });
+
+const fillMissing = (o) => {
+  for (const k of Object.keys(blank())) if (!o[k]) o[k] = {};
+  return o;
+};
+
+/** أحدث النسخ الاحتياطية أولًا */
+function backupFiles() {
+  try {
+    return fs.readdirSync(BACKUP_DIR)
+      .filter((f) => f.startsWith('db-') && f.endsWith('.json'))
+      .sort()
+      .reverse();
+  } catch { return []; }
+}
+
+function loadDb() {
+  let raw;
+  try {
+    raw = fs.readFileSync(DB_FILE, 'utf8');
+  } catch (e) {
+    if (e.code === 'ENOENT') {
+      console.log('لا توجد قاعدة بيانات — تشغيل أول، نبدأ فارغة');
+      return blank();
+    }
+    throw e;                       // قرص غير قابل للقراءة: نتوقف بدل أن نمحو
+  }
+
+  try {
+    return fillMissing(JSON.parse(raw));
+  } catch {
+    /* الملف موجود لكنه لا يُفسَّر — لا نبدأ فارغين مهما كان */
+    console.error('⚠️  قاعدة البيانات تالفة. نحاول أحدث نسخة احتياطية...');
+    for (const f of backupFiles()) {
+      try {
+        const parsed = fillMissing(JSON.parse(fs.readFileSync(path.join(BACKUP_DIR, f), 'utf8')));
+        const aside = DB_FILE + '.corrupt-' + Date.now();
+        try { fs.renameSync(DB_FILE, aside); } catch { /* تجاهل */ }
+        console.error(`✅ استُعيدت من ${f}. الملف التالف محفوظ في ${path.basename(aside)}`);
+        return parsed;
+      } catch { /* نجرّب الأقدم */ }
+    }
+    console.error('لا توجد نسخة احتياطية صالحة. التشغيل بقاعدة فارغة سيكتب فوق الملف ويمحو كل شيء.');
+    console.error(`نتوقف هنا. افحص ${DB_FILE} يدويًا ثم أعد التشغيل.`);
+    process.exit(1);
+  }
+}
+
+let db = loadDb();
+
+let writesSinceBackup = 0;
+
+/** نسخة احتياطية مدوَّرة. لا تُكتب إن لم يتغيّر شيء. */
+function backupNow(reason = 'دوري', force = false) {
+  if (!force && !writesSinceBackup) return null;
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const file = path.join(BACKUP_DIR, `db-${stamp}.json`);
+  try {
+    fs.writeFileSync(file, JSON.stringify(db));
+    writesSinceBackup = 0;
+    /* التدوير: نبقي أحدث BACKUP_KEEP فقط */
+    backupFiles().slice(BACKUP_KEEP).forEach((f) => {
+      try { fs.unlinkSync(path.join(BACKUP_DIR, f)); } catch { /* تجاهل */ }
+    });
+    console.log(`نسخة احتياطية (${reason}): ${path.basename(file)}`);
+    return file;
+  } catch (e) {
+    console.error('تعذّرت النسخة الاحتياطية', e);
+    return null;
+  }
+}
 
 let saveTimer = null, saving = false, dirty = false;
 function save() {
@@ -48,13 +134,29 @@ function flush() {
   try {
     fs.writeFileSync(tmp, JSON.stringify(db));
     fs.renameSync(tmp, DB_FILE);
+    writesSinceBackup++;
   } catch (e) { console.error('فشل الحفظ', e); dirty = true; }
   saving = false;
   if (dirty) save();
 }
-process.on('SIGTERM', () => { flush(); process.exit(0); });
-process.on('SIGINT', () => { flush(); process.exit(0); });
+function shutdown() { flush(); backupNow('إيقاف', true); process.exit(0); }
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
 setInterval(flush, 5000).unref();
+
+/* نسخة عند الإقلاع: نقطة رجوع معروفة السلامة.
+   لا تُكتب إن كانت آخر نسخة أحدث من ساعة، وإلا طرد النشرُ المتكررُ
+   النسخَ القديمة الصالحة بنسخ متطابقة. */
+(() => {
+  const newest = backupFiles()[0];
+  let fresh = false;
+  if (newest) {
+    try { fresh = Date.now() - fs.statSync(path.join(BACKUP_DIR, newest)).mtimeMs < 3600000; }
+    catch { fresh = false; }
+  }
+  if (!fresh) backupNow('إقلاع', true);
+})();
+setInterval(() => backupNow('دوري'), Math.max(1, BACKUP_HOURS) * 3600000).unref();
 
 /* ---------- أدوات ---------- */
 const now = () => Date.now();
@@ -85,9 +187,31 @@ function verifyPassword(password, stored) {
   } catch { return false; }
 }
 
+/* ============================================================
+   رمز الاسترداد
+   الخادم بلا بريد ولا أي تبعية خارجية، فلا يمكن إرسال رابط تصفير.
+   البديل: رمز يُعرض مرة واحدة عند التسجيل ويُخزَّن مبصومًا فقط —
+   من فقد كلمة مروره يستعيد حسابه به.
+   ============================================================ */
+function makeRecoveryCode() {
+  const part = () => Array.from({ length: 5 },
+    () => CODE_CHARS[crypto.randomInt(CODE_CHARS.length)]).join('');
+  return `${part()}-${part()}-${part()}`;
+}
+const normCode = (c) => String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+/** يولّد رمزًا جديدًا، يحفظ بصمته في المستخدم، ويرجع الرمز مرة واحدة */
+function issueRecoveryCode(user) {
+  const code = makeRecoveryCode();
+  user.recovery = hashPassword(normCode(code));
+  user.recoveryAt = Date.now();
+  return code;
+}
+
 const b64 = (s) => Buffer.from(s).toString('base64url');
 function signToken(uid) {
-  const body = b64(JSON.stringify({ u: uid, e: now() + TOKEN_DAYS * 864e5 }));
+  const epoch = db.users[uid]?.tokenEpoch || 0;
+  const body = b64(JSON.stringify({ u: uid, e: now() + TOKEN_DAYS * 864e5, v: epoch }));
   const sig = crypto.createHmac('sha256', SECRET).update(body).digest('base64url');
   return body + '.' + sig;
 }
@@ -100,6 +224,8 @@ function readToken(token) {
     if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
     const p = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
     if (!p.u || !p.e || p.e < now()) return null;
+    /* بعد تصفير كلمة المرور تُرفع الحقبة فتسقط كل الجلسات القديمة */
+    if ((db.users[p.u]?.tokenEpoch || 0) !== (p.v || 0)) return null;
     return p.u;
   } catch { return null; }
 }
@@ -121,6 +247,102 @@ function noteAttempt(key, ok) {
 setInterval(() => {
   for (const [k, v] of attempts) if (now() - v.at > 15 * 60000) attempts.delete(k);
 }, 60000).unref();
+
+/* ============================================================
+   Web Push — الإشعارات والتطبيق مغلق
+   ============================================================ */
+const VAPID = push.loadVapid(DATA_DIR);
+
+const subsOf = (u) => (Array.isArray(u.pushSubs) ? u.pushSubs : (u.pushSubs = []));
+
+/** ساعات الهدوء تُحترم على الخادم أيضًا، لا في الواجهة فقط */
+function inQuietHours(u) {
+  if (!u.prefs || u.prefs.quietHours !== true) return false;
+  const h = new Date().getHours();
+  return h >= 23 || h < 7;
+}
+
+/**
+ * يرسل إلى كل أجهزة المستخدم، ويحذف الاشتراكات الميتة.
+ * لا ينتظر الردّ: الكتابة يجب ألا تتأخّر بسبب خدمة الدفع.
+ */
+async function pushToUser(u, payload) {
+  const subs = subsOf(u);
+  if (!subs.length || inQuietHours(u)) return;
+
+  const results = await Promise.all(subs.map((sub) =>
+    push.sendPush(sub, payload, VAPID, { subject: PUSH_SUBJECT })
+      .then((r) => ({ sub, r }))
+      .catch(() => ({ sub, r: { ok: false, status: 0 } }))));
+
+  const dead = results.filter(({ r }) => r.status === 404 || r.status === 410);
+  if (dead.length) {
+    u.pushSubs = subs.filter((sub) => !dead.some((d) => d.sub.endpoint === sub.endpoint));
+    save();
+  }
+}
+
+const PUSH_COL_NAMES = { shopping: 'المشتريات', faults: 'الأعطال', occasions: 'المناسبات' };
+const PUSH_ONE = {
+  shopping: (d) => '🛒 أُضيف للمشتريات: ' + (d.name || ''),
+  faults: (d) => '🔧 عطل جديد: ' + (d.title || ''),
+  occasions: (d) => '🎉 مناسبة جديدة: ' + (d.title || ''),
+};
+
+/** صيغة العدد بالعربية: المثنى، ثم جمع القلة، ثم التمييز المفرد */
+const countWord = (n, dual, few, many) =>
+  (n === 2 ? dual : n <= 10 ? `${n} ${few}` : `${n} ${many}`);
+
+/**
+ * إشعار واحد لكل دفعة كتابة، لا إشعار لكل عنصر — وإلا وصلت
+ * عشرات الإشعارات دفعة واحدة عند إضافة قائمة أو رفع طابور متراكم.
+ */
+function activityPayload(added, actor) {
+  const notifiable = added.filter((x) => PUSH_ONE[x.col]);
+  if (!notifiable.length) return null;
+
+  const who = actor.displayName || 'أحد أفراد البيت';
+  if (notifiable.length === 1) {
+    const { col, data } = notifiable[0];
+    return { title: 'بيتنا — ' + who, body: PUSH_ONE[col](data), tag: 'beitna-activity', url: './#/' + col };
+  }
+  const cols = [...new Set(notifiable.map((x) => x.col))];
+  const n = notifiable.length;
+  const body = cols.length === 1
+    ? `➕ أُضيفت ${countWord(n, 'عنصران', 'عناصر', 'عنصرًا')} إلى ${PUSH_COL_NAMES[cols[0]]}`
+    : `🏡 ${countWord(n, 'إضافتان جديدتان', 'إضافات جديدة', 'إضافة جديدة')}`;
+  return { title: 'بيتنا — ' + who, body, tag: 'beitna-activity', url: './#/home' };
+}
+
+/** يُبلّغ بقية أفراد البيت بما أضافه غيرهم */
+function pushHouseholdActivity(hh, actorUid, payload) {
+  if (!payload) return;
+  for (const m of Object.values(hh.members)) {
+    if (m.deleted || m.uid === actorUid) continue;
+    const target = db.users[m.uid];
+    if (!target) continue;
+    pushToUser(target, payload).catch(() => { /* لا يوقف الكتابة */ });
+  }
+}
+
+/* ---------- حدّ المعدل حسب مصدر الطلب ---------- */
+const hits = new Map();
+function clientIp(req) {
+  const fwd = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+  return fwd || req.socket?.remoteAddress || 'unknown';
+}
+/** يرجع true إذا تجاوز المصدر الحدّ المسموح داخل النافذة الزمنية */
+function rateLimited(key, limit, windowMs) {
+  const t = now();
+  const rec = hits.get(key);
+  if (!rec || t - rec.at > windowMs) { hits.set(key, { n: 1, at: t }); return false; }
+  rec.n++;
+  return rec.n > limit;
+}
+setInterval(() => {
+  const t = now();
+  for (const [k, v] of hits) if (t - v.at > 3600000) hits.delete(k);
+}, 300000).unref();
 
 /* ---------- المجموعات ---------- */
 const COLS = ['shopping', 'faults', 'occasions', 'categories', 'favoriteLists'];
@@ -147,7 +369,8 @@ function newHousehold(name, user, memberName) {
   COLS.forEach((c) => { hh.cols[c] = {}; });
   hh.members[user.uid] = {
     uid: user.uid, name: memberName || user.displayName || 'مستخدم', email: user.email || '',
-    role: 'مالك البيت', isOwner: true, joinedAt: t, updatedAt: t, deleted: false,
+    role: 'مالك البيت', isOwner: true, perm: 'owner',
+    joinedAt: t, updatedAt: t, deleted: false,
   };
   DEFAULT_CATEGORIES.forEach(([cid, cname, icon, type]) => {
     hh.cols.categories[String(cid)] = {
@@ -213,6 +436,115 @@ const publicUser = (u, token) => ({
 
 const normEmail = (e) => String(e || '').trim().toLowerCase();
 
+/* ============================================================
+   الأدوار والصلاحيات
+   owner  : مالك البيت — كل شيء
+   member : فرد من العائلة — كل شيء عدا إدارة الأعضاء
+   helper : العاملة — المشتريات والإبلاغ عن الأعطال فقط،
+            بلا مناسبات ولا أسعار ولا بيانات الأفراد
+   ============================================================ */
+const PERMS = ['owner', 'member', 'helper'];
+const HELPER_COLS = ['shopping', 'faults'];
+const PRICE_FIELDS = ['price', 'priceValue', 'budget', 'cost'];
+
+/** الأدوار القديمة لا تحمل perm — نشتقّه من isOwner */
+const permOf = (m) => (m && PERMS.includes(m.perm) ? m.perm : (m && m.isOwner ? 'owner' : 'member'));
+const roleLabel = (perm) =>
+  (perm === 'owner' ? 'مالك البيت' : perm === 'helper' ? 'العاملة' : 'عضو');
+
+/** ينزع الأسعار من عنصر مشتريات قبل إرساله للعاملة */
+function stripPrices(doc) {
+  const out = { ...doc };
+  for (const f of PRICE_FIELDS) delete out[f];
+  return out;
+}
+
+const isAdmin = (u) => !!u && ADMIN_EMAILS.has(String(u.email || '').toLowerCase());
+
+/**
+ * يحذف المستخدم من كل بيوته ثم يحذف حسابه.
+ * إن كان مالكًا وبقي أعضاء: تنتقل الملكية لأقدم عضو باقٍ حتى لا تضيع بيانات غيره.
+ * إن كان آخر عضو: يُحذف البيت وبياناته وكود دعوته.
+ */
+function deleteUser(user) {
+  let householdsDeleted = 0, ownershipTransferred = 0;
+
+  for (const hh of Object.values(db.households)) {
+    const m = hh.members[user.uid];
+    if (!m) continue;
+    const wasOwner = !!m.isOwner;
+    delete hh.members[user.uid];
+
+    const remaining = Object.values(hh.members).filter((x) => !x.deleted);
+    if (!remaining.length) {
+      if (hh.inviteCode) delete db.codes[hh.inviteCode];
+      delete db.households[hh.id];
+      householdsDeleted++;
+      continue;
+    }
+    if (wasOwner) {
+      const heir = remaining.sort((a, b) => (a.joinedAt || 0) - (b.joinedAt || 0))[0];
+      heir.isOwner = true;
+      heir.role = 'مالك البيت';
+      heir.updatedAt = now();
+      ownershipTransferred++;
+    }
+    hh.updatedAt = now();
+  }
+
+  const email = String(user.email || '').toLowerCase();
+  if (email && db.emails[email] === user.uid) delete db.emails[email];
+  delete db.users[user.uid];
+
+  return { householdsDeleted, ownershipTransferred };
+}
+
+/** أرقام مجمّعة فقط — لا بريد ولا اسم ولا محتوى */
+function buildStats() {
+  const users = Object.values(db.users);
+  const households = Object.values(db.households);
+  const t = now();
+  const since = (days) => t - days * 86400000;
+
+  const activeSince = (days) => users.filter((u) => (u.updatedAt || u.createdAt || 0) > since(days)).length;
+
+  const items = {};
+  let itemsTotal = 0;
+  for (const c of COLS) items[c] = 0;
+  for (const hh of households) {
+    for (const c of COLS) {
+      const live = Object.values(hh.cols?.[c] || {}).filter((d) => !d.deleted).length;
+      items[c] += live;
+      itemsTotal += live;
+    }
+  }
+
+  const members = households.map((hh) => Object.values(hh.members).filter((m) => !m.deleted).length);
+  let dbBytes = 0;
+  try { dbBytes = fs.statSync(DB_FILE).size; } catch { /* لم يُحفظ بعد */ }
+
+  const backups = backupFiles();
+  let lastBackup = 0;
+  if (backups[0]) { try { lastBackup = fs.statSync(path.join(BACKUP_DIR, backups[0])).mtimeMs; } catch { /* تجاهل */ } }
+
+  return {
+    backups: backups.length,
+    lastBackupAt: lastBackup,
+    users: users.length,
+    usersNew7d: users.filter((u) => (u.createdAt || 0) > since(7)).length,
+    usersNew30d: users.filter((u) => (u.createdAt || 0) > since(30)).length,
+    activeUsers7d: activeSince(7),
+    activeUsers30d: activeSince(30),
+    households: households.length,
+    householdsShared: members.filter((n) => n > 1).length,
+    avgMembers: households.length ? Number((members.reduce((a, b) => a + b, 0) / households.length).toFixed(2)) : 0,
+    items, itemsTotal,
+    dbBytes,
+    uptimeSec: Math.round(process.uptime()),
+    at: t,
+  };
+}
+
 /* ---------- المسارات ---------- */
 async function route(req, res, url) {
   const p = url.pathname.replace(/^\/api/, '') || '/';
@@ -220,8 +552,13 @@ async function route(req, res, url) {
 
   if (p === '/health') return send(res, 200, { ok: true, at: now() });
 
+  /* المفتاح العام لـ VAPID — يحتاجه المتصفح قبل الاشتراك */
+  if (p === '/push/key' && method === 'GET') return send(res, 200, { key: VAPID.publicKey });
+
   /* ===== حساب جديد ===== */
   if (p === '/signup' && method === 'POST') {
+    /* بلا هذا الحدّ يستطيع أي أحد إنشاء حسابات بلا نهاية حتى يمتلئ القرص */
+    if (rateLimited('signup:' + clientIp(req), 5, 3600000)) return fail(res, 429, 'too-many-requests');
     const b = await readBody(req);
     const email = normEmail(b.email);
     const password = String(b.password || '');
@@ -235,8 +572,10 @@ async function route(req, res, url) {
       householdId: null, createdAt: now(), updatedAt: now(), prefs: {},
     };
     db.emails[email] = uid;
+    const recoveryCode = issueRecoveryCode(db.users[uid]);
     save();
-    return send(res, 200, publicUser(db.users[uid], signToken(uid)));
+    /* يُعرض مرة واحدة فقط — لا يُخزَّن على الخادم إلا مبصومًا */
+    return send(res, 200, { ...publicUser(db.users[uid], signToken(uid)), recoveryCode });
   }
 
   /* ===== تسجيل الدخول ===== */
@@ -254,6 +593,32 @@ async function route(req, res, url) {
     return send(res, 200, publicUser(u, signToken(uid)));
   }
 
+  /* ===== استعادة الحساب برمز الاسترداد ===== */
+  if (p === '/account/recover' && method === 'POST') {
+    if (rateLimited('recover:' + clientIp(req), 8, 3600000)) return fail(res, 429, 'too-many-requests');
+    const b = await readBody(req);
+    const email = normEmail(b.email);
+    const code = normCode(b.code);
+    const password = String(b.password || '');
+    if (password.length < 6) return fail(res, 400, 'weak-password');
+    if (tooMany('rec:' + email)) return fail(res, 429, 'too-many-requests');
+
+    const u = db.users[db.emails[email]];
+    /* ردّ واحد لكل الحالات حتى لا يُستدلّ على البرد المسجَّلة */
+    if (!u || !u.recovery || !verifyPassword(code, u.recovery)) {
+      noteAttempt('rec:' + email, false);
+      return fail(res, 401, 'bad-recovery');
+    }
+    noteAttempt('rec:' + email, true);
+
+    u.pass = hashPassword(password);
+    u.tokenEpoch = (u.tokenEpoch || 0) + 1;      // تسقط كل الجلسات القديمة
+    u.updatedAt = now();
+    const recoveryCode = issueRecoveryCode(u);   // الرمز يُستهلك ويُستبدل
+    save();
+    return send(res, 200, { ...publicUser(u, signToken(u.uid)), recoveryCode });
+  }
+
   /* ===== كل ما بعده يحتاج تسجيل دخول ===== */
   const user = authUser(req);
   if (!user) return fail(res, 401, 'no-user');
@@ -262,6 +627,8 @@ async function route(req, res, url) {
     const hh = myHousehold(user);
     return send(res, 200, {
       ...publicUser(user, null),
+      isAdmin: isAdmin(user),
+      perm: hh ? permOf(hh.members[user.uid]) : null,
       householdId: hh ? hh.id : null,
       household: hh ? { id: hh.id, name: hh.name, inviteCode: hh.inviteCode, createdAt: hh.createdAt } : null,
     });
@@ -271,6 +638,142 @@ async function route(req, res, url) {
     const b = await readBody(req);
     if (b.displayName) { user.displayName = String(b.displayName).slice(0, 60); user.updatedAt = now(); save(); }
     return send(res, 200, { ok: true });
+  }
+
+  /* ===== كل بيوتي ===== */
+  if (p === '/households' && method === 'GET') {
+    const mine = Object.values(db.households)
+      .filter((hh) => hh.members[user.uid] && !hh.members[user.uid].deleted)
+      .map((hh) => {
+        const m = hh.members[user.uid];
+        const perm = permOf(m);
+        return {
+          id: hh.id, name: hh.name, perm, role: roleLabel(perm),
+          isOwner: perm === 'owner',
+          members: Object.values(hh.members).filter((x) => !x.deleted).length,
+          active: hh.id === user.householdId,
+          createdAt: hh.createdAt,
+        };
+      })
+      .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+    return send(res, 200, { households: mine });
+  }
+
+  /* ===== تبديل البيت النشط ===== */
+  if (p === '/household/switch' && method === 'POST') {
+    const b = await readBody(req);
+    const target = db.households[String(b.id || '')];
+    const m = target?.members[user.uid];
+    if (!target || !m || m.deleted) return fail(res, 404, 'not-a-member');
+    user.householdId = target.id; user.updatedAt = now();
+    save();
+    const perm = permOf(m);
+    return send(res, 200, {
+      id: target.id, name: target.name, perm, role: roleLabel(perm),
+      inviteCode: perm === 'owner' ? target.inviteCode : null,
+    });
+  }
+
+  /* ===== اشتراك الدفع ===== */
+  if (p === '/push/subscribe' && method === 'POST') {
+    const b = await readBody(req);
+    const sub = b.subscription || {};
+    if (!sub.endpoint || !sub.keys?.p256dh || !sub.keys?.auth) return fail(res, 400, 'bad-subscription');
+    const subs = subsOf(user);
+    /* الجهاز نفسه قد يُجدّد اشتراكه — نستبدل ولا نكرّر */
+    const kept = subs.filter((x) => x.endpoint !== sub.endpoint);
+    kept.push({
+      endpoint: String(sub.endpoint).slice(0, 1000),
+      keys: { p256dh: String(sub.keys.p256dh), auth: String(sub.keys.auth) },
+      at: now(),
+    });
+    user.pushSubs = kept.slice(-8);       // ٨ أجهزة لكل حساب تكفي
+    user.updatedAt = now();
+    save();
+    return send(res, 200, { ok: true, devices: user.pushSubs.length });
+  }
+
+  if (p === '/push/subscribe' && method === 'DELETE') {
+    const b = await readBody(req);
+    const ep = String(b.endpoint || '');
+    user.pushSubs = subsOf(user).filter((x) => x.endpoint !== ep);
+    save();
+    return send(res, 200, { ok: true, devices: user.pushSubs.length });
+  }
+
+  /* إشعار تجريبي إلى أجهزة صاحب الحساب نفسه */
+  if (p === '/push/test' && method === 'POST') {
+    const subs = subsOf(user);
+    if (!subs.length) return fail(res, 400, 'no-subscription');
+    const results = await Promise.all(subs.map((sub) =>
+      push.sendPush(sub, {
+        title: 'بيتنا ✓',
+        body: 'الإشعارات تصلك حتى والتطبيق مغلق.',
+        tag: 'beitna-test',
+      }, VAPID, { subject: PUSH_SUBJECT }).catch(() => ({ ok: false, status: 0 }))));
+    return send(res, 200, {
+      sent: results.filter((r) => r.ok).length,
+      failed: results.filter((r) => !r.ok).map((r) => r.status),
+    });
+  }
+
+  /* ===== رمز استرداد جديد ===== */
+  if (p === '/account/recovery' && method === 'POST') {
+    const b = await readBody(req);
+    if (!verifyPassword(String(b.password || ''), user.pass)) return fail(res, 401, 'wrong-password');
+    const recoveryCode = issueRecoveryCode(user);
+    save();
+    return send(res, 200, { recoveryCode });
+  }
+
+  /* ===== تغيير كلمة المرور ===== */
+  if (p === '/account/password' && method === 'POST') {
+    const b = await readBody(req);
+    if (!verifyPassword(String(b.current || ''), user.pass)) return fail(res, 401, 'wrong-password');
+    const next = String(b.password || '');
+    if (next.length < 6) return fail(res, 400, 'weak-password');
+    user.pass = hashPassword(next);
+    user.tokenEpoch = (user.tokenEpoch || 0) + 1;
+    user.updatedAt = now();
+    save();
+    /* الجلسة الحالية تحتاج رمزًا جديدًا بعد رفع الحقبة */
+    return send(res, 200, { ...publicUser(user, signToken(user.uid)) });
+  }
+
+  /* ===== حذف الحساب نهائيًا =====
+     يطلب كلمة المرور حتى لا يكفي رمز مسروق لمحو الحساب. */
+  if (p === '/account/delete' && method === 'POST') {
+    const b = await readBody(req);
+    if (!verifyPassword(String(b.password || ''), user.pass)) return fail(res, 401, 'wrong-password');
+    const summary = deleteUser(user);
+    save();
+    return send(res, 200, { ok: true, ...summary });
+  }
+
+  /* ===== النسخ الاحتياطية — للمشرفين فقط ===== */
+  if (p === '/backups' && method === 'GET') {
+    if (!isAdmin(user)) return fail(res, 403, 'admin-only');
+    const list = backupFiles().map((f) => {
+      let size = 0, at = 0;
+      try { const st = fs.statSync(path.join(BACKUP_DIR, f)); size = st.size; at = st.mtimeMs; }
+      catch { /* حُذفت للتو */ }
+      return { file: f, size, at };
+    });
+    return send(res, 200, { backups: list, keep: BACKUP_KEEP, everyHours: BACKUP_HOURS });
+  }
+
+  if (p === '/backups/now' && method === 'POST') {
+    if (!isAdmin(user)) return fail(res, 403, 'admin-only');
+    flush();
+    const file = backupNow('يدوي', true);
+    if (!file) return fail(res, 500, 'backup-failed');
+    return send(res, 200, { ok: true, file: path.basename(file) });
+  }
+
+  /* ===== إحصائيات النظام — للمشرفين فقط، أرقام مجمّعة بلا أي بيانات شخصية ===== */
+  if (p === '/stats' && method === 'GET') {
+    if (!isAdmin(user)) return fail(res, 403, 'admin-only');
+    return send(res, 200, buildStats());
   }
 
   /* ===== إنشاء بيت ===== */
@@ -285,17 +788,22 @@ async function route(req, res, url) {
 
   /* ===== الانضمام بكود ===== */
   if (p === '/household/join' && method === 'POST') {
+    /* كود الدعوة قصير — بلا حدّ يمكن تخمينه والدخول على بيت غريب */
+    if (rateLimited('join:' + clientIp(req), 10, 3600000)) return fail(res, 429, 'too-many-requests');
     const b = await readBody(req);
     const code = String(b.code || '').trim().toUpperCase();
-    const hid = db.codes[code];
+    const asHelper = !!db.helperCodes[code];
+    const hid = db.codes[code] || db.helperCodes[code];
     const hh = hid ? db.households[hid] : null;
     if (!hh) return fail(res, 404, 'bad-code');
     const t = now();
     const memberName = String(b.memberName || user.displayName || 'مستخدم').slice(0, 60);
     const existing = hh.members[user.uid];
+    /* عضو قديم يحتفظ بدوره؛ القادم الجديد يأخذ دوره من نوع الكود */
+    const perm = existing ? permOf(existing) : (asHelper ? 'helper' : 'member');
     hh.members[user.uid] = {
       uid: user.uid, name: memberName, email: user.email || '',
-      role: existing?.isOwner ? 'مالك البيت' : 'عضو', isOwner: !!existing?.isOwner,
+      role: roleLabel(perm), isOwner: perm === 'owner', perm,
       joinedAt: existing?.joinedAt || t, updatedAt: t, deleted: false,
     };
     hh.updatedAt = t;
@@ -307,13 +815,60 @@ async function route(req, res, url) {
   const hh = myHousehold(user);
   if (!hh) return fail(res, 404, 'no-household');
 
+  const myPerm = permOf(hh.members[user.uid]);
+  const isHelper = myPerm === 'helper';
+  const isOwner = myPerm === 'owner';
+
   if (p === '/household' && method === 'GET') {
-    return send(res, 200, { id: hh.id, name: hh.name, inviteCode: hh.inviteCode, createdAt: hh.createdAt });
+    return send(res, 200, {
+      id: hh.id, name: hh.name, createdAt: hh.createdAt,
+      perm: myPerm, role: roleLabel(myPerm),
+      /* كود الدعوة لا يُسلَّم للعاملة — به تُضاف أعضاء للبيت */
+      inviteCode: isHelper ? null : hh.inviteCode,
+    });
   }
 
   if (p === '/household/rename' && method === 'POST') {
+    if (!isOwner) return fail(res, 403, 'owner-only');
     const b = await readBody(req);
     if (b.name) { hh.name = String(b.name).slice(0, 80); hh.updatedAt = now(); save(); }
+    return send(res, 200, { ok: true });
+  }
+
+  /* ===== كود دعوة خاص بالعاملة — من المالك فقط ===== */
+  if (p === '/household/helper-code' && method === 'POST') {
+    if (!isOwner) return fail(res, 403, 'owner-only');
+    if (hh.helperCode) delete db.helperCodes[hh.helperCode];
+    let code;
+    do { code = makeInviteCode().replace('BEITNA-', 'AMEL-'); }
+    while (db.codes[code] || db.helperCodes[code]);
+    hh.helperCode = code;
+    db.helperCodes[code] = hh.id;
+    hh.updatedAt = now(); save();
+    return send(res, 200, { helperCode: code });
+  }
+
+  if (p === '/household/helper-code' && method === 'GET') {
+    if (!isOwner) return fail(res, 403, 'owner-only');
+    return send(res, 200, { helperCode: hh.helperCode || null });
+  }
+
+  /* ===== تغيير دور عضو — من المالك فقط ===== */
+  if (p.startsWith('/member/') && p.endsWith('/role') && method === 'POST') {
+    if (!isOwner) return fail(res, 403, 'owner-only');
+    const target = decodeURIComponent(p.slice('/member/'.length, -'/role'.length));
+    const b = await readBody(req);
+    const perm = String(b.perm || '');
+    if (!PERMS.includes(perm)) return fail(res, 400, 'bad-perm');
+    const m = hh.members[target];
+    if (!m || m.deleted) return fail(res, 404, 'no-member');
+    /* لا يجوز أن يبقى البيت بلا مالك */
+    if (target === user.uid && perm !== 'owner') {
+      const owners = Object.values(hh.members).filter((x) => !x.deleted && permOf(x) === 'owner');
+      if (owners.length <= 1) return fail(res, 400, 'last-owner');
+    }
+    m.perm = perm; m.isOwner = perm === 'owner'; m.role = roleLabel(perm); m.updatedAt = now();
+    hh.updatedAt = now(); save();
     return send(res, 200, { ok: true });
   }
 
@@ -321,18 +876,34 @@ async function route(req, res, url) {
   if (p === '/sync' && method === 'GET') {
     const since = Number(url.searchParams.get('since') || 0);
     const full = since <= 0;
-    const out = { now: now(), household: { id: hh.id, name: hh.name, inviteCode: hh.inviteCode }, full };
+    const out = {
+      now: now(), full,
+      household: {
+        id: hh.id, name: hh.name,
+        /* كود الدعوة يضيف أعضاء للبيت — لا يصل العاملة بأي طريق */
+        inviteCode: isHelper ? null : hh.inviteCode,
+      },
+    };
     out.cols = {};
+    /* العاملة لا ترى إلا المشتريات والأعطال، وبلا أسعار */
+    const visible = isHelper ? HELPER_COLS : COLS;
     for (const c of COLS) {
+      if (!visible.includes(c)) { out.cols[c] = []; continue; }
       const bucket = hh.cols[c] || {};
       const list = [];
       for (const k of Object.keys(bucket)) {
         const d = bucket[k];
-        if ((d.updatedAt || 0) > since) list.push(d);
+        if ((d.updatedAt || 0) <= since) continue;
+        list.push(isHelper && c === 'shopping' ? stripPrices(d) : d);
       }
       out.cols[c] = list;
     }
-    out.members = Object.values(hh.members).filter((m) => (m.updatedAt || 0) > since);
+    /* ولا ترى بيانات الأفراد — الاسم فقط لتمييز من أضاف ماذا */
+    out.members = Object.values(hh.members)
+      .filter((m) => (m.updatedAt || 0) > since)
+      .map((m) => (isHelper
+        ? { uid: m.uid, name: m.name, role: m.role, deleted: !!m.deleted, updatedAt: m.updatedAt }
+        : m));
     return send(res, 200, out);
   }
 
@@ -341,10 +912,20 @@ async function route(req, res, url) {
     const b = await readBody(req);
     const ops = Array.isArray(b.ops) ? b.ops.slice(0, 500) : [];
     const t = now();
-    let applied = 0;
+    let applied = 0, denied = 0;
+    const added = [];        // العناصر الجديدة فقط — للإشعار
     for (const op of ops) {
       const col = String(op.col || '');
       if (!COLS.includes(col)) continue;
+
+      /* حدود العاملة تُفرض هنا، لا في الواجهة فقط:
+         مجموعات محددة، بلا حذف، وبلا أي مساس بالأسعار */
+      if (isHelper) {
+        if (!HELPER_COLS.includes(col)) { denied++; continue; }
+        if (op.op === 'delete') { denied++; continue; }
+        if (op.data) op.data = stripPrices(op.data);
+      }
+
       const id = String(op.id ?? '');
       if (!id) continue;
       const bucket = hh.cols[col] || (hh.cols[col] = {});
@@ -355,9 +936,14 @@ async function route(req, res, url) {
       } else if (op.op === 'merge' && prev) {
         bucket[id] = { ...prev, ...(op.data || {}), id: prev.id, deleted: false, updatedAt: t };
       } else {
+        if (!prev) added.push({ col, data: op.data || {} });
         const data = op.data || {};
+        /* العاملة لا ترى الأسعار، فلا يجوز أن تمحوها بإعادة حفظ العنصر */
+        const keep = (isHelper && prev)
+          ? Object.fromEntries(PRICE_FIELDS.filter((f) => f in prev).map((f) => [f, prev[f]]))
+          : {};
         bucket[id] = {
-          ...(prev || {}), ...data,
+          ...(prev || {}), ...data, ...keep,
           id: data.id ?? prev?.id ?? (Number(id) || id),
           createdAt: data.createdAt || prev?.createdAt || t,
           deleted: false, updatedAt: t,
@@ -366,12 +952,18 @@ async function route(req, res, url) {
       applied++;
     }
     if (applied) { hh.updatedAt = t; save(); }
-    return send(res, 200, { ok: true, applied, now: t });
+    if (added.length) pushHouseholdActivity(hh, user.uid, activityPayload(added, user));
+    return send(res, 200, { ok: true, applied, denied, now: t });
   }
 
   /* ===== الأعضاء ===== */
   if (p === '/members' && method === 'GET') {
-    return send(res, 200, { members: Object.values(hh.members).filter((m) => !m.deleted) });
+    const list = Object.values(hh.members).filter((m) => !m.deleted);
+    return send(res, 200, {
+      members: isHelper
+        ? list.map((m) => ({ uid: m.uid, name: m.name, role: m.role }))
+        : list.map((m) => ({ ...m, perm: permOf(m) })),
+    });
   }
 
   if (p === '/member' && method === 'POST') {

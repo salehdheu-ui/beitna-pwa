@@ -5,7 +5,102 @@
    تُرسل تلقائيًا أول ما يعود الاتصال.
    ============================================================ */
 
-const API = (window.BEITNA_API || (location.origin + '/api')).replace(/\/+$/, '');
+/* ============================================================
+   عنوان الخادم
+   كان يُشتق من مكان فتح الصفحة (location.origin + '/api')، فأي نسخة
+   لا تُفتح من دومين الخادم نفسه — نسخة محلية، دومين ثانٍ، WebView —
+   كانت تخاطب خادمًا ثابتًا لا وجود لـ /api فيه، فيرد 501/405،
+   ويبقى ذلك الجهاز جزيرة لا تتزامن مع بقية الأجهزة.
+
+   الآن: نستخدم /api على نفس الأصل إن كان يستجيب فعلًا (لا CORS،
+   ويحترم النسخ المستضافة ذاتيًا)، وإلا نرجع لخادم بيتنا الرسمي
+   حتى يبقى الحساب واحدًا من أي مكان.
+   ============================================================ */
+const CANONICAL_API = 'https://beitna.saher.cloud/api';
+const K_API = 'beitna:api';
+
+const trimSlash = (u) => String(u).replace(/\/+$/, '');
+
+/** عنوان مفروض يدويًا: window.BEITNA_API أو مفتاح محفوظ (للنسخ المستضافة ذاتيًا) */
+function forcedApi() {
+  if (window.BEITNA_API) return trimSlash(window.BEITNA_API);
+  try {
+    const saved = localStorage.getItem(K_API);
+    if (saved) return trimSlash(saved);
+  } catch { /* تجاهل */ }
+  return null;
+}
+
+/** هل يوجد خادم بيتنا فعلًا على هذا العنوان؟ */
+async function isBeitnaServer(base) {
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 2500);
+    const res = await fetch(base + '/health', { signal: ctrl.signal, cache: 'no-store' });
+    clearTimeout(t);
+    if (!res.ok) return false;
+    const data = await res.json().catch(() => null);
+    return data?.ok === true;
+  } catch { return false; }
+}
+
+const K_API_CACHE = 'beitna:api:resolved';
+const API_CACHE_MS = 7 * 86400000;
+
+/** نتيجة اكتشاف سابقة على نفس الأصل — تمنع تكرار الفحص كل تشغيل */
+function cachedApi() {
+  try {
+    const c = JSON.parse(localStorage.getItem(K_API_CACHE) || 'null');
+    if (!c || c.origin !== location.origin) return null;
+    if (Date.now() - (c.at || 0) > API_CACHE_MS) return null;
+    return c.base || null;
+  } catch { return null; }
+}
+function rememberApi(base) {
+  try {
+    localStorage.setItem(K_API_CACHE, JSON.stringify({ origin: location.origin, base, at: Date.now() }));
+  } catch { /* تجاهل */ }
+}
+
+let API = forcedApi() || cachedApi() || CANONICAL_API;
+let apiPromise = null;
+
+/** يحدّد عنوان الخادم مرة واحدة. لا يُستدعى أثناء الإقلاع — فقط عند أول طلب. */
+function detectApi() {
+  if (apiPromise) return apiPromise;
+  const forced = forcedApi();
+  if (forced) { API = forced; apiPromise = Promise.resolve(API); return apiPromise; }
+
+  apiPromise = (async () => {
+    const sameOrigin = trimSlash(location.origin + '/api');
+    if (location.origin === new URL(CANONICAL_API).origin) return (API = sameOrigin);
+
+    const remembered = cachedApi();
+    if (remembered) return (API = remembered);
+
+    const base = (/^https?:$/.test(location.protocol) && await isBeitnaServer(sameOrigin))
+      ? sameOrigin
+      : CANONICAL_API;
+    rememberApi(base);
+    return (API = base);
+  })();
+  return apiPromise;
+}
+
+/** العنوان المستخدم فعلًا — تعرضه شاشة الدعم */
+export const apiBase = () => API;
+export const canonicalApi = () => CANONICAL_API;
+
+/** يفحص الخادم المستخدم حاليًا ويرجع تفاصيله (لزر «فحص الاتصال») */
+export async function checkServer({ rediscover = false } = {}) {
+  if (rediscover) {
+    try { localStorage.removeItem(K_API_CACHE); } catch { /* تجاهل */ }
+    apiPromise = null;
+  }
+  await detectApi();
+  const ok = await isBeitnaServer(API);
+  return { base: API, ok, canonical: API === CANONICAL_API };
+}
 
 const K_TOKEN = 'beitna:token';
 const K_USER = 'beitna:user';
@@ -67,6 +162,7 @@ function lsDel(k) { try { localStorage.removeItem(k); } catch { /* تجاهل */
 
 /* ---------- طلب شبكة بمهلة ---------- */
 async function req(pathname, { method = 'GET', body, timeout = 15000, auth = true } = {}) {
+  await detectApi();
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeout);
   try {
@@ -110,11 +206,31 @@ export async function waitForUser() {
   /* تحديث صامت من الخادم إن توفّر الاتصال */
   req('/me', { timeout: 8000 }).then((u) => {
     me = { uid: u.uid, email: u.email, displayName: u.displayName, householdId: u.householdId };
+    setPerm(u.perm);
     lsSet(K_USER, me);
   }).catch((e) => {
     if (e.code === 'no-user') { /* انتهت الجلسة */ token = null; me = null; lsDel(K_TOKEN); lsDel(K_USER); }
   });
   return me;
+}
+
+/** يحذف الحساب من الخادم نهائيًا. يتطلب كلمة المرور. */
+export async function deleteAccount(password) {
+  const r = await req('/account/delete', { method: 'POST', body: { password }, timeout: 20000 });
+  /* الحساب زال من الخادم — لا يجوز أن تبقى نسخة من بيانات البيت على الجهاز */
+  await signOutCloud();
+  return r;
+}
+
+/** إحصائيات النظام — تنجح للمشرفين فقط */
+export function loadStats() {
+  return req('/stats', { timeout: 15000 });
+}
+
+/** هل هذا الحساب مشرف؟ يُقرأ من /me */
+export async function amAdmin() {
+  try { const u = await req('/me', { timeout: 8000 }); return !!u.isAdmin; }
+  catch { return false; }
 }
 
 /* ---------- رسائل الأخطاء ---------- */
@@ -129,10 +245,18 @@ export function arabicError(e) {
   if (code.includes('bad-code')) return 'كود الدعوة غير صحيح أو غير موجود';
   if (code.includes('offline')) return 'لا يوجد اتصال بالإنترنت — هذه الخطوة تحتاج اتصالًا';
   if (code.includes('auth-timeout')) return 'تأخّر ردّ الخادم — تحقق من الإنترنت وأعد المحاولة';
+  if (/http-(404|405|501)/.test(code)) return 'لا يوجد خادم بيتنا على هذا العنوان — افتح التطبيق من beitna.saher.cloud';
+  if (/http-(500|502|503|504)/.test(code)) return 'الخادم لا يستجيب حاليًا — أعد المحاولة بعد قليل';
   if (code.includes('network')) return 'تعذّر الوصول إلى الخادم — تحقق من الإنترنت';
   if (code.includes('no-user')) return 'انتهت الجلسة — سجّل دخولك من جديد';
   if (code.includes('no-household')) return 'لم يعد لك بيت — أنشئ بيتًا أو انضم بكود';
   if (code.includes('owner-only')) return 'هذه العملية لمالك البيت فقط';
+  if (code.includes('admin-only')) return 'هذه الشاشة للمشرف فقط';
+  if (code.includes('no-subscription')) return 'لم تُفعّل الإشعارات الخلفية على هذا الجهاز بعد';
+  if (code.includes('bad-subscription')) return 'بيانات الاشتراك غير صحيحة';
+  if (code.includes('bad-recovery')) return 'رمز الاسترداد أو البريد غير صحيح';
+  if (code.includes('backup-failed')) return 'تعذّرت النسخة الاحتياطية — راجع سجل الخادم';
+  if (code.includes('not-a-member')) return 'لم تعد عضوًا في هذا البيت';
   return 'حدث خطأ: ' + code;
 }
 
@@ -152,14 +276,27 @@ export async function signIn(email, password) {
 
 export async function signUp(email, password, displayName) {
   const u = await req('/signup', { method: 'POST', auth: false, body: { email, password, displayName } });
-  return keepSession(u);
+  const session = keepSession(u);
+  /* رمز الاسترداد يصل مرة واحدة فقط — نمرّره للواجهة لتعرضه */
+  return { ...session, recoveryCode: u.recoveryCode };
+}
+
+/** يمسح كل ما خزّنته السحابة على هذا الجهاز — بما فيه ذاكرة أي بيت سابق */
+function purgeLocalCloudCache() {
+  lsDel(K_TOKEN); lsDel(K_USER); lsDel(K_QUEUE);
+  myPerm = 'member';
+  try { localStorage.removeItem(K_PERM); } catch { /* تجاهل */ }
+  try {
+    Object.keys(localStorage)
+      .filter((k) => k.startsWith('beitna:docs:'))
+      .forEach((k) => localStorage.removeItem(k));
+  } catch { /* تجاهل */ }
 }
 
 export async function signOutCloud() {
   stopSync();
-  if (hidActive) lsDel(K_DOCS(hidActive));
   token = null; me = null; hidActive = null; docs = {}; membersMap = {}; cursor = 0;
-  lsDel(K_TOKEN); lsDel(K_USER); lsDel(K_QUEUE);
+  purgeLocalCloudCache();
 }
 
 /* ---------- البيت ---------- */
@@ -175,12 +312,14 @@ export async function loadHouseholdId() {
 
 export async function createHousehold(name, memberName) {
   const hh = await req('/household', { method: 'POST', body: { name, memberName } });
+  setPerm('owner');
   if (me) { me.householdId = hh.id; me.displayName = memberName || me.displayName; lsSet(K_USER, me); }
   return hh;
 }
 
 export async function joinHousehold(code, memberName) {
   const hh = await req('/household/join', { method: 'POST', body: { code, memberName } });
+  setPerm(hh.perm);
   if (me) { me.householdId = hh.id; me.displayName = memberName || me.displayName; lsSet(K_USER, me); }
   return hh;
 }
@@ -188,6 +327,7 @@ export async function joinHousehold(code, memberName) {
 export async function loadHousehold(hid) {
   try {
     const hh = await req('/household', { timeout: 10000 });
+    setPerm(hh.perm);
     return hh;
   } catch {
     const cached = lsGet(K_DOCS(hid));
@@ -343,10 +483,39 @@ function applySync(res) {
   if (changed || res.full) persistDocs();
   firstEmit = false;
 
-  for (const [col, x] of fresh) {
-    if (x.ownerUid && x.ownerUid === currentUid()) continue;
-    listeners?.onPartnerActivity?.(LABELS[col](x));
+  notifyFresh(fresh);
+}
+
+const COL_NAMES = { shopping: 'المشتريات', faults: 'الأعطال', occasions: 'المناسبات' };
+
+/** صيغة العدد بالعربية: المثنى، ثم جمع القلة (٣–١٠)، ثم التمييز المفرد */
+function countWord(n, dual, few, many) {
+  if (n === 2) return dual;
+  return n <= 10 ? `${n} ${few}` : `${n} ${many}`;
+}
+
+/**
+ * إشعار واحد لكل دفعة مزامنة، لا إشعار لكل عنصر.
+ * إضافة قائمة كاملة، أو رفع طابور تراكم بلا إنترنت، كانت تصل
+ * كعشرات المستندات الجديدة في مزامنة واحدة فتُطلق عشرات الإشعارات.
+ */
+function notifyFresh(fresh) {
+  const mine = currentUid();
+  const others = fresh.filter(([, x]) => !(x.ownerUid && x.ownerUid === mine));
+  if (!others.length) return;
+
+  if (others.length === 1) {
+    const [col, x] = others[0];
+    listeners?.onPartnerActivity?.(LABELS[col](x), 1);
+    return;
   }
+
+  const cols = [...new Set(others.map(([col]) => col))];
+  const n = others.length;
+  const text = cols.length === 1
+    ? `➕ أُضيفت ${countWord(n, 'عنصران', 'عناصر', 'عنصرًا')} إلى ${COL_NAMES[cols[0]] || 'بيتك'}`
+    : `🏡 ${countWord(n, 'إضافتان جديدتان', 'إضافات جديدة', 'إضافة جديدة')} من أفراد البيت`;
+  listeners?.onPartnerActivity?.(text, n);
 }
 
 /* ============================================================
@@ -418,6 +587,78 @@ export function removeItem(hid, col, id) {
   mark(col, id);
   localApply(col, id, null, true);
   enqueue({ col, id: String(id), op: 'delete', numericId: Number(id) || id });
+}
+
+/* ---------- Web Push ---------- */
+export const pushPublicKey = () => req('/push/key', { auth: false, timeout: 10000 });
+export const savePushSubscription = (subscription) =>
+  req('/push/subscribe', { method: 'POST', body: { subscription }, timeout: 15000 });
+export const dropPushSubscription = (endpoint) =>
+  req('/push/subscribe', { method: 'DELETE', body: { endpoint }, timeout: 15000 });
+export const sendTestPush = () => req('/push/test', { method: 'POST', timeout: 20000 });
+
+/* ---------- كلمة المرور والاسترداد ---------- */
+
+/** يستعيد الحساب برمز الاسترداد ويبدأ جلسة جديدة */
+export async function recoverAccount(email, code, password) {
+  const u = await req('/account/recover', {
+    method: 'POST', auth: false, timeout: 20000,
+    body: { email, code, password },
+  });
+  keepSession(u);
+  return u;
+}
+
+/** يغيّر كلمة المرور — يتطلب الحالية، ويُسقط الجلسات الأخرى */
+export async function changePassword(current, password) {
+  const u = await req('/account/password', { method: 'POST', body: { current, password }, timeout: 20000 });
+  keepSession(u);
+  return u;
+}
+
+/** رمز استرداد جديد — يُعرض مرة واحدة */
+export function newRecoveryCode(password) {
+  return req('/account/recovery', { method: 'POST', body: { password }, timeout: 15000 });
+}
+
+/* ---------- النسخ الاحتياطية (للمشرف) ---------- */
+export const listBackups = () => req('/backups', { timeout: 15000 });
+export const runBackup = () => req('/backups/now', { method: 'POST', timeout: 30000 });
+
+/* ---------- البيوت المتعددة والأدوار ---------- */
+const K_PERM = 'beitna:perm';
+let myPerm = (() => { try { return localStorage.getItem(K_PERM) || 'member'; } catch { return 'member'; } })();
+export const currentPerm = () => myPerm;
+export const isHelper = () => myPerm === 'helper';
+export const isOwner = () => myPerm === 'owner';
+export function setPerm(p) {
+  if (!p || p === myPerm) return;
+  myPerm = p;
+  /* يُحفظ حتى تبقى حدود العاملة قائمة عند الفتح بلا إنترنت */
+  try { localStorage.setItem(K_PERM, p); } catch { /* تجاهل */ }
+}
+
+/** كل البيوت التي أنا عضو فيها */
+export async function listHouseholds() {
+  const r = await req('/households', { timeout: 12000 });
+  return r.households || [];
+}
+
+/** يبدّل البيت النشط على الخادم ويرجع بياناته */
+export async function switchHousehold(id) {
+  const hh = await req('/household/switch', { method: 'POST', body: { id }, timeout: 15000 });
+  setPerm(hh.perm);
+  if (me) { me.householdId = hh.id; lsSet(K_USER, me); }
+  return hh;
+}
+
+/** كود دعوة العاملة — للمالك فقط */
+export function getHelperCode() { return req('/household/helper-code', { timeout: 10000 }); }
+export function newHelperCode() { return req('/household/helper-code', { method: 'POST', timeout: 12000 }); }
+
+/** تغيير دور عضو — للمالك فقط */
+export function setMemberRole(uid, perm) {
+  return req('/member/' + encodeURIComponent(uid) + '/role', { method: 'POST', body: { perm }, timeout: 12000 });
 }
 
 /* ---------- الأعضاء ---------- */

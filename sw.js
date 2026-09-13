@@ -3,12 +3,13 @@
    يعمل بدون إنترنت، ويحدّث نفسه فورًا عند نشر نسخة جديدة.
    ============================================================ */
 
-const VERSION = 'beitna-v2.0.1';
-const NET_TIMEOUT = 4000;
+const VERSION = 'beitna-v2.8.0';
+const NET_TIMEOUT = 2500;
 
 const CORE = [
   './',
   './index.html',
+  './manifest.json',
   './manifest.webmanifest',
   './css/app.css',
   './js/app.js',
@@ -17,6 +18,9 @@ const CORE = [
   './js/ui.js',
   './js/router.js',
   './js/notify.js',
+  './js/i18n.js',
+  './js/push.js',
+  './js/screens/helper.js',
   './js/cloud.js',
   './js/screens/auth.js',
   './js/screens/home.js',
@@ -81,6 +85,29 @@ async function cacheFirst(request) {
   return res;
 }
 
+/**
+ * المحفوظ فورًا ثم التحديث في الخلفية.
+ * كود التطبيق كان يُجلب بـ«الشبكة أولًا»، ووحدات ES تُحمَّل على شكل سلسلة:
+ * index.html ← app.js ← مستورداته ← مستوردات هذه. فعلى شبكة موصولة لكنها
+ * لا تردّ، تتراكم المهلة على كل طبقة ويتأخّر أول رسم عشرات الثواني.
+ * هنا يُعرض المحفوظ فورًا وتصل النسخة الجديدة مع الإقلاع التالي.
+ */
+async function staleWhileRevalidate(request, event) {
+  const cache = await caches.open(VERSION);
+  const hit = await cache.match(request);
+
+  const update = fetch(request, { cache: 'no-cache' })
+    .then((res) => { if (res && res.ok) cache.put(request, res.clone()); return res; })
+    .catch(() => null);
+
+  /* التحديث يكمل في الخلفية بعد تسليم النسخة المحفوظة */
+  if (hit) { try { event.waitUntil(update); } catch { /* تجاهل */ } return hit; }
+
+  const res = await update;
+  if (res) return res;
+  throw new Error('offline');
+}
+
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
@@ -92,9 +119,26 @@ self.addEventListener('fetch', (event) => {
   /* طلبات الخادم (/api) لا تُخزَّن إطلاقًا — التطبيق يدير العمل بدون إنترنت بنفسه */
   if (url.origin === location.origin && url.pathname.startsWith('/api')) return;
 
-  /* صفحات التنقّل: index.html من الشبكة ثم المحفوظ */
+  const offline = self.navigator && self.navigator.onLine === false;
+
+  /* صفحات التنقّل: الهيكل من المحفوظ فورًا (نمط app-shell)
+     الهيكل لا يحمل إلا روابط ثابتة لـ app.js و app.css، فتقادمه بلا أثر،
+     وأي نشر جديد يرفع VERSION فيُعاد بناء المخزون ويُعاد تحميل الصفحة. */
   if (req.mode === 'navigate') {
-    event.respondWith(networkFirst(new Request('./index.html', { cache: 'no-cache' }), './index.html'));
+    event.respondWith((async () => {
+      const cache = await caches.open(VERSION);
+      const hit = (await cache.match('./index.html')) || (await cache.match('./'));
+      if (hit) {
+        if (!offline) {
+          const update = fetch(new Request('./index.html', { cache: 'no-cache' }))
+            .then((res) => { if (res && res.ok) cache.put('./index.html', res.clone()); })
+            .catch(() => {});
+          try { event.waitUntil(update); } catch { /* تجاهل */ }
+        }
+        return hit;
+      }
+      return networkFirst(new Request('./index.html', { cache: 'no-cache' }), './index.html');
+    })());
     return;
   }
 
@@ -104,14 +148,55 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  /* كود التطبيق: الشبكة أولًا حتى يصل أي تحديث فورًا */
+  /* كود التطبيق: المحفوظ فورًا، والتحديث يجري في الخلفية */
   if (/\.(js|css|webmanifest|json)$/i.test(url.pathname)) {
-    event.respondWith(networkFirst(req));
+    event.respondWith(staleWhileRevalidate(req, event).catch(() => caches.match(req)));
     return;
   }
 
   /* الباقي (الصور والأيقونات): المحفوظ أولًا */
   event.respondWith(cacheFirst(req).catch(() => caches.match(req)));
+});
+
+/* ============================================================
+   الإشعارات
+   ============================================================ */
+const APP_URL = './';
+
+/** فتح/تركيز التطبيق عند الضغط على الإشعار */
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const data = event.notification.data || {};
+  const target = new URL(data.url || APP_URL, self.registration.scope).href;
+
+  event.waitUntil((async () => {
+    const clientsList = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const c of clientsList) {
+      if (!c.url.startsWith(self.registration.scope)) continue;
+      try { await c.focus(); } catch { /* تجاهل */ }
+      try { c.postMessage({ type: 'notification-click', url: data.url || APP_URL }); } catch { /* تجاهل */ }
+      return;
+    }
+    if (self.clients.openWindow) await self.clients.openWindow(target);
+  })());
+});
+
+/** رسائل Web Push (تحتاج خادمًا يرسلها — جاهزة للاستخدام عند تفعيلها) */
+self.addEventListener('push', (event) => {
+  let payload = {};
+  try { payload = event.data ? event.data.json() : {}; }
+  catch { payload = { body: (event.data && event.data.text && event.data.text()) || '' }; }
+
+  const title = payload.title || 'بيتنا';
+  event.waitUntil(self.registration.showNotification(title, {
+    body: payload.body || '',
+    icon: 'assets/icons/icon-192.png',
+    badge: 'assets/icons/icon-192.png',
+    lang: 'ar',
+    dir: 'rtl',
+    tag: payload.tag || 'beitna-push',
+    data: { url: payload.url || APP_URL },
+  }));
 });
 
 self.addEventListener('message', (e) => {

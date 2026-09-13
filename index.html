@@ -17,9 +17,10 @@
 <meta property="og:description" content="المشتريات، الأعطال، المناسبات وأفراد البيت في مكان واحد.">
 <meta property="og:image" content="assets/icons/icon-512.png">
 
-<link rel="manifest" href="manifest.webmanifest">
+<!-- ‏.json حتى يصل بنوع MIME صحيح من أي خادم (nginx لا يعرف ‎.webmanifest‎ افتراضيًا) -->
+<link rel="manifest" href="manifest.json">
 <link rel="icon" href="assets/icons/favicon.svg" type="image/svg+xml">
-<link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+<link rel="apple-touch-icon" sizes="180x180" href="assets/icons/apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap">
@@ -49,6 +50,9 @@
     <nav id="bottomnav" class="bottomnav" aria-label="التنقل السفلي"></nav>
   </div>
 </div>
+
+<!-- شريط التثبيت: خارج ‎#view‎ حتى لا تمسحه إعادة رسم الشاشات -->
+<div id="installRoot" class="install-root" hidden></div>
 
 <div id="sheetRoot" class="sheet-root" hidden></div>
 <div id="dialogRoot" class="dialog-root" hidden></div>

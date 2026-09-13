@@ -49,6 +49,8 @@ export function shoppingScreen() {
         </div>
         <div class="bar"><i style="width:${pct}%"></i></div>
         ${remaining > 0 ? `<button class="btn soft block mt-s" data-act="session">🛍️ ابدأ جلسة التسوق</button>` : ''}
+        <button class="btn ghost block mt-s" data-act="fav">⭐ قوائمي المحفوظة${
+          s.favoriteLists.length ? ` (${s.favoriteLists.length})` : ''}</button>
       </div>
 
       <div class="search" style="margin-bottom:10px">
