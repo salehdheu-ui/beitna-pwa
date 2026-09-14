@@ -179,7 +179,12 @@ else bad('الأقسام الجديدة لا تتزامن بين الأجهزة'
 console.log('لوحة الإدارة:');
 const adminHtml = read('admin.html');
 const adminJs = read('js/admin-app.js');
-if (!app.includes("route('/admin'") && !read('js/screens/more.js').includes("'/admin'")) ok('لوحة الإدارة غير مدمجة في التطبيق الرئيسي');
+const moreScreen = read('js/screens/more.js');
+if (!app.includes("route('/admin'") &&
+    !moreScreen.includes("'/admin'") &&
+    !moreScreen.includes('adminSection') &&
+    !moreScreen.includes('openStatsSheet') &&
+    !moreScreen.includes('amAdmin()')) ok('لوحة الإدارة غير مدمجة في التطبيق الرئيسي');
 else bad('لوحة الإدارة ما زالت مدمجة في التطبيق الرئيسي');
 if (server.includes("p === '/admin/login'") && server.includes('authAdminPanel(req)')) ok('الدخول برمز مستقل ومحمي من الخادم');
 else bad('دخول لوحة الإدارة المستقلة غير مكتمل');
