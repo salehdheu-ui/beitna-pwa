@@ -13,8 +13,8 @@ import { requestNotificationPermission, notificationStatus, testNotification } f
 import { pushSupported, pushState, enablePush, disablePush, sendTestPush } from '../push.js';
 import {
   pendingWrites, apiBase, checkServer, currentEmail,
-  deleteAccount, loadStats, amAdmin, arabicError,
-  changePassword, newRecoveryCode, listBackups, runBackup,
+  deleteAccount, arabicError,
+  changePassword, newRecoveryCode,
   listHouseholds, switchHousehold, getHelperCode, newHelperCode,
   setMemberRole, currentPerm, isOwner as amOwner, joinHousehold, syncStats,
 } from '../cloud.js';
@@ -795,61 +795,6 @@ const FAQ = [
   ['هل يمكنني تخصيص التصنيفات؟', 'نعم، من "المزيد" > "التصنيفات والأماكن" يمكنك إضافة وحذف التصنيفات.'],
 ];
 
-const nf = (n) => Number(n || 0).toLocaleString('ar-EG');
-
-/** ورقة إحصائيات النظام — أرقام مجمّعة يجلبها الخادم */
-async function openStatsSheet() {
-  const close = openSheet('<h3>إحصائيات النظام</h3><p class="muted small">جارٍ التحميل...</p>');
-  let st;
-  try { st = await loadStats(); }
-  catch (e) {
-    openSheet(`<h3>إحصائيات النظام</h3><div class="err">${esc(arabicError(e))}</div>
-               <button class="btn block" data-close>حسنًا</button>`,
-      { onMount(el, c) { el.querySelector('[data-close]').onclick = c; } });
-    return;
-  }
-  close();
-
-  const rows = [
-    ['👥', 'إجمالي المستخدمين', nf(st.users)],
-    ['🆕', 'مستخدمون جدد (٧ أيام)', nf(st.usersNew7d)],
-    ['🆕', 'مستخدمون جدد (٣٠ يومًا)', nf(st.usersNew30d)],
-    ['⚡', 'نشطون (٧ أيام)', nf(st.activeUsers7d)],
-    ['⚡', 'نشطون (٣٠ يومًا)', nf(st.activeUsers30d)],
-    ['🏡', 'عدد البيوت', nf(st.households)],
-    ['👨‍👩‍👧', 'بيوت فيها أكثر من فرد', nf(st.householdsShared)],
-    ['📊', 'متوسط الأفراد في البيت', nf(st.avgMembers)],
-    ['📦', 'إجمالي العناصر', nf(st.itemsTotal)],
-    ['💾', 'حجم قاعدة البيانات', nf(Number((st.dbBytes / 1024).toFixed(1))) + ' ك.ب'],
-    ['🗄️', 'النسخ الاحتياطية', nf(st.backups || 0)],
-    ['🕒', 'آخر نسخة', st.lastBackupAt ? relTime(st.lastBackupAt) : '—'],
-  ];
-
-  openSheet(`
-    <h3>إحصائيات النظام</h3>
-    <div class="list">
-      ${rows.map(([ic, t, v]) => `
-        <div class="list-row"><span class="ic">${ic}</span>
-          <span class="grow"><span class="t">${esc(t)}</span></span>
-          <b style="font-size:16px">${esc(v)}</b></div>`).join('')}
-    </div>
-    <p class="tiny muted mt">أرقام مجمّعة فقط — لا بريد ولا اسم ولا محتوى أي بيت.</p>
-    <button class="btn soft block mt" data-backup>🗄️ نسخة احتياطية الآن</button>
-    <button class="btn block mt-s" data-close>حسنًا</button>
-  `, {
-    onMount(el, c) {
-      el.querySelector('[data-close]').onclick = c;
-      const bk = el.querySelector('[data-backup]');
-      if (bk) bk.onclick = async () => {
-        bk.disabled = true; bk.textContent = 'جارٍ الحفظ...';
-        try { const r = await runBackup(); toast('حُفظت: ' + r.file, 3500); }
-        catch (ex) { toast(arabicError(ex), 3500); }
-        bk.disabled = false; bk.textContent = '🗄️ نسخة احتياطية الآن';
-      };
-    },
-  });
-}
-
 /** حذف الحساب: تأكيد مكتوب ثم كلمة المرور */
 async function confirmDeleteAccount() {
   const ok = await confirmDialog({
@@ -1134,16 +1079,6 @@ export function supportScreen() {
         </p>
       </div>
 
-      <div class="section" id="adminSection" hidden>
-        <div class="section-title">إدارة النظام</div>
-        <div class="list">
-          <button class="list-row" data-act="stats"><span class="ic">📈</span>
-            <span class="grow"><span class="t">إحصائيات النظام</span>
-              <br><span class="d">عدد المستخدمين والبيوت — أرقام مجمّعة فقط</span></span>
-            <span class="arrow">‹</span></button>
-        </div>
-      </div>
-
       <div class="section">
         <div class="section-title">بياناتك</div>
         <div class="list">
@@ -1167,17 +1102,10 @@ export function supportScreen() {
 
       <p class="center tiny muted mt">إدارة المنزل بذكاء — الإصدار 1.6.1</p>`,
     mount(root) {
-      /* قسم الإدارة يظهر فقط إن أكّد الخادم أن هذا الحساب مشرف */
-      if (isCloud()) {
-        amAdmin().then((ok) => { if (ok) { const el = root.querySelector('#adminSection'); if (el) el.hidden = false; } });
-      }
-
       root.addEventListener('click', async (e) => {
         if (e.target.closest('[data-act="export"]')) { exportSheet(); return; }
         if (e.target.closest('[data-act="chpass"]')) { changePasswordSheet(); return; }
         if (e.target.closest('[data-act="newrec"]')) { newRecoverySheet(); return; }
-        if (e.target.closest('[data-act="stats"]')) { openStatsSheet(); return; }
-
         if (e.target.closest('[data-act="delacct"]')) { await confirmDeleteAccount(); return; }
 
         if (e.target.closest('[data-act="check"]')) {
