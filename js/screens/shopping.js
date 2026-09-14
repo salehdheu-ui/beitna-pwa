@@ -51,6 +51,8 @@ export function shoppingScreen() {
         </div>
         <div class="bar"><i style="width:${pct}%"></i></div>
         ${remaining > 0 ? `<button class="btn soft block mt-s" data-act="session">🛍️ ابدأ جلسة التسوق</button>` : ''}
+        <button class="btn soft block mt-s" data-act="pantry">📋 قائمة الاحتياجات${
+          pantryShort()}</button>
         <button class="btn ghost block mt-s" data-act="fav">⭐ قوائمي المحفوظة${
           s.favoriteLists.length ? ` (${s.favoriteLists.length})` : ''}</button>
       </div>
@@ -93,6 +95,7 @@ export function shoppingScreen() {
         /* الزرّ العريض داخل البطاقة يحمل data-act="fav"، لكن topActions
            لا تُستدعى إلا لأزرار الشريط العلوي — فكان ميتًا بلا معالج. */
         if (e.target.closest('[data-act="fav"]')) { openFavorites(rerender); return; }
+        if (e.target.closest('[data-act="pantry"]')) { go('/pantry'); return; }
       });
 
       const q = root.querySelector('#q');
@@ -495,4 +498,12 @@ export function favoriteListScreen({ id }) {
       });
     },
   };
+}
+
+/** عدّاد صغير بجانب مدخل قائمة الاحتياجات */
+function pantryShort() {
+  const p = getState().pantry || [];
+  if (!p.length) return '';
+  const need = p.filter((x) => !x.stocked).length;
+  return need ? ` — ${need} نفد` : '';
 }

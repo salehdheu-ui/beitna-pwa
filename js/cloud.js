@@ -372,6 +372,7 @@ const MAPPERS = {
   }),
   categories: (d) => ({ id: Number(d.id), name: d.name || '', icon: d.icon || '📦', type: d.type || 'Shopping' }),
   favoriteLists: (d) => ({ id: Number(d.id), name: d.name || '', icon: d.icon || '⭐', items: d.items || [] }),
+  pantry: (d) => ({ id: Number(d.id), name: d.name || '', cat: d.cat || 'canned', stocked: d.stocked !== false }),
 };
 
 const LABELS = {
@@ -380,7 +381,7 @@ const LABELS = {
   occasions: (x) => `🔔 تذكير جديد: ${x.title}`,
 };
 
-const COLS = ['shopping', 'faults', 'occasions', 'categories', 'favoriteLists'];
+const COLS = ['shopping', 'faults', 'occasions', 'categories', 'favoriteLists', 'pantry'];
 
 function persistDocs() {
   if (!hidActive) return;

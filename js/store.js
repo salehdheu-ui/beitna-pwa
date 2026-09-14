@@ -4,6 +4,7 @@
    ============================================================ */
 
 import { nextId, uid, todayStart, startOfDay, fmtDate } from './util.js';
+import { PANTRY_SEED } from './pantry-data.js';
 
 const KEY = 'beitna:state:v1';
 
@@ -86,6 +87,7 @@ function blankState() {
     settings: { darkMode: false, language: 'العربية' },
     ui: { sections: {} },
     caps: null,          // يأتي من الخادم؛ null = بلا قيود (محلي)
+    pantry: [],          // قائمة الاحتياجات الدائمة — لا تُستهلك بالشراء
   };
 }
 
@@ -676,4 +678,104 @@ export function seedDemo() {
     ];
     logActivity('تم تحميل بيانات تجريبية');
   });
+}
+
+/* ============================================================
+   قائمة الاحتياجات — مخزون البيت
+   قائمة دائمة لا تُستهلك بالشراء. ✓ = متوفر، وإزالة العلامة تعني
+   «نفد» فيظهر في الناقص ويُرسَل إلى المشتريات بضغطة.
+   منفصلة تمامًا عن المشتريات: الطلبات المستعجلة تبقى هناك.
+   ============================================================ */
+
+export function seedPantry(force = false) {
+  if (!force && state.pantry.length) return 0;
+  const t = Date.now();
+  const items = PANTRY_SEED.map((x, i) => ({
+    id: newId() + i,
+    name: x.n,
+    cat: x.c,
+    stocked: !x.out,
+    updatedAt: t,
+  }));
+  update((s) => {
+    /* لا نمحو ما أضافه المستخدم — نُلحق ما ليس عنده باسمه */
+    const have = new Set(s.pantry.map((p) => p.name));
+    s.pantry = s.pantry.concat(items.filter((x) => !have.has(x.name)));
+    logActivity(`تم استيراد قائمة الاحتياجات (${items.length} صنفًا)`);
+  });
+  state.pantry.forEach((p) => push('save', 'pantry', p));
+  return items.length;
+}
+
+export function addPantryItem({ name, cat = 'canned', stocked = true }) {
+  const clean = String(name || '').trim();
+  if (!clean) return null;
+  const item = { id: newId(), name: clean.slice(0, 60), cat, stocked: !!stocked, updatedAt: Date.now() };
+  update((s) => { s.pantry.unshift(item); });
+  push('save', 'pantry', item);
+  return item;
+}
+
+/** ✓ متوفر / ✗ نفد — هذا هو الفعل اليومي في هذه الشاشة */
+export function setPantryStock(id, stocked) {
+  let item = null;
+  update((s) => {
+    const p = s.pantry.find((x) => x.id === id);
+    if (!p) return;
+    p.stocked = !!stocked;
+    p.updatedAt = Date.now();
+    item = p;
+  });
+  if (item) push('save', 'pantry', item);
+  return item;
+}
+
+export function removePantryItem(id) {
+  update((s) => { s.pantry = s.pantry.filter((x) => x.id !== id); });
+  push('remove', 'pantry', id);
+}
+
+export function renamePantryItem(id, name) {
+  const clean = String(name || '').trim();
+  if (!clean) return null;
+  let item = null;
+  update((s) => {
+    const p = s.pantry.find((x) => x.id === id);
+    if (!p) return;
+    p.name = clean.slice(0, 60);
+    p.updatedAt = Date.now();
+    item = p;
+  });
+  if (item) push('save', 'pantry', item);
+  return item;
+}
+
+/** ما نفد — مرتّبًا على الأقسام */
+export const pantryNeeded = () => state.pantry.filter((p) => !p.stocked);
+
+/**
+ * يرسل الناقص إلى المشتريات، ويتخطّى ما هو مضاف هناك أصلًا ولم يُشترَ بعد
+ * حتى لا تتكرر الأسماء عند كل مراجعة.
+ */
+export function sendNeededToShopping() {
+  const needed = pantryNeeded();
+  if (!needed.length) return 0;
+  const pending = new Set(
+    state.shopping.filter((i) => i.status !== 'تم الشراء').map((i) => i.name)
+  );
+  let added = 0;
+  for (const p of needed) {
+    if (pending.has(p.name)) continue;
+    addShopping({ name: p.name, category: '', note: 'من قائمة الاحتياجات' });
+    added++;
+  }
+  if (added) logActivity(`أُرسل ${added} صنفًا من الاحتياجات إلى المشتريات`);
+  return added;
+}
+
+/** مراجعة دورية: يُعيد كل شيء إلى «متوفر» لتبدأ جولة جديدة */
+export function resetPantryReview() {
+  const t = Date.now();
+  update((s) => { s.pantry.forEach((p) => { p.stocked = true; p.updatedAt = t; }); });
+  state.pantry.forEach((p) => push('save', 'pantry', p));
 }

@@ -377,7 +377,7 @@ setInterval(() => {
 }, 300000).unref();
 
 /* ---------- المجموعات ---------- */
-const COLS = ['shopping', 'faults', 'occasions', 'categories', 'favoriteLists'];
+const COLS = ['shopping', 'faults', 'occasions', 'categories', 'favoriteLists', 'pantry'];
 
 const DEFAULT_CATEGORIES = [
   [1, 'بقالة', '🛒', 'Shopping'], [2, 'منظفات', '🧴', 'Shopping'],
@@ -490,6 +490,10 @@ const roleLabel = (perm) =>
    لكل فرد على حدة من لوحة التحكم.
    ============================================================ */
 const CAP_COLS = ['shopping', 'faults', 'occasions'];
+
+/* قائمة الاحتياجات امتداد للمشتريات، فتتبع صلاحيتها ولا تلتفّ عليها */
+const capLevel = (caps, col) =>
+  (col === 'pantry' ? caps.shopping : (CAP_COLS.includes(col) ? caps[col] : 'write'));
 const CAP_LEVELS = ['none', 'read', 'write'];
 const CAP_FLAGS = ['prices', 'members', 'invite', 'remove'];
 
@@ -1072,7 +1076,7 @@ async function route(req, res, url) {
     out.cols = {};
     /* ما مستواه none لا يُرسل أصلًا، والأسعار تُنزع عمّن لا يملك رايتها */
     for (const c of COLS) {
-      const level = CAP_COLS.includes(c) ? myCaps[c] : 'write';
+      const level = capLevel(myCaps, c);
       if (level === 'none') { out.cols[c] = []; continue; }
       const bucket = hh.cols[c] || {};
       const list = [];
@@ -1107,7 +1111,7 @@ async function route(req, res, url) {
       /* الحدود تُفرض هنا، لا في الواجهة فقط:
          الكتابة تحتاج مستوى write، والحذف راية remove،
          ومن لا يرى الأسعار لا يمسّها */
-      const level = CAP_COLS.includes(col) ? myCaps[col] : 'write';
+      const level = capLevel(myCaps, col);
       if (level !== 'write') { denied++; continue; }
       if (op.op === 'delete' && !myCaps.remove) { denied++; continue; }
       if (!myCaps.prices && op.data) op.data = stripPrices(op.data);

@@ -23,6 +23,7 @@ import {
   housesScreen, joinHouseScreen,
 } from './screens/more.js';
 import { controlScreen } from './screens/control.js';
+import { pantryScreen } from './screens/pantry.js';
 import { emptyState, toast, iosInstallSheet } from './ui.js';
 import { startReminderLoop, notifyPartner, isIOS, isStandalone } from './notify.js';
 import { helperScreen, langSheet } from './screens/helper.js';
@@ -190,6 +191,7 @@ route('/shopping', guarded(shoppingScreen));
 route('/shopping/new', guarded(shoppingFormScreen));
 route('/shopping/session', guarded(shoppingSessionScreen));
 route('/shopping/list/:id', guarded(favoriteListScreen));
+route('/pantry', guarded(pantryScreen));
 route('/shopping/:id', guarded(shoppingDetailsScreen));
 
 route('/faults', guarded(faultsScreen));

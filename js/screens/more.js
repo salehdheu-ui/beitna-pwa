@@ -110,6 +110,7 @@ export function moreScreen() {
       <div class="section">
         <div class="section-title">التفضيلات</div>
         <div class="list">
+          ${listRow('📋', 'قائمة الاحتياجات', 'مخزون البيت الدائم — راجعه وأرسل الناقص', '/pantry')}
           ${listRow('🗂️', 'التصنيفات والأماكن', 'إدارة الأقسام والأنواع', '/categories')}
           ${listRow('📦', 'الأرشيف', 'مشتريات وأعطال وتذكيرات منتهية', '/archive')}
           <div class="list-row" data-toggle="dark">
