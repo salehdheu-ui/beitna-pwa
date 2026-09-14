@@ -30,6 +30,9 @@ async function request(path, options = {}) {
 }
 
 function messageOf(error) {
+  if (error?.code === 'admin-not-configured') {
+    return 'اللوحة مغلقة: لم يُضبط ADMIN_PANEL_CODE_HASH على الخادم بعد';
+  }
   if (error?.code === 'wrong-admin-code') return 'رمز لوحة الإدارة غير صحيح';
   if (error?.code === 'too-many-requests') return 'محاولات كثيرة — انتظر قليلًا ثم أعد المحاولة';
   if (error?.code === 'admin-session-required' || error?.status === 401) return 'انتهت جلسة الإدارة — أدخل الرمز من جديد';

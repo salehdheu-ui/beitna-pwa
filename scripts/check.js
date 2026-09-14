@@ -214,6 +214,16 @@ else bad('لوحة الإدارة دُمجت في Service Worker أو لم تُ�
 if (app.includes('/^#\\/admin(?:\\/|$)/') && app.includes("'#/home'")) ok('المسار الإداري القديم يعود إلى الرئيسية');
 else bad('المسار الإداري القديم قد يُبقي المستخدم في صفحة مفقودة');
 
+/* ---------- لا سرّ مكتوب في مستودع عام ---------- */
+console.log('سرّ لوحة الإدارة:');
+const srv = read('server/server.js');
+const line = (srv.match(/ADMIN_PANEL_CODE_HASH[^;]*;/s) || [''])[0];
+if (/['"][0-9a-f]{32,}['"]/.test(line)) {
+  bad('بصمة رمز الإدارة مكتوبة في الكود — تُكسَر خارج الخادم بلا حدّ محاولات');
+} else ok('لا بصمة افتراضية في الكود');
+if (srv.includes('ADMIN_PANEL_READY')) ok('اللوحة تُغلق إن لم يُضبط المتغيّر (فشل مغلق)');
+else bad('لا فشل مغلق: اللوحة تعمل بلا سرّ مضبوط');
+
 console.log('');
 console.log(failed ? (failed + ' فحصًا فشل') : 'كل الفحوص سليمة');
 process.exit(failed ? 1 : 0);
