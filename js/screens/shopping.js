@@ -105,7 +105,7 @@ export function shoppingScreen() {
           const pos = q.selectionStart;
           rerender();
           const nq = document.querySelector('#q');
-          if (nq) { nq.focus(); nq.setSelectionRange(pos, pos); }
+          if (nq) { nq.focus({ preventScroll: true }); nq.setSelectionRange(pos, pos); }
         });
       }
     },
@@ -189,7 +189,7 @@ export function shoppingFormScreen() {
         toast(values.priority === 'ضروري' ? `🛒 تمت إضافة "${name}" كعنصر ضروري` : `تمت إضافة "${name}"`);
         go('/shopping', { replace: true });
       };
-      root.querySelector('#name')?.focus();
+      root.querySelector('#name')?.focus({ preventScroll: true });
     },
   };
 }
@@ -473,7 +473,7 @@ export function favoriteListScreen({ id }) {
           });
           toast(`أُضيف "${name}" إلى القالب ✓`);
           rerender();
-          document.querySelector('#iname')?.focus();
+          document.querySelector('#iname')?.focus({ preventScroll: true });
           return;
         }
 

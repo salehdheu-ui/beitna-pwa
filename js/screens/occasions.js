@@ -196,7 +196,9 @@ export function occasionFormScreen() {
         toast(`تمت إضافة تذكير: ${title}`);
         go('/occasions', { replace: true });
       };
-      root.querySelector('#title')?.focus();
+      /* التركيز يفتح لوحة المفاتيح، لكن بلا preventScroll يسحب المتصفح
+         الصفحة ليُظهر الحقل فوق اللوحة — فتبدو الشاشة وكأنها نزلت. */
+      root.querySelector('#title')?.focus({ preventScroll: true });
     },
   };
 }
