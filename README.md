@@ -84,6 +84,28 @@ python3 -m http.server 8000
 
 المتغيّر الاختياري الوحيد هو `ADMIN_EMAILS` — لمن يريد رؤية إحصائيات النظام.
 
+### 🔄 النشر التلقائي
+
+كل دمج في `main` يُنشر وحده على الخادمين، بلا ضغط زرّ.
+
+هذه النسخة من `Coolify` لا تعرض مفتاح `Auto Deploy` لمصدر من نوع
+`Public Repository`، فالربط يجري من ناحية `GitHub`:
+
+1. من صفحة التطبيق في `Coolify`: `Webhooks` → انسخ `GitHub Manual Webhook`
+   وسرّه (`Secret`). **لكل تطبيق سرّ خاص به** وإن تشابه العنوان.
+2. في `GitHub`: `Settings` → `Webhooks` → `Add webhook`
+   - `Payload URL`: العنوان المنسوخ
+   - `Content type`: `application/json`
+   - `Secret`: سرّ ذلك التطبيق
+   - `Just the push event`
+3. كرّرها للتطبيق الثاني بسرّه هو.
+
+فيصير في المستودع ربطان بالعنوان نفسه وسرَّين مختلفين: كل دفعة تُسلَّم
+إليهما، ويقبلها كل تطبيق بسرّه فيبني نفسه.
+
+**التحقق:** `GitHub` → الربط → `Recent Deliveries`؛ يجب أن يكون الردّ
+`200`. ثم `Coolify` → `Deployments` تجد بناءً جديدًا بدأ وحده.
+
 ### ⚠️ نوع ملف الـ manifest على nginx
 
 `nginx` لا يعرف الامتداد `.webmanifest` افتراضيًا فيقدّمه بنوع
