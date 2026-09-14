@@ -196,8 +196,14 @@ if (adminJs.includes("request('/admin/stats')") && adminJs.includes("request('/a
 if (server.includes('signupsDaily') && server.includes('pushDevices') && server.includes('membersTotal')) {
   ok('مؤشرات النشاط والأجهزة والأعضاء متوفرة من الخادم');
 } else bad('مؤشرات لوحة الإدارة ناقصة من الخادم');
-if (!sw.includes('admin.html') && !sw.includes('admin-app.js') && !sw.includes('admin.css')) ok('لوحة الإدارة مستقلة عن ذاكرة التطبيق الرئيسي');
-else bad('لوحة الإدارة دُمجت في Service Worker الخاص بالتطبيق');
+if (sw.includes("ADMIN_PATHS = new Set(['/admin.html', '/css/admin.css', '/js/admin-app.js'])") &&
+    sw.includes('ADMIN_PATHS.has(url.pathname)') &&
+    !listed.includes('admin.html') &&
+    !listed.includes('css/admin.css') &&
+    !listed.includes('js/admin-app.js')) ok('لوحة الإدارة مستثناة صراحةً من اعتراض التطبيق وذاكرته');
+else bad('لوحة الإدارة دُمجت في Service Worker أو لم تُستثنَ من اعتراضه');
+if (app.includes('/^#\\/admin(?:\\/|$)/') && app.includes("'#/home'")) ok('المسار الإداري القديم يعود إلى الرئيسية');
+else bad('المسار الإداري القديم قد يُبقي المستخدم في صفحة مفقودة');
 
 console.log('');
 console.log(failed ? (failed + ' فحصًا فشل') : 'كل الفحوص سليمة');
