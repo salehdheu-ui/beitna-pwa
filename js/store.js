@@ -114,20 +114,62 @@ function push(op, col, ...args) {
   try { bridge[op]?.(col, ...args); } catch (e) { console.warn('تعذّرت المزامنة', e); }
 }
 
-/** معرّف رقمي شبه فريد يتوافق مع نوع Int في تطبيق الأندرويد */
+/**
+ * معرّف رقمي يتوافق مع نوع Int في تطبيق الأندرويد.
+ *
+ * الصيغة «الدقائق × 100 + عشوائي 0–99» لا تملك إلا مئة معرّف في الدقيقة،
+ * فأي إضافة جماعية في اللحظة نفسها — استيراد قائمة الاحتياجات، تطبيق قائمة
+ * محفوظة، إرسال الناقص إلى المشتريات — كانت تتصادم فيها المعرّفات ويضيع
+ * جزء من العناصر بصمت (216 صنفًا كانت تنزل إلى نحو 150).
+ *
+ * الحلّ: علامة ماء عليا محفوظة على الجهاز. لا يُسلَّم معرّف يساوي أو يقل
+ * عمّا سُلِّم قبله، فيستحيل التصادم داخل الجهاز — ولو صدرت آلاف العناصر
+ * في المللي ثانية نفسها. والعشوائي يبقى ليباعد بين الأجهزة.
+ */
+const K_SEQ = 'beitna:seq';
+let issued = 0;
+try { issued = Number(localStorage.getItem(K_SEQ) || 0) || 0; } catch { /* تجاهل */ }
+
 export function newId() {
   const minutes = Math.floor((Date.now() - Date.UTC(2020, 0, 1)) / 60000);
-  return minutes * 100 + Math.floor(Math.random() * 100);
+  let id = minutes * 100 + Math.floor(Math.random() * 100);
+  if (id <= issued) id = issued + 1;
+  issued = id;
+  try { localStorage.setItem(K_SEQ, String(issued)); } catch { /* تجاهل */ }
+  return id;
+}
+
+/**
+ * يرفع العلامة فوق كل معرّف موجود فعلًا.
+ * العلامة وحدها لا تكفي: بيانات وصلت من جهاز آخر — أو استيراد قديم —
+ * قد تحمل أرقامًا أعلى مما سلّمه هذا الجهاز، فتُصادمها الإضافات الجديدة
+ * ويُطمس القديم. نمرّ على كل ما يصل ونرفع العلامة فوق أعلاه.
+ */
+export function reserveIds(items) {
+  let max = issued;
+  for (const it of items || []) {
+    const id = it && it.id;
+    if (typeof id === 'number' && id > max) max = id;
+  }
+  if (max <= issued) return;
+  issued = max;
+  try { localStorage.setItem(K_SEQ, String(issued)); } catch { /* تجاهل */ }
 }
 
 /** يستبدل مجموعة قادمة من السحابة دون إعادة إرسالها */
 export function applyRemote(collection, items) {
+  reserveIds(items);
   update((s) => { s[collection] = items; });
 }
 
 /* ---------- التحميل والحفظ ---------- */
 let state = load();
 const listeners = new Set();
+
+/* بيانات محفوظة على الجهاز قد تحمل معرّفات أعلى من علامتنا — نرفعها فوقها */
+for (const col of ['shopping', 'faults', 'occasions', 'categories', 'favoriteLists', 'pantry']) {
+  reserveIds(state[col]);
+}
 
 function load() {
   try {
@@ -690,8 +732,8 @@ export function seedDemo() {
 export function seedPantry(force = false) {
   if (!force && state.pantry.length) return 0;
   const t = Date.now();
-  const items = PANTRY_SEED.map((x, i) => ({
-    id: newId() + i,
+  const items = PANTRY_SEED.map((x) => ({
+    id: newId(),
     name: x.n,
     cat: x.c,
     stocked: !x.out,
@@ -704,6 +746,50 @@ export function seedPantry(force = false) {
     logActivity(`تم استيراد قائمة الاحتياجات (${items.length} صنفًا)`);
   });
   state.pantry.forEach((p) => push('save', 'pantry', p));
+  return items.length;
+}
+
+/**
+ * معرّفات متصادمة من قبل الإصلاح: صنفان يحملان الرقم نفسه، فالضغط على
+ * أحدهما يقلب الآخر. آمن ومتكرِّر: بلا تصادم لا يفعل شيئًا.
+ */
+export function fixPantryIds() {
+  if (!state.pantry.length) return 0;
+  const seen = new Set();
+  const fixed = [];
+  update((s) => {
+    for (const p of s.pantry) {
+      if (seen.has(p.id)) { p.id = newId(); p.updatedAt = Date.now(); fixed.push(p); }
+      seen.add(p.id);
+    }
+  });
+  fixed.forEach((p) => push('save', 'pantry', p));
+  return fixed.length;
+}
+
+/** أسماء القائمة الجاهزة الغائبة عن قائمتك الآن */
+export const pantryMissing = () => {
+  const have = new Set(state.pantry.map((p) => p.name));
+  return PANTRY_SEED.filter((x) => !have.has(x.n));
+};
+
+/**
+ * يُلحق الغائب من القائمة الجاهزة ولا يمسّ شيئًا قائمًا.
+ * يُستدعى بضغطة المستخدم لا تلقائيًا: التلقائي يسبق أول مزامنة فيحسب
+ * الناقص على قائمة نصف واصلة، فيُلحق ما لدى الخادم أصلًا أو يفوته الباقي.
+ */
+export function completePantry() {
+  const missing = pantryMissing();
+  if (!missing.length) return 0;
+  const t = Date.now();
+  const items = missing.map((x) => ({
+    id: newId(), name: x.n, cat: x.c, stocked: !x.out, updatedAt: t,
+  }));
+  update((s) => {
+    s.pantry = s.pantry.concat(items);
+    logActivity(`أُكملت قائمة الاحتياجات (${items.length} صنفًا)`);
+  });
+  items.forEach((p) => push('save', 'pantry', p));
   return items.length;
 }
 
