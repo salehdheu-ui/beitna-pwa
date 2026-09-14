@@ -174,6 +174,22 @@ else bad('أزرار إضافة المنتجات والأقسام غير ظاه�
 if (store.includes("push('save', 'pantryCategories'") && cloud.includes("'pantryCategories'")) ok('الأقسام الجديدة تتزامن بين الأجهزة');
 else bad('الأقسام الجديدة لا تتزامن بين الأجهزة');
 
+/* ---------- لوحة إدارة النظام ---------- */
+console.log('لوحة الإدارة:');
+const admin = read('js/screens/admin.js');
+if (app.includes("route('/admin'") && app.includes("adminScreen")) ok('مسار لوحة الإدارة موصول');
+else bad('مسار لوحة الإدارة غير موصول');
+if (admin.includes('await amAdmin()') && admin.includes('await loadStats()')) ok('الدخول والإحصاءات محميان بصلاحية المشرف');
+else bad('حارس صلاحية المشرف ناقص من لوحة الإدارة');
+if (admin.includes('data-admin-refresh') && admin.includes('data-admin-backup') && admin.includes('data-admin-health')) {
+  ok('التحديث والنسخ الاحتياطي وفحص الخادم موصولة');
+} else bad('إجراءات لوحة الإدارة غير مكتملة');
+if (server.includes('signupsDaily') && server.includes('pushDevices') && server.includes('membersTotal')) {
+  ok('مؤشرات النشاط والأجهزة والأعضاء متوفرة من الخادم');
+} else bad('مؤشرات لوحة الإدارة ناقصة من الخادم');
+if (sw.includes("'./js/screens/admin.js'")) ok('لوحة الإدارة متاحة دون اتصال بعد أول تحميل');
+else bad('ملف لوحة الإدارة غير مضاف إلى ذاكرة التطبيق');
+
 console.log('');
 console.log(failed ? (failed + ' فحصًا فشل') : 'كل الفحوص سليمة');
 process.exit(failed ? 1 : 0);

@@ -16,6 +16,7 @@ const DB_FILE = path.join(DATA_DIR, 'db.json');
 const SECRET_FILE = path.join(DATA_DIR, 'secret.key');
 const TOKEN_DAYS = 400;
 const PUSH_SUBJECT = process.env.PUSH_SUBJECT || 'mailto:admin@beitna.local';
+const SERVER_VERSION = '1.7.0';
 
 /* بريد المشرفين (يفصل بينها فاصلة). بدونها لا يرى أحد إحصائيات النظام. */
 const ADMIN_EMAILS = new Set(
@@ -678,6 +679,18 @@ function buildStats() {
   }
 
   const members = households.map((hh) => Object.values(hh.members).filter((m) => !m.deleted).length);
+  const membersTotal = members.reduce((a, b) => a + b, 0);
+  const pushDevices = users.reduce((sum, u) => sum + (Array.isArray(u.pushSubs) ? u.pushSubs.length : 0), 0);
+  const usersWithoutHousehold = users.filter((u) => !u.householdId || !db.households[u.householdId]).length;
+  const signupsDaily = Array.from({ length: 7 }, (_, i) => {
+    const day = new Date(t - (6 - i) * 86400000);
+    const start = Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate());
+    const end = start + 86400000;
+    return {
+      date: new Date(start).toISOString().slice(0, 10),
+      count: users.filter((u) => (u.createdAt || 0) >= start && (u.createdAt || 0) < end).length,
+    };
+  });
   let dbBytes = 0;
   try { dbBytes = fs.statSync(DB_FILE).size; } catch { /* لم يُحفظ بعد */ }
 
@@ -686,16 +699,23 @@ function buildStats() {
   if (backups[0]) { try { lastBackup = fs.statSync(path.join(BACKUP_DIR, backups[0])).mtimeMs; } catch { /* تجاهل */ } }
 
   return {
+    version: SERVER_VERSION,
     backups: backups.length,
     lastBackupAt: lastBackup,
     users: users.length,
+    usersWithoutHousehold,
+    pushDevices,
+    activeUsers24h: activeSince(1),
     usersNew7d: users.filter((u) => (u.createdAt || 0) > since(7)).length,
     usersNew30d: users.filter((u) => (u.createdAt || 0) > since(30)).length,
     activeUsers7d: activeSince(7),
     activeUsers30d: activeSince(30),
     households: households.length,
     householdsShared: members.filter((n) => n > 1).length,
+    householdsSolo: members.filter((n) => n === 1).length,
+    membersTotal,
     avgMembers: households.length ? Number((members.reduce((a, b) => a + b, 0) / households.length).toFixed(2)) : 0,
+    signupsDaily,
     items, itemsTotal,
     dbBytes,
     uptimeSec: Math.round(process.uptime()),
@@ -708,7 +728,7 @@ async function route(req, res, url) {
   const p = url.pathname.replace(/^\/api/, '') || '/';
   const method = req.method;
 
-  if (p === '/health') return send(res, 200, { ok: true, at: now() });
+  if (p === '/health') return send(res, 200, { ok: true, version: SERVER_VERSION, at: now() });
 
   /* المفتاح العام لـ VAPID — يحتاجه المتصفح قبل الاشتراك */
   if (p === '/push/key' && method === 'GET') return send(res, 200, { key: VAPID.publicKey });

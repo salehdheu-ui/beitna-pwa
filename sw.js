@@ -3,7 +3,7 @@
    يعمل بدون إنترنت، ويحدّث نفسه فورًا عند نشر نسخة جديدة.
    ============================================================ */
 
-const VERSION = 'beitna-v3.7.0';
+const VERSION = 'beitna-v3.8.0';
 const NET_TIMEOUT = 2500;
 
 const CORE = [
@@ -30,6 +30,7 @@ const CORE = [
   './js/screens/more.js',
   './js/screens/control.js',
   './js/screens/pantry.js',
+  './js/screens/admin.js',
   './js/pantry-data.js',
   './js/diag.js',
   './assets/icons/icon-192.png',
