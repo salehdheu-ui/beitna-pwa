@@ -1,2 +1,5 @@
 User-agent: *
 Allow: /
+
+# لوحة الإدارة ليست جزءًا من التطبيق ولا تُفهرَس
+Disallow: /admin.html

@@ -19,10 +19,16 @@ const PUSH_SUBJECT = process.env.PUSH_SUBJECT || 'mailto:admin@beitna.local';
 const SERVER_VERSION = '1.7.0';
 
 /* لوحة الإدارة المنفصلة لها رمز مستقل تمامًا عن حسابات بيتنا.
-   القيمة الافتراضية بصمة فقط؛ يمكن تدويرها من Coolify عبر المتغيّر. */
-const ADMIN_PANEL_CODE_HASH = String(
-  process.env.ADMIN_PANEL_CODE_HASH || '8e4e54a17983effe261d456fa5a34f4f02a8b1af181f0fc3cf870af50ab1634f'
-).trim().toLowerCase();
+
+   لا قيمة افتراضية هنا إطلاقًا. المستودع عام، وبصمة مكتوبة في الكود
+   تُكسَر خارج الخادم بسرعة غير محدودة — حدّ المحاولات لا يحمي منها لأن
+   المهاجم لا يحتاج الخادم أصلًا. فإن لم يُضبط المتغيّر تُغلق اللوحة. */
+const ADMIN_PANEL_CODE_HASH = String(process.env.ADMIN_PANEL_CODE_HASH || '')
+  .trim().toLowerCase();
+const ADMIN_PANEL_READY = /^[0-9a-f]{64}$/.test(ADMIN_PANEL_CODE_HASH);
+if (!ADMIN_PANEL_READY) {
+  console.warn('لوحة الإدارة مغلقة: اضبط ADMIN_PANEL_CODE_HASH (بصمة sha256 بالحروف الكبيرة).');
+}
 const ADMIN_PANEL_HOURS = 12;
 
 /* بريد المشرفين (يفصل بينها فاصلة). بدونها لا يرى أحد إحصائيات النظام. */
@@ -239,6 +245,7 @@ function readToken(token) {
 }
 
 function validAdminPanelCode(value) {
+  if (!ADMIN_PANEL_READY) return false;
   try {
     const incoming = crypto.createHash('sha256')
       .update(String(value || '').trim().toUpperCase())
@@ -267,6 +274,7 @@ function readAdminPanelToken(token) {
 }
 
 function authAdminPanel(req) {
+  if (!ADMIN_PANEL_READY) return false;
   const h = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
   return readAdminPanelToken(h);
 }
@@ -839,6 +847,7 @@ async function route(req, res, url) {
 
   /* ===== لوحة الإدارة المستقلة — لا علاقة لها بحسابات أو أدوار أفراد البيت ===== */
   if (p === '/admin/login' && method === 'POST') {
+    if (!ADMIN_PANEL_READY) return fail(res, 503, 'admin-not-configured');
     const key = 'admin-panel:' + clientIp(req);
     if (tooMany(key) || rateLimited(key, 20, 3600000)) return fail(res, 429, 'too-many-requests');
     const body = await readBody(req);
