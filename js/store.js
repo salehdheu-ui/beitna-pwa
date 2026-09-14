@@ -4,7 +4,7 @@
    ============================================================ */
 
 import { nextId, uid, todayStart, startOfDay, fmtDate } from './util.js';
-import { PANTRY_SEED } from './pantry-data.js';
+import { PANTRY_CATEGORIES, PANTRY_SEED } from './pantry-data.js';
 
 const KEY = 'beitna:state:v1';
 
@@ -88,6 +88,7 @@ function blankState() {
     ui: { sections: {} },
     caps: null,          // يأتي من الخادم؛ null = بلا قيود (محلي)
     pantry: [],          // قائمة الاحتياجات الدائمة — لا تُستهلك بالشراء
+    pantryCategories: [], // أقسام احتياجات يضيفها أفراد البيت
   };
 }
 
@@ -167,7 +168,7 @@ let state = load();
 const listeners = new Set();
 
 /* بيانات محفوظة على الجهاز قد تحمل معرّفات أعلى من علامتنا — نرفعها فوقها */
-for (const col of ['shopping', 'faults', 'occasions', 'categories', 'favoriteLists', 'pantry']) {
+for (const col of ['shopping', 'faults', 'occasions', 'categories', 'favoriteLists', 'pantry', 'pantryCategories']) {
   reserveIds(state[col]);
 }
 
@@ -312,7 +313,10 @@ export function setupHousehold({ householdName, memberName, email = '', joinCode
       }];
     }
     /* لا نمسح البيانات إلا عند إنشاء بيت جديد أو الانضمام لبيت آخر */
-    if (resetData) { s.shopping = []; s.faults = []; s.occasions = []; s.favoriteLists = []; s.activities = []; }
+    if (resetData) {
+      s.shopping = []; s.faults = []; s.occasions = []; s.favoriteLists = [];
+      s.pantry = []; s.pantryCategories = []; s.activities = [];
+    }
     logActivity(joinCode || !owner ? `انضم ${memberName} إلى البيت` : `تم إنشاء ${s.household.name}`);
   });
 }
@@ -332,6 +336,7 @@ export function signOut({ keepData = false } = {}) {
   const carried = keepData ? {
     shopping: state.shopping, faults: state.faults, occasions: state.occasions,
     categories: state.categories, favoriteLists: state.favoriteLists,
+    pantry: state.pantry, pantryCategories: state.pantryCategories,
     activities: state.activities,
     profile: { ...blankState().profile, name: state.profile.name },
   } : null;
@@ -349,7 +354,7 @@ export function signOut({ keepData = false } = {}) {
 export function uploadLocalData() {
   if (mode !== 'cloud' || !bridge) return 0;
   let n = 0;
-  for (const col of ['categories', 'shopping', 'faults', 'occasions', 'favoriteLists']) {
+  for (const col of ['categories', 'shopping', 'faults', 'occasions', 'favoriteLists', 'pantry', 'pantryCategories']) {
     for (const item of state[col] || []) {
       try { bridge.save(col, item); n++; } catch (e) { console.warn('تعذّر رفع عنصر', e); }
     }
@@ -802,6 +807,32 @@ export function addPantryItem({ name, cat = 'canned', stocked = true }) {
   return item;
 }
 
+/** الأقسام الافتراضية مع ما أضافه أفراد البيت، من دون تكرار معرّف. */
+export function pantryCategoriesOf() {
+  const seen = new Set();
+  return PANTRY_CATEGORIES.concat(state.pantryCategories || [])
+    .filter((c) => {
+      const id = String(c?.id || '');
+      if (!id || seen.has(id)) return false;
+      seen.add(id); return true;
+    })
+    .map((c) => ({
+      id: String(c.id), name: String(c.name || 'قسم').slice(0, 40),
+      icon: String(c.icon || '📦').slice(0, 8), custom: !PANTRY_CATEGORIES.some((x) => x.id === String(c.id)),
+    }));
+}
+
+export function addPantryCategory({ name, icon = '📦' }) {
+  const clean = String(name || '').trim().slice(0, 40);
+  const mark = String(icon || '').trim().slice(0, 8) || '📦';
+  if (!clean) return null;
+  if (pantryCategoriesOf().some((c) => c.name.trim().toLocaleLowerCase() === clean.toLocaleLowerCase())) return null;
+  const category = { id: 'custom-' + uid(), name: clean, icon: mark, createdAt: Date.now(), updatedAt: Date.now() };
+  update((s) => { s.pantryCategories.push(category); });
+  push('save', 'pantryCategories', category);
+  return category;
+}
+
 /** ✓ متوفر / ✗ نفد — هذا هو الفعل اليومي في هذه الشاشة */
 export function setPantryStock(id, stocked) {
   let item = null;
@@ -829,6 +860,23 @@ export function renamePantryItem(id, name) {
     const p = s.pantry.find((x) => x.id === id);
     if (!p) return;
     p.name = clean.slice(0, 60);
+    p.updatedAt = Date.now();
+    item = p;
+  });
+  if (item) push('save', 'pantry', item);
+  return item;
+}
+
+/** تعديل الاسم والقسم معًا من شاشة قائمة الاحتياجات. */
+export function updatePantryItem(id, { name, cat }) {
+  const clean = String(name || '').trim();
+  if (!clean) return null;
+  let item = null;
+  update((s) => {
+    const p = s.pantry.find((x) => x.id === id);
+    if (!p) return;
+    p.name = clean.slice(0, 60);
+    if (cat !== undefined && cat !== null && String(cat)) p.cat = String(cat);
     p.updatedAt = Date.now();
     item = p;
   });
@@ -865,3 +913,4 @@ export function resetPantryReview() {
   update((s) => { s.pantry.forEach((p) => { p.stocked = true; p.updatedAt = t; }); });
   state.pantry.forEach((p) => push('save', 'pantry', p));
 }
+

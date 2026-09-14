@@ -377,7 +377,7 @@ setInterval(() => {
 }, 300000).unref();
 
 /* ---------- المجموعات ---------- */
-const COLS = ['shopping', 'faults', 'occasions', 'categories', 'favoriteLists', 'pantry'];
+const COLS = ['shopping', 'faults', 'occasions', 'categories', 'favoriteLists', 'pantry', 'pantryCategories'];
 
 const DEFAULT_CATEGORIES = [
   [1, 'بقالة', '🛒', 'Shopping'], [2, 'منظفات', '🧴', 'Shopping'],
@@ -493,7 +493,9 @@ const CAP_COLS = ['shopping', 'faults', 'occasions'];
 
 /* قائمة الاحتياجات امتداد للمشتريات، فتتبع صلاحيتها ولا تلتفّ عليها */
 const capLevel = (caps, col) =>
-  (col === 'pantry' ? caps.shopping : (CAP_COLS.includes(col) ? caps[col] : 'write'));
+  (col === 'pantry' || col === 'pantryCategories'
+    ? caps.shopping
+    : (CAP_COLS.includes(col) ? caps[col] : 'write'));
 const CAP_LEVELS = ['none', 'read', 'write'];
 const CAP_FLAGS = ['prices', 'members', 'invite', 'remove'];
 
@@ -1217,3 +1219,4 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, () => console.log('خادم بيتنا يعمل على المنفذ', PORT, '— البيانات في', DATA_DIR));
+

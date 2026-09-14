@@ -149,6 +149,31 @@ if (/\.navitem\.active\s+\.ic\s*\{[^}]*transform\s*:/s.test(css)) {
   bad('الأيقونة النشطة تتحرك رأسيًا في الشريط السفلي');
 } else ok('موضع أيقونات الشريط ثابت عند الضغط والتفعيل');
 
+if (app.includes('class="nav-svg"') && css.includes('.nav-svg {')) {
+  ok('جرس التذكيرات رمز ثابت الأبعاد لا يعتمد على خط الإيموجي');
+} else bad('جرس التذكيرات لا يملك رسمًا ثابت الأبعاد');
+
+if (/\.view\s*\{[^}]*overflow-x:\s*hidden/s.test(css) && /\.tabs\s*\{[^}]*max-width:\s*100%/s.test(css)) {
+  ok('تبويبات التذكيرات لا توسّع الصفحة وتحرك الشريط السفلي');
+} else bad('التمدد الأفقي لصفحة التذكيرات غير محصور');
+
+/* ---------- إدارة قائمة الاحتياجات ---------- */
+console.log('قائمة الاحتياجات:');
+const store = read('js/store.js');
+const cloud = read('js/cloud.js');
+const server = read('server/server.js');
+const pantry = read('js/screens/pantry.js');
+for (const [name, source] of [['المخزن', store], ['المزامنة', cloud], ['الخادم', server]]) {
+  if (source.includes('pantryCategories')) ok('أقسام الاحتياجات موجودة في ' + name);
+  else bad('pantryCategories ناقصة من ' + name);
+}
+if (pantry.includes('data-edit=') && pantry.includes('updatePantryItem')) ok('تعديل اسم المنتج وقسمه موصول');
+else bad('ميزة تعديل منتج الاحتياجات غير مكتملة');
+if (pantry.includes('data-add-product') && pantry.includes('data-add-category')) ok('زرا إضافة المنتج والقسم ظاهران');
+else bad('أزرار إضافة المنتجات والأقسام غير ظاهرة');
+if (store.includes("push('save', 'pantryCategories'") && cloud.includes("'pantryCategories'")) ok('الأقسام الجديدة تتزامن بين الأجهزة');
+else bad('الأقسام الجديدة لا تتزامن بين الأجهزة');
+
 console.log('');
 console.log(failed ? (failed + ' فحصًا فشل') : 'كل الفحوص سليمة');
 process.exit(failed ? 1 : 0);

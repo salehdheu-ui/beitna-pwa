@@ -373,6 +373,10 @@ const MAPPERS = {
   categories: (d) => ({ id: Number(d.id), name: d.name || '', icon: d.icon || '📦', type: d.type || 'Shopping' }),
   favoriteLists: (d) => ({ id: Number(d.id), name: d.name || '', icon: d.icon || '⭐', items: d.items || [] }),
   pantry: (d) => ({ id: Number(d.id), name: d.name || '', cat: d.cat || 'canned', stocked: d.stocked !== false }),
+  pantryCategories: (d) => ({
+    id: String(d.id || ''), name: String(d.name || '').slice(0, 40),
+    icon: String(d.icon || '📦').slice(0, 8), createdAt: Number(d.createdAt) || Date.now(),
+  }),
 };
 
 const LABELS = {
@@ -381,7 +385,7 @@ const LABELS = {
   occasions: (x) => `🔔 تذكير جديد: ${x.title}`,
 };
 
-const COLS = ['shopping', 'faults', 'occasions', 'categories', 'favoriteLists', 'pantry'];
+const COLS = ['shopping', 'faults', 'occasions', 'categories', 'favoriteLists', 'pantry', 'pantryCategories'];
 
 function persistDocs() {
   if (!hidActive) return;
@@ -746,3 +750,4 @@ export async function loadNotificationPrefs() {
 
 /* ---------- سجل الدخول (غير مستخدم في الخادم الذاتي) ---------- */
 export function recordSession() { /* لا نجمع سجلات أجهزة */ }
+
