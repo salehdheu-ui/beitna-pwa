@@ -3,8 +3,12 @@
    يعمل بدون إنترنت، ويحدّث نفسه فورًا عند نشر نسخة جديدة.
    ============================================================ */
 
-const VERSION = 'beitna-v3.9.0';
+const VERSION = 'beitna-v3.10.0';
 const NET_TIMEOUT = 2500;
+
+/* لوحة الإدارة ليست جزءًا من الـ PWA إطلاقًا. يجب أن تمر ملفاتها إلى الشبكة
+   مباشرة، وإلا يعامل طلب admin.html كتصفّح داخل التطبيق ويعيد index.html. */
+const ADMIN_PATHS = new Set(['/admin.html', '/css/admin.css', '/js/admin-app.js']);
 
 const CORE = [
   './',
@@ -49,11 +53,19 @@ self.addEventListener('install', (event) => {
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== VERSION).map((k) => caches.delete(k))))
-      .then(() => self.clients.claim())
-  );
+  event.waitUntil((async () => {
+    const keys = await caches.keys();
+    await Promise.all(keys.filter((k) => k !== VERSION).map((k) => caches.delete(k)));
+    await self.clients.claim();
+
+    /* ترقية إنقاذ لمرة واحدة: النسخة السابقة قد تكون تركت نافذة مفتوحة بكود
+       لوحة الإدارة المدمجة. إعادة التنقّل هنا تحدث مرة واحدة عند تفعيل 3.10
+       فقط، فتستبدل تلك النافذة بالتطبيق المستعاد دون إعادة تحميلات متكررة. */
+    if (VERSION === 'beitna-v3.10.0') {
+      const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      await Promise.allSettled(windows.map((client) => client.navigate(client.url)));
+    }
+  })());
 });
 
 /** الشبكة أولًا مع مهلة، ثم النسخة المحفوظة */
@@ -119,6 +131,9 @@ self.addEventListener('fetch', (event) => {
   let url;
   try { url = new URL(req.url); } catch { return; }
   if (!url.protocol.startsWith('http')) return;
+
+  /* لا نعترض لوحة الإدارة ولا ملفاتها، حتى في طلبات التنقّل. */
+  if (url.origin === location.origin && ADMIN_PATHS.has(url.pathname)) return;
 
   /* طلبات الخادم (/api) لا تُخزَّن إطلاقًا — التطبيق يدير العمل بدون إنترنت بنفسه */
   if (url.origin === location.origin && url.pathname.startsWith('/api')) return;
