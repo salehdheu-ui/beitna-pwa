@@ -3,7 +3,7 @@
    يعمل بدون إنترنت، ويحدّث نفسه فورًا عند نشر نسخة جديدة.
    ============================================================ */
 
-const VERSION = 'beitna-v3.10.0';
+const VERSION = 'beitna-v3.10.1';
 const NET_TIMEOUT = 2500;
 
 /* لوحة الإدارة ليست جزءًا من الـ PWA إطلاقًا. يجب أن تمر ملفاتها إلى الشبكة
@@ -58,13 +58,12 @@ self.addEventListener('activate', (event) => {
     await Promise.all(keys.filter((k) => k !== VERSION).map((k) => caches.delete(k)));
     await self.clients.claim();
 
-    /* ترقية إنقاذ لمرة واحدة: النسخة السابقة قد تكون تركت نافذة مفتوحة بكود
-       لوحة الإدارة المدمجة. إعادة التنقّل هنا تحدث مرة واحدة عند تفعيل 3.10
-       فقط، فتستبدل تلك النافذة بالتطبيق المستعاد دون إعادة تحميلات متكررة. */
-    if (VERSION === 'beitna-v3.10.0') {
-      const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-      await Promise.allSettled(windows.map((client) => client.navigate(client.url)));
-    }
+    /* لا تنقّل للنوافذ من داخل activate إطلاقًا.
+       client.navigate() طلبُ تصفّح لا يكتمل إلا إذا ردّ عليه هذا العامل،
+       وهذا العامل لا يستقبل طلبات fetch قبل أن ينتهي activate — و activate
+       ينتظر التنقّل عبر waitUntil. فيقف الطرفان: الصفحة تعلّق بلا استجابة
+       والعامل لا ينشط أبدًا. المسار القديم ‎#/admin‎ تتكفّل به app.js عند
+       الإقلاع، وهو المكان الآمن لذلك. */
   })());
 });
 

@@ -224,23 +224,14 @@ for (const id of ['#sheetRoot', '#dialogRoot']) {
 }
 
 /* ---------- شريط التنقل ---------- */
-function navIconHtml(item) {
-  /* إيموجي الجرس يغيّر صندوق الرسم وموضع خط الأساس بين بعض خطوط أندرويد
-     وiOS عند التفعيل. SVG ثابت الأبعاد يمنع القفزة على الأجهزة نفسها. */
-  if (item.route === '/occasions' && item.icon === '🔔') {
-    return `<svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"></path>
-      <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
-    </svg>`;
-  }
-  return esc(item.icon);
-}
-
+/* صندوق الأيقونة ثابت 28×28 ولا تحويل عند التفعيل، فالإيموجي لا يقفز.
+   كانت القفزة من transform على ‎.navitem.active .ic‎ وقد أُزيل، فلا داعي
+   لاستبدال الجرس برسمة خطّية تشذّ عن بقية الأيقونات الملوّنة. */
 function navHtml(withBrand, items) {
   return (withBrand ? `<div class="brand"><span class="logo">🏡</span> بيتنا</div>` : '') +
     items.map((n) => `
       <button class="navitem" data-go="${n.route}">
-        <span class="ic">${navIconHtml(n)}</span><span>${esc(n.label)}</span>
+        <span class="ic">${esc(n.icon)}</span><span>${esc(n.label)}</span>
       </button>`).join('');
 }
 
