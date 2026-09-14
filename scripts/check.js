@@ -103,6 +103,33 @@ else {
     else bad('server.js يستدعي ' + file + ' والـ Dockerfile لا ينسخه — الحاوية تموت عند الإقلاع');
   }
 }
+/* ---------- شاشات ميتة ----------
+   شاشة ترسم عناصر قابلة للضغط (data-nav / data-act / data-go) ثم لا
+   تسجّل mount لا يعمل فيها شيء إطلاقًا، ولا يظهر خطأ في أي مكان.
+   حدث هذا في الرئيسية: 13 عنصرًا ميتًا — bindHome مُعرَّفة ولا تُستدعى.
+   النطاق: من مطلع الشاشة إلى مطلع التصدير التالي. */
+console.log('الشاشات:');
+const fs2 = require('fs');
+const path2 = require('path');
+let screensChecked = 0;
+for (const f of fs2.readdirSync('js/screens')) {
+  if (!f.endsWith('.js')) continue;
+  const src = read(path2.join('js/screens', f));
+  const marks = [];
+  const re = /export (?:function|const) ([A-Za-z]+)/g;
+  let m;
+  while ((m = re.exec(src))) marks.push({ name: m[1], at: m.index });
+  marks.forEach((mk, i) => {
+    if (!/Screen$/.test(mk.name)) return;
+    const body = src.slice(mk.at, i + 1 < marks.length ? marks[i + 1].at : src.length);
+    if (!/data-(nav|act|go|save|fab|seed|send|tick)=/.test(body)) return;
+    screensChecked++;
+    if (body.indexOf('mount(') >= 0 || body.indexOf('topActions(') >= 0) ok(mk.name + ' موصولة');
+    else bad(mk.name + ' في ' + f + ' ترسم عناصر قابلة للضغط بلا mount — الشاشة ميتة');
+  });
+}
+if (!screensChecked) bad('لم تُفحص أي شاشة — تغيّر شكل الملفات؟');
+
 console.log('');
 console.log(failed ? (failed + ' فحصًا فشل') : 'كل الفحوص سليمة');
 process.exit(failed ? 1 : 0);

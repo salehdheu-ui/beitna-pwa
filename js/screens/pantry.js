@@ -146,7 +146,7 @@ export function pantryScreen() {
           const pos = qi.selectionStart;
           rerender();
           const n = document.querySelector('#pq');
-          if (n) { n.focus(); n.setSelectionRange(pos, pos); }
+          if (n) { n.focus({ preventScroll: true }); n.setSelectionRange(pos, pos); }
         });
       }
     },
@@ -254,7 +254,7 @@ function addSheet(rerender) {
         addPantryItem({ name, cat: sheet.querySelector('#pcat').value });
         close(); toast(`أُضيف "${name}" ✓`); rerender();
       };
-      sheet.querySelector('#pname').focus();
+      sheet.querySelector('#pname').focus({ preventScroll: true });
     },
   });
 }

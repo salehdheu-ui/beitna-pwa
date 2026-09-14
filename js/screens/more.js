@@ -1027,7 +1027,7 @@ function changePasswordSheet() {
             <div class="hint">6 أحرف على الأقل</div></div>`;
         const btn = el.querySelector('[data-go]');
         btn.disabled = false; btn.textContent = 'تغيير';
-        el.querySelector('#newp').focus();
+        el.querySelector('#newp').focus({ preventScroll: true });
         return;
       }
       const next = el.querySelector('#newp').value;

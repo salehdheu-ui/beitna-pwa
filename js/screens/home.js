@@ -86,6 +86,7 @@ export function homeScreen() {
         : emptyState('🕒', 'لا توجد نشاطات بعد', 'كل إضافة أو تعديل سيظهر هنا')}
       </div>
     `,
+    mount(root) { bindHome(root); },
   };
 }
 
@@ -110,7 +111,9 @@ export function iconForType(type) {
   return map[type] || '🎉';
 }
 
-export function bindHome(root) {
+/* كل ما في الرئيسية يُفتح بالضغط: الإجراءات السريعة، بطاقات الأولوية،
+   التذكيرات القريبة، «عرض الكل»، ومربّعات الإحصاءات. */
+function bindHome(root) {
   root.addEventListener('click', (e) => {
     const el = e.target.closest('[data-nav]');
     if (el) go(el.dataset.nav);

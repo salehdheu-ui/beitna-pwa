@@ -136,7 +136,7 @@ export function faultFormScreen() {
         toast(`تم تسجيل عطل: ${title}`);
         go('/faults', { replace: true });
       };
-      root.querySelector('#title')?.focus();
+      root.querySelector('#title')?.focus({ preventScroll: true });
     },
   };
 }
