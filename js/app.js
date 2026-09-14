@@ -127,10 +127,14 @@ function render(factory, params = {}) {
      بعددها. نستبدل العقدة كلها فتموت مستمعات الشاشة السابقة معها. */
   const stale = $('#view');
   const view = stale.cloneNode(false);
-  stale.replaceWith(view);
 
+  /* نملأ العقدة وهي خارج الصفحة ثم نبدّلها دفعة واحدة.
+     بالترتيب المعكوس تفرغ الشاشة إطارًا كاملًا قبل أن تمتلئ،
+     فيرى المستخدم وميضًا أبيض مع كل رسمة. */
   view.innerHTML = screen.html + (screen.fab
     ? `<button class="fab" data-fab>${esc(screen.fab.label)}</button>` : '');
+
+  stale.replaceWith(view);
 
   view.scrollTop = 0;
   window.scrollTo({ top: keepScroll });
@@ -178,6 +182,25 @@ function rerender() {
 /** يُطلق الرسمة المؤجَّلة متى ما فرغ المستخدم */
 function flushDeferred() {
   if (deferred && !busy()) rerender();
+}
+
+/* المزامنة تُسلّم كل مجموعة على حدة — مشتريات، أعطال، تذكيرات،
+   تصنيفات، قوائم، مخزون، أعضاء — فكانت الشاشة تُبنى من جديد مرة
+   لكل واحدة. قياسًا: 10 إلى 12 رسمة عند الإقلاع، ثمانٍ منها في
+   المللي ثانية نفسها. هنا نجمعها كلها في رسمة واحدة.
+   الرسم بعد فعل المستخدم يبقى فوريًا: الشاشات تعتمد عليه لإعادة
+   التركيز إلى حقل البحث بعد كل حرف. */
+const COALESCE_MS = 60;    // دون عتبة الإحساس، وفوق تتابع دفعات الإقلاع
+const COALESCE_MAX = 250;  // ولا نؤجّل إلى ما لا نهاية إن تتابع الوارد
+
+let timer = 0;
+let firstAt = 0;
+function scheduleRerender() {
+  const t = Date.now();
+  if (!timer) firstAt = t;
+  else if (t - firstAt > COALESCE_MAX) return;   // المؤقّت القائم سيُطلقها
+  clearTimeout(timer);
+  timer = setTimeout(() => { timer = 0; rerender(); }, COALESCE_MS);
 }
 
 document.addEventListener('focusout', () => setTimeout(flushDeferred, 0));
@@ -312,7 +335,7 @@ function startCloudSession(hid) {
       } else {
         applyRemote(col, items);
       }
-      rerender();
+      scheduleRerender();
     },
     onPartnerActivity(text) {
       notifyPartner(text);
@@ -427,7 +450,7 @@ async function restoreCloud() {
 
     startCloudSession(hid);
     if (!booted) showApp();
-    else rerender();
+    else scheduleRerender();
     return true;
   } catch (e) {
     console.warn('تعذّرت استعادة الجلسة السحابية', e);
