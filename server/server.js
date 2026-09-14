@@ -18,6 +18,13 @@ const TOKEN_DAYS = 400;
 const PUSH_SUBJECT = process.env.PUSH_SUBJECT || 'mailto:admin@beitna.local';
 const SERVER_VERSION = '1.7.0';
 
+/* لوحة الإدارة المنفصلة لها رمز مستقل تمامًا عن حسابات بيتنا.
+   القيمة الافتراضية بصمة فقط؛ يمكن تدويرها من Coolify عبر المتغيّر. */
+const ADMIN_PANEL_CODE_HASH = String(
+  process.env.ADMIN_PANEL_CODE_HASH || '8e4e54a17983effe261d456fa5a34f4f02a8b1af181f0fc3cf870af50ab1634f'
+).trim().toLowerCase();
+const ADMIN_PANEL_HOURS = 12;
+
 /* بريد المشرفين (يفصل بينها فاصلة). بدونها لا يرى أحد إحصائيات النظام. */
 const ADMIN_EMAILS = new Set(
   String(process.env.ADMIN_EMAILS || '')
@@ -229,6 +236,39 @@ function readToken(token) {
     if ((db.users[p.u]?.tokenEpoch || 0) !== (p.v || 0)) return null;
     return p.u;
   } catch { return null; }
+}
+
+function validAdminPanelCode(value) {
+  try {
+    const incoming = crypto.createHash('sha256')
+      .update(String(value || '').trim().toUpperCase())
+      .digest();
+    const expected = Buffer.from(ADMIN_PANEL_CODE_HASH, 'hex');
+    return expected.length === incoming.length && crypto.timingSafeEqual(expected, incoming);
+  } catch { return false; }
+}
+
+function signAdminPanelToken() {
+  const body = b64(JSON.stringify({ a: 'admin-panel', e: now() + ADMIN_PANEL_HOURS * 3600000 }));
+  const sig = crypto.createHmac('sha256', SECRET).update('admin:' + body).digest('base64url');
+  return body + '.' + sig;
+}
+
+function readAdminPanelToken(token) {
+  try {
+    const [body, sig] = String(token || '').split('.');
+    if (!body || !sig) return false;
+    const good = crypto.createHmac('sha256', SECRET).update('admin:' + body).digest('base64url');
+    const a = Buffer.from(sig), b = Buffer.from(good);
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return false;
+    const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
+    return payload.a === 'admin-panel' && payload.e > now();
+  } catch { return false; }
+}
+
+function authAdminPanel(req) {
+  const h = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+  return readAdminPanelToken(h);
 }
 
 /* ---------- حماية بسيطة من المحاولات المتكررة ---------- */
@@ -795,6 +835,32 @@ async function route(req, res, url) {
     const recoveryCode = issueRecoveryCode(u);   // الرمز يُستهلك ويُستبدل
     save();
     return send(res, 200, { ...publicUser(u, signToken(u.uid)), recoveryCode });
+  }
+
+  /* ===== لوحة الإدارة المستقلة — لا علاقة لها بحسابات أو أدوار أفراد البيت ===== */
+  if (p === '/admin/login' && method === 'POST') {
+    const key = 'admin-panel:' + clientIp(req);
+    if (tooMany(key) || rateLimited(key, 20, 3600000)) return fail(res, 429, 'too-many-requests');
+    const body = await readBody(req);
+    if (!validAdminPanelCode(body.code)) {
+      noteAttempt(key, false);
+      return fail(res, 401, 'wrong-admin-code');
+    }
+    noteAttempt(key, true);
+    return send(res, 200, { token: signAdminPanelToken(), expiresHours: ADMIN_PANEL_HOURS });
+  }
+
+  if (p === '/admin/stats' && method === 'GET') {
+    if (!authAdminPanel(req)) return fail(res, 401, 'admin-session-required');
+    return send(res, 200, buildStats());
+  }
+
+  if (p === '/admin/backup' && method === 'POST') {
+    if (!authAdminPanel(req)) return fail(res, 401, 'admin-session-required');
+    flush();
+    const file = backupNow('لوحة الإدارة', true);
+    if (!file) return fail(res, 500, 'backup-failed');
+    return send(res, 200, { ok: true, file: path.basename(file) });
   }
 
   /* ===== كل ما بعده يحتاج تسجيل دخول ===== */

@@ -24,7 +24,6 @@ import {
 } from './screens/more.js';
 import { controlScreen } from './screens/control.js';
 import { pantryScreen } from './screens/pantry.js';
-import { adminScreen } from './screens/admin.js';
 import { emptyState, toast, iosInstallSheet } from './ui.js';
 import { startReminderLoop, notifyPartner, isIOS, isStandalone } from './notify.js';
 import { helperScreen, langSheet } from './screens/helper.js';
@@ -306,7 +305,6 @@ route('/join-house', guarded(joinHouseScreen));
 route('/notifications', guarded(notificationsScreen));
 route('/categories', guarded(categoriesScreen));
 route('/control', guarded(controlScreen));
-route('/admin', guarded(adminScreen));
 route('/archive', guarded(archiveScreen));
 route('/support', guarded(supportScreen));
 

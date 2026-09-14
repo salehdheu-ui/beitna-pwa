@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="robots" content="noindex,nofollow">
+  <meta name="theme-color" content="#071a17">
+  <title>لوحة إدارة بيتنا</title>
+  <link rel="icon" href="assets/icons/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap">
+  <link rel="stylesheet" href="css/admin.css">
+</head>
+<body>
+  <main id="loginView" class="login-shell">
+    <section class="login-card">
+      <div class="brand-mark">🏡</div>
+      <div class="eyebrow">منطقة مستقلة</div>
+      <h1>لوحة إدارة بيتنا</h1>
+      <p>هذه الصفحة منفصلة تمامًا عن التطبيق وحسابات أفراد البيت.</p>
+      <form id="loginForm">
+        <label for="adminCode">رمز لوحة الإدارة</label>
+        <div class="code-field">
+          <input id="adminCode" type="password" autocomplete="off" autocapitalize="characters" spellcheck="false" required autofocus>
+          <button type="button" id="toggleCode" aria-label="إظهار الرمز">👁️</button>
+        </div>
+        <div id="loginError" class="error" role="alert" hidden></div>
+        <button class="primary" type="submit">دخول آمن</button>
+      </form>
+      <div class="security-note">🔒 جلسة الإدارة تنتهي تلقائيًا، ولا تستخدم حساب المستخدم أو كلمة مروره.</div>
+    </section>
+  </main>
+
+  <div id="dashboardView" hidden>
+    <header class="topbar">
+      <div class="brand"><span>🏡</span><div><b>بيتنا</b><small>لوحة الإدارة المستقلة</small></div></div>
+      <div class="top-actions">
+        <span class="live"><i></i> متصل</span>
+        <button class="icon-button" id="logoutBtn" title="خروج" aria-label="تسجيل الخروج">↪</button>
+      </div>
+    </header>
+    <main class="dashboard">
+      <div id="dashboardRoot" aria-live="polite"></div>
+    </main>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+  <script type="module" src="js/admin-app.js"></script>
+</body>
+</html>
+

@@ -108,13 +108,6 @@ export function moreScreen() {
         </div>
       </div>` : ''}
 
-      <div class="section" id="adminNav" hidden>
-        <div class="section-title">إدارة النظام</div>
-        <div class="list">
-          ${listRow('📊', 'لوحة الإدارة', 'المستخدمون والبيوت والنشاط وحالة الخادم', '/admin')}
-        </div>
-      </div>
-
       <div class="section">
         <div class="section-title">التفضيلات</div>
         <div class="list">
@@ -150,17 +143,10 @@ export function moreScreen() {
       <div class="mt">
         <button class="btn danger-soft block" data-act="signout">تسجيل الخروج</button>
       </div>
-      <p class="center tiny muted mt">بيتنا © ${new Date().getFullYear()} — صُمّم بحب لكل عائلة<br>إدارة المنزل بذكاء — نسخة الويب 1.7.0</p>
+      <p class="center tiny muted mt">بيتنا © ${new Date().getFullYear()} — صُمّم بحب لكل عائلة<br>إدارة المنزل بذكاء — نسخة الويب 1.6.1</p>
       <input type="file" id="importFile" accept="application/json" hidden>
     `,
     mount(root, rerender) {
-      /* لا يظهر المدخل إلا بعد تأكيد الخادم أن الحساب مشرف نظام. */
-      if (isCloud()) {
-        amAdmin().then((ok) => {
-          if (ok) root.querySelector('#adminNav')?.removeAttribute('hidden');
-        }).catch(() => {});
-      }
-
       root.addEventListener('click', async (e) => {
         if (e.target.closest('[data-act="link"]')) { linkDeviceToAccount(); return; }
         const nav = e.target.closest('[data-nav]');
@@ -1179,7 +1165,7 @@ export function supportScreen() {
           </p>` : ''}
       </div>
 
-      <p class="center tiny muted mt">إدارة المنزل بذكاء — الإصدار 1.7.0</p>`,
+      <p class="center tiny muted mt">إدارة المنزل بذكاء — الإصدار 1.6.1</p>`,
     mount(root) {
       /* قسم الإدارة يظهر فقط إن أكّد الخادم أن هذا الحساب مشرف */
       if (isCloud()) {
@@ -1190,7 +1176,7 @@ export function supportScreen() {
         if (e.target.closest('[data-act="export"]')) { exportSheet(); return; }
         if (e.target.closest('[data-act="chpass"]')) { changePasswordSheet(); return; }
         if (e.target.closest('[data-act="newrec"]')) { newRecoverySheet(); return; }
-        if (e.target.closest('[data-act="stats"]')) { go('/admin'); return; }
+        if (e.target.closest('[data-act="stats"]')) { openStatsSheet(); return; }
 
         if (e.target.closest('[data-act="delacct"]')) { await confirmDeleteAccount(); return; }
 

@@ -43,7 +43,8 @@ else ok(listed.length + ' ملفًا في CORE كلها موجودة');
 
 /* كل وحدة js يجب أن تكون مخزّنة وإلا انكسر العمل بلا إنترنت */
 const modules = fs.readdirSync(path.join(ROOT, 'js'))
-  .filter((f) => f.endsWith('.js')).map((f) => 'js/' + f)
+  /* admin-app مستقل عن الـ PWA ولا يجب أن يدخل ذاكرة التطبيق الرئيسي */
+  .filter((f) => f.endsWith('.js') && f !== 'admin-app.js').map((f) => 'js/' + f)
   .concat(fs.readdirSync(path.join(ROOT, 'js/screens'))
     .filter((f) => f.endsWith('.js')).map((f) => 'js/screens/' + f));
 const uncached = modules.filter((m) => !listed.includes(m));
@@ -176,19 +177,22 @@ else bad('الأقسام الجديدة لا تتزامن بين الأجهزة'
 
 /* ---------- لوحة إدارة النظام ---------- */
 console.log('لوحة الإدارة:');
-const admin = read('js/screens/admin.js');
-if (app.includes("route('/admin'") && app.includes("adminScreen")) ok('مسار لوحة الإدارة موصول');
-else bad('مسار لوحة الإدارة غير موصول');
-if (admin.includes('await amAdmin()') && admin.includes('await loadStats()')) ok('الدخول والإحصاءات محميان بصلاحية المشرف');
-else bad('حارس صلاحية المشرف ناقص من لوحة الإدارة');
-if (admin.includes('data-admin-refresh') && admin.includes('data-admin-backup') && admin.includes('data-admin-health')) {
+const adminHtml = read('admin.html');
+const adminJs = read('js/admin-app.js');
+if (!app.includes("route('/admin'") && !read('js/screens/more.js').includes("'/admin'")) ok('لوحة الإدارة غير مدمجة في التطبيق الرئيسي');
+else bad('لوحة الإدارة ما زالت مدمجة في التطبيق الرئيسي');
+if (server.includes("p === '/admin/login'") && server.includes('authAdminPanel(req)')) ok('الدخول برمز مستقل ومحمي من الخادم');
+else bad('دخول لوحة الإدارة المستقلة غير مكتمل');
+if (adminHtml.includes('js/admin-app.js') && adminHtml.includes('css/admin.css')) ok('صفحة الإدارة المستقلة موصولة بملفاتها');
+else bad('ملفات صفحة الإدارة المستقلة غير موصولة');
+if (adminJs.includes("request('/admin/stats')") && adminJs.includes("request('/admin/backup'")) {
   ok('التحديث والنسخ الاحتياطي وفحص الخادم موصولة');
 } else bad('إجراءات لوحة الإدارة غير مكتملة');
 if (server.includes('signupsDaily') && server.includes('pushDevices') && server.includes('membersTotal')) {
   ok('مؤشرات النشاط والأجهزة والأعضاء متوفرة من الخادم');
 } else bad('مؤشرات لوحة الإدارة ناقصة من الخادم');
-if (sw.includes("'./js/screens/admin.js'")) ok('لوحة الإدارة متاحة دون اتصال بعد أول تحميل');
-else bad('ملف لوحة الإدارة غير مضاف إلى ذاكرة التطبيق');
+if (!sw.includes('admin.html') && !sw.includes('admin-app.js') && !sw.includes('admin.css')) ok('لوحة الإدارة مستقلة عن ذاكرة التطبيق الرئيسي');
+else bad('لوحة الإدارة دُمجت في Service Worker الخاص بالتطبيق');
 
 console.log('');
 console.log(failed ? (failed + ' فحصًا فشل') : 'كل الفحوص سليمة');
