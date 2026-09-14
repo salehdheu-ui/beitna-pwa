@@ -14,7 +14,7 @@ const amHelper = () => cloud.isHelper();
 import { route, setNotFound, setOnChange, start, go, back, currentPath } from './router.js';
 import { renderAuth } from './screens/auth.js';
 import { homeScreen } from './screens/home.js';
-import { shoppingScreen, shoppingFormScreen, shoppingDetailsScreen, shoppingSessionScreen } from './screens/shopping.js';
+import { shoppingScreen, shoppingFormScreen, shoppingDetailsScreen, shoppingSessionScreen, favoriteListScreen } from './screens/shopping.js';
 import { faultsScreen, faultFormScreen, faultDetailsScreen } from './screens/faults.js';
 import { occasionsScreen, occasionFormScreen, occasionDetailsScreen } from './screens/occasions.js';
 import {
@@ -189,6 +189,7 @@ route('/home', guarded(homeScreen));
 route('/shopping', guarded(shoppingScreen));
 route('/shopping/new', guarded(shoppingFormScreen));
 route('/shopping/session', guarded(shoppingSessionScreen));
+route('/shopping/list/:id', guarded(favoriteListScreen));
 route('/shopping/:id', guarded(shoppingDetailsScreen));
 
 route('/faults', guarded(faultsScreen));
