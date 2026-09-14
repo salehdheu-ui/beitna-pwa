@@ -152,7 +152,7 @@ a { color: var(--emerald); text-decoration: none; }
 .navitem {
   flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 3px; font-size: 11px; font-weight: 600; color: var(--text-soft);
-  min-width: 0; height: 100%; margin: 0; padding: 4px 2px; line-height: 1.2;
+  min-width: 0; margin: 0; padding: 4px 2px; line-height: 1.2;
   appearance: none; -webkit-appearance: none;
   align-self: stretch; touch-action: manipulation;
   transform: none !important; translate: none !important;
@@ -166,12 +166,10 @@ a { color: var(--emerald); text-decoration: none; }
   transform: none !important; translate: none !important;
 }
 .navitem:active, .navitem:focus { transform: none !important; translate: none !important; }
-.nav-svg {
-  display: block; width: 22px; height: 22px;
-  fill: none; stroke: currentColor; stroke-width: 2;
-  stroke-linecap: round; stroke-linejoin: round;
-  pointer-events: none;
-}
+/* ملء ارتفاع الشريط ليكون مسطّح اللمس كاملًا — للشريط السفلي وحده.
+   في الشريط الجانبي الاتجاه عمودي، فـ height:100% يجعل كل عنصر بارتفاع
+   العمود كله (864px هنا) فتتكدّس العناصر خارج الشاشة. */
+.bottomnav .navitem { height: 100%; }
 .navitem.active { color: var(--emerald); }
 .navitem.active::after {
   content: ""; position: absolute; bottom: calc(6px + env(safe-area-inset-bottom));
@@ -202,7 +200,7 @@ a { color: var(--emerald); text-decoration: none; }
     background: var(--emerald); color: #fff; font-size: 20px;
   }
   .sidenav .navitem {
-    flex: 0 0 auto;
+    flex: 0 0 auto; height: auto;
     flex-direction: row; justify-content: flex-start; gap: 12px;
     padding: 11px 14px; border-radius: 12px; font-size: 15px;
   }
