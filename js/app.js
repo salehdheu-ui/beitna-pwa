@@ -31,6 +31,12 @@ import { refreshPush } from './push.js';
 import { t, applyLangToDocument, currentLang } from './i18n.js';
 import { diag } from './diag.js';
 
+/* المسار القديم للوحة المدمجة لم يعد موجودًا. إذا بقي في نافذة أو اختصار
+   من النسخة السابقة، نعيده للرئيسية بدل إبقاء المستخدم في صفحة مفقودة. */
+if (/^#\/admin(?:\/|$)/.test(location.hash)) {
+  history.replaceState(null, '', location.pathname + location.search + '#/home');
+}
+
 /* ============================================================
    مسارات الإنقاذ:
    ?reset=1    → يمسح الذاكرة المؤقتة فقط (البيانات تبقى)
