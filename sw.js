@@ -3,7 +3,7 @@
    يعمل بدون إنترنت، ويحدّث نفسه فورًا عند نشر نسخة جديدة.
    ============================================================ */
 
-const VERSION = 'beitna-v3.5.0';
+const VERSION = 'beitna-v3.6.0';
 const NET_TIMEOUT = 2500;
 
 const CORE = [
@@ -206,3 +206,4 @@ self.addEventListener('push', (event) => {
 self.addEventListener('message', (e) => {
   if (e.data === 'skipWaiting') self.skipWaiting();
 });
+

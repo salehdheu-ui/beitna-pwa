@@ -11,7 +11,7 @@ const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
 const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
-const NL = String.fromCharCode(10);
+const linesOf = (text) => text.split(/\r?\n/);
 
 let failed = 0;
 const ok = (m) => console.log('  [ok] ' + m);
@@ -33,7 +33,7 @@ if (version) ok('النسخة ' + version); else bad('لا توجد VERSION في
 const coreStart = sw.indexOf('const CORE = [');
 const coreBody = sw.slice(coreStart, sw.indexOf('];', coreStart));
 const listed = [];
-for (const line of coreBody.split(NL)) {
+for (const line of linesOf(coreBody)) {
   const m = line.match(/'\.\/([^']*)'/);
   if (m && m[1]) listed.push(m[1]);
 }
@@ -52,7 +52,7 @@ else ok('كل وحدات js مخزّنة للعمل بلا إنترنت');
 
 /* ---------- الترجمات ---------- */
 console.log('اللغات:');
-const lines = read('js/i18n.js').split(NL);
+const lines = linesOf(read('js/i18n.js'));
 const tables = {};
 let current = null;
 for (const line of lines) {
@@ -86,7 +86,7 @@ else {
 console.log('حاوية الخادم:');
 const dockerfile = read('server/Dockerfile');
 const copied = [];
-for (const line of dockerfile.split(NL)) {
+for (const line of linesOf(dockerfile)) {
   const m = line.match(/^COPY (.+) \.\/?$/);
   if (m) copied.push.apply(copied, m[1].trim().split(/ +/));
 }
@@ -130,6 +130,26 @@ for (const f of fs2.readdirSync('js/screens')) {
 }
 if (!screensChecked) bad('لم تُفحص أي شاشة — تغيّر شكل الملفات؟');
 
+/* ---------- ثبات الواجهة ---------- */
+console.log('ثبات الواجهة:');
+const app = read('js/app.js');
+const css = read('css/app.css');
+const swBlock = app.slice(app.indexOf("if ('serviceWorker' in navigator)"), app.indexOf('const INSTALL_DISMISS_KEY'));
+if (/addEventListener\(['"]controllerchange['"][\s\S]{0,1200}location\.reload\s*\(/.test(swBlock)) {
+  bad('controllerchange يعيد تحميل الصفحة — سيظهر كوميض عند العودة من الخلفية');
+} else ok('تحديث عامل الخدمة لا يعيد تحميل الصفحة النشطة');
+
+if (/\.view\s*\{[^}]*animation\s*:/s.test(css)) {
+  bad('كل إعادة رسم تشغّل حركة دخول على .view');
+} else if (/\.view\.enter\s*\{[^}]*animation\s*:/s.test(css)) {
+  ok('حركة الشاشة محصورة بالتنقّل الحقيقي');
+} else bad('لم تُوجد حركة دخول مشروطة للشاشة');
+
+if (/\.navitem\.active\s+\.ic\s*\{[^}]*transform\s*:/s.test(css)) {
+  bad('الأيقونة النشطة تتحرك رأسيًا في الشريط السفلي');
+} else ok('موضع أيقونات الشريط ثابت عند الضغط والتفعيل');
+
 console.log('');
 console.log(failed ? (failed + ' فحصًا فشل') : 'كل الفحوص سليمة');
 process.exit(failed ? 1 : 0);
+

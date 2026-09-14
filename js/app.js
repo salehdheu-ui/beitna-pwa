@@ -128,6 +128,11 @@ function render(factory, params = {}) {
   const stale = $('#view');
   const view = stale.cloneNode(false);
 
+  /* حركة الدخول للتنقّل الحقيقي فقط. إعادة رسم الشاشة نفسها بسبب وصول
+     المزامنة يجب أن تكون ساكنة؛ تشغيل fade من opacity:0 في كل مرة كان
+     يظهر للمستخدم كوميض/تحديث صفحة رغم أن الصفحة لم تُحمّل من جديد. */
+  view.classList.toggle('enter', !sameScreen);
+
   /* نملأ العقدة وهي خارج الصفحة ثم نبدّلها دفعة واحدة.
      بالترتيب المعكوس تفرغ الشاشة إطارًا كاملًا قبل أن تمتلئ،
      فيرى المستخدم وميضًا أبيض مع كل رسمة. */
@@ -196,6 +201,9 @@ const COALESCE_MAX = 250;  // ولا نؤجّل إلى ما لا نهاية إن
 let timer = 0;
 let firstAt = 0;
 function scheduleRerender() {
+  /* قد تصل الدفعة المحفوظة أثناء استعادة أول جلسة وقبل أول رسم. البيانات
+     ستدخل أصلًا في الرسم الأول، فلا نحجز رسمة ثانية بعده مباشرة. */
+  if (!booted || !currentFactory) return;
   const t = Date.now();
   if (!timer) firstAt = t;
   else if (t - firstAt > COALESCE_MAX) return;   // المؤقّت القائم سيُطلقها
@@ -210,22 +218,40 @@ for (const id of ['#sheetRoot', '#dialogRoot']) {
 }
 
 /* ---------- شريط التنقل ---------- */
-function navHtml(withBrand) {
-  const path = currentPath();
-  const root = '/' + (path.split('/')[1] || 'home');
+function navHtml(withBrand, items) {
   return (withBrand ? `<div class="brand"><span class="logo">🏡</span> بيتنا</div>` : '') +
-    navItems().map((n) => `
-      <button class="navitem ${n.route === root ? 'active' : ''}" data-go="${n.route}">
+    items.map((n) => `
+      <button class="navitem" data-go="${n.route}">
         <span class="ic">${n.icon}</span><span>${n.label}</span>
       </button>`).join('');
 }
 
+let paintedNavKey = '';
 function paintNav() {
   const helper = amHelper();
-  $('#bottomnav').innerHTML = helper ? '' : navHtml(false);
-  $('#sidenav').innerHTML = helper ? '' : navHtml(true);
-  $('#bottomnav').hidden = helper;
-  $('#sidenav').hidden = helper;
+  const items = helper ? [] : navItems();
+  const key = JSON.stringify(items);
+  const bottom = $('#bottomnav');
+  const side = $('#sidenav');
+
+  /* لا نستبدل أزرار الشريط مع كل رسمة أو أثناء الضغطة. نعيد بناءه فقط
+     إذا تغيرت عناصره فعلًا (صلاحية/اسم/أيقونة)، ثم نبدّل active محليًا. */
+  if (key !== paintedNavKey) {
+    bottom.innerHTML = helper ? '' : navHtml(false, items);
+    side.innerHTML = helper ? '' : navHtml(true, items);
+    paintedNavKey = key;
+  }
+
+  const path = currentPath();
+  const root = '/' + (path.split('/')[1] || 'home');
+  for (const nav of [bottom, side]) {
+    nav.querySelectorAll('.navitem').forEach((item) => {
+      item.classList.toggle('active', item.dataset.go === root);
+    });
+  }
+
+  bottom.hidden = helper;
+  side.hidden = helper;
   document.body.classList.toggle('helper-mode', helper);
 }
 
@@ -481,22 +507,10 @@ function hideSplash() {
 
 /* ---------- Service Worker ---------- */
 if ('serviceWorker' in navigator) {
-  let reloading = false;
-  const hadController = !!navigator.serviceWorker.controller;
-  /* نسخة جديدة وصلت → إعادة تحميل واحدة.
-     لو تنازعت نسختان على التحكّم لتكرّر الحدث وأُعيد تحميل الصفحة بلا
-     توقّف، فتبدو وكأنها تومض. العدّاد في ‎sessionStorage‎ يصمد عبر
-     التحميل نفسه، فلا تحدث الحلقة أصلًا. */
-  const RELOAD_ONCE = 'beitna:sw-reloaded';
-  navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (!hadController || reloading) return;   // أول تثبيت: لا نحدّث
-    let done = false;
-    try { done = sessionStorage.getItem(RELOAD_ONCE) === '1'; } catch { /* تجاهل */ }
-    if (done) return;
-    try { sessionStorage.setItem(RELOAD_ONCE, '1'); } catch { /* تجاهل */ }
-    reloading = true;
-    location.reload();
-  });
+  /* النسخة الجديدة تُثبّت وتصبح جاهزة بصمت. لا نعيد تحميل النافذة عند
+     controllerchange: قد يقع الحدث لحظة فتح التطبيق أو رجوعه من الخلفية
+     فيبدو كوميض أو إقلاع مزدوج. النسخة الجديدة تُستخدم عند الفتح الطبيعي
+     التالي، بينما تبقى الصفحة الحالية متماسكة على وحداتها المحمّلة. */
 
   /* الضغط على الإشعار: الـ Service Worker يركّز النافذة ويرسل لنا الوجهة */
   navigator.serviceWorker.addEventListener('message', (e) => {
@@ -612,3 +626,4 @@ boot().catch((e) => {
       'إعادة الضبط وتحديث</button></div>';
   }
 });
+
