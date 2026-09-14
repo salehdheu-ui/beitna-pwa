@@ -4,6 +4,7 @@ import { esc, relTime, haptic } from '../util.js';
 import {
   getState, categoriesOf, addShopping, updateShopping, setShoppingStatus, deleteShopping,
   saveFavoriteList, deleteFavoriteList, applyFavoriteList,
+  createFavoriteList, renameFavoriteList, addFavoriteItem, removeFavoriteItem,
   actOnItem, nameOfUid,
   SHOP_STATUS, SHOP_PRIORITY, CURRENCY,
 } from '../store.js';
@@ -88,6 +89,10 @@ export function shoppingScreen() {
         if (open) { go(`/shopping/${open.dataset.open}`); return; }
 
         if (e.target.closest('[data-act="session"]')) { go('/shopping/session'); return; }
+
+        /* الزرّ العريض داخل البطاقة يحمل data-act="fav"، لكن topActions
+           لا تُستدعى إلا لأزرار الشريط العلوي — فكان ميتًا بلا معالج. */
+        if (e.target.closest('[data-act="fav"]')) { openFavorites(rerender); return; }
       });
 
       const q = root.querySelector('#q');
@@ -343,9 +348,10 @@ function openFavorites(rerender) {
           <div class="meta">${l.items.length} عناصر جاهزة للإضافة</div>
         </div>
         <button class="btn sm" data-apply="${l.id}">إضافة</button>
-        <button class="icon-btn" data-delfav="${l.id}" title="حذف">🗑️</button>
+        <button class="icon-btn" data-editfav="${l.id}" title="تعديل">✏️</button>
       </div>`).join('')}</div>`
-    : `<div class="center muted small" style="padding:26px">لا توجد قوائم محفوظة بعد.<br>احفظ قائمتك من «جلسة التسوق».</div>`}
+    : `<div class="center muted small" style="padding:26px">لا توجد قوائم محفوظة بعد.</div>`}
+    <button class="btn block mt" data-newfav>＋ قائمة جديدة</button>
   `, {
     onMount(sheet, close) {
       sheet.addEventListener('click', async (e) => {
@@ -354,13 +360,12 @@ function openFavorites(rerender) {
           const n = applyFavoriteList(Number(a.dataset.apply));
           close(); toast(`تمت إضافة ${n} عناصر ✓`); rerender(); return;
         }
-        const d = e.target.closest('[data-delfav]');
-        if (d) {
-          const ok = await confirmDialog({
-            title: 'حذف القائمة المفضلة',
-            message: 'هل تريد حذف هذه القائمة المفضلة؟', confirmText: 'حذف', danger: true,
-          });
-          if (ok) { deleteFavoriteList(Number(d.dataset.delfav)); close(); toast('تم الحذف'); }
+        const ed = e.target.closest('[data-editfav]');
+        if (ed) { close(); go('/shopping/list/' + ed.dataset.editfav); return; }
+
+        if (e.target.closest('[data-newfav]')) {
+          const l = createFavoriteList();
+          close(); go('/shopping/list/' + l.id); return;
         }
       });
     },
@@ -381,3 +386,113 @@ async function shareList() {
 }
 
 export { updateShopping };
+
+/* ============================ تحرير قائمة محفوظة ============================
+   كانت القوائم تُحفظ من «جلسة التسوق» ثم تتجمّد: لا إضافة عنصر ولا إزالته
+   ولا إعادة تسمية. هذه الشاشة تفتحها للتحرير، ومنها تُبنى قائمة من الصفر. */
+export function favoriteListScreen({ id }) {
+  const listId = Number(id);
+  const list = getState().favoriteLists.find((x) => x.id === listId);
+  if (!list) {
+    return { title: 'قائمة محفوظة', back: true,
+      html: emptyState('⭐', 'القائمة غير موجودة', 'ربما حُذفت من جهاز آخر') };
+  }
+  const cats = categoriesOf('Shopping');
+
+  return {
+    title: list.name,
+    subtitle: `${list.items.length} عنصرًا في هذا القالب`,
+    back: true,
+    html: `
+      <div class="card">
+        <div class="row" style="gap:8px;align-items:center">
+          <input class="input" id="licon" value="${esc(list.icon)}" maxlength="4"
+                 style="width:62px;text-align:center;font-size:19px" aria-label="أيقونة القائمة">
+          <input class="input grow" id="lname" value="${esc(list.name)}" maxlength="40"
+                 aria-label="اسم القائمة">
+        </div>
+        <button class="btn ghost block mt-s" data-rename>حفظ الاسم والأيقونة</button>
+      </div>
+
+      <div class="section">
+        <div class="section-title">عناصر القالب</div>
+        <div class="stack">
+          ${list.items.length ? list.items.map((it, idx) => `
+            <div class="item">
+              <div class="avatar">${catIcon(it.category)}</div>
+              <div class="grow col">
+                <div class="title">${esc(it.name)}</div>
+                <div class="meta">
+                  ${it.quantity ? `<span>${esc(it.quantity)}</span>•` : ''}
+                  <span>${esc(it.category || 'بدون تصنيف')}</span>
+                </div>
+              </div>
+              <button class="icon-btn" data-rmitem="${idx}" title="إزالة">🗑️</button>
+            </div>`).join('')
+          : emptyState('📝', 'القالب فارغ', 'أضف أول عنصر من الأسفل')}
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">إضافة عنصر</div>
+        <div class="card">
+          <div class="field"><label for="iname">اسم العنصر</label>
+            <input class="input" id="iname" placeholder="لبن" autocomplete="off"></div>
+          <div class="field"><label for="iqty">الكمية</label>
+            <input class="input" id="iqty" placeholder="2 علبة" autocomplete="off"></div>
+          <div class="field"><label>التصنيف</label>
+            ${chipSelect('category', cats.map((c) => ({ value: c.name, label: `${c.icon} ${c.name}` })), cats[0]?.name)}
+          </div>
+          <button class="btn block" data-additem>＋ أضف إلى القالب</button>
+        </div>
+      </div>
+
+      <div class="mt stack">
+        <button class="btn soft block" data-applynow>🛒 أضف كل العناصر إلى المشتريات</button>
+        <button class="btn danger-soft block" data-dellist>🗑️ حذف هذه القائمة</button>
+      </div>`,
+    mount(root, rerender) {
+      const values = bindChips(root);
+
+      root.addEventListener('click', async (e) => {
+        if (e.target.closest('[data-rename]')) {
+          renameFavoriteList(listId, root.querySelector('#lname').value, root.querySelector('#licon').value);
+          toast('تم الحفظ ✓'); rerender(); return;
+        }
+
+        if (e.target.closest('[data-additem]')) {
+          const name = root.querySelector('#iname').value.trim();
+          if (!name) return toast('اكتب اسم العنصر');
+          addFavoriteItem(listId, {
+            name,
+            quantity: root.querySelector('#iqty').value.trim(),
+            category: values.category,
+          });
+          toast(`أُضيف "${name}" إلى القالب ✓`);
+          rerender();
+          document.querySelector('#iname')?.focus();
+          return;
+        }
+
+        const rm = e.target.closest('[data-rmitem]');
+        if (rm) { removeFavoriteItem(listId, Number(rm.dataset.rmitem)); toast('أُزيل من القالب'); rerender(); return; }
+
+        if (e.target.closest('[data-applynow]')) {
+          const n = applyFavoriteList(listId);
+          toast(n ? `تمت إضافة ${n} عناصر ✓` : 'القالب فارغ');
+          if (n) go('/shopping');
+          return;
+        }
+
+        if (e.target.closest('[data-dellist]')) {
+          const ok = await confirmDialog({
+            title: 'حذف القائمة المحفوظة',
+            message: `هل تريد حذف "${list.name}"؟ لن تتأثر مشترياتك الحالية.`,
+            confirmText: 'حذف', danger: true,
+          });
+          if (ok) { deleteFavoriteList(listId); toast('تم الحذف'); back('/shopping'); }
+        }
+      });
+    },
+  };
+}

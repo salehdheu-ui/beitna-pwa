@@ -384,6 +384,54 @@ export function deleteFavoriteList(id) {
   push('remove', 'favoriteLists', id);
 }
 
+/** قائمة فارغة تُبنى من الصفر — دون المرور بجلسة تسوق */
+export function createFavoriteList(name = 'قائمة جديدة', icon = '⭐') {
+  const list = { id: newId(), name, icon: icon || '⭐', items: [], updatedAt: Date.now() };
+  update((s) => {
+    s.favoriteLists.unshift(list);
+    logActivity(`تم إنشاء قائمة: ${name}`);
+  });
+  push('save', 'favoriteLists', list);
+  return list;
+}
+
+/** حفظ القائمة كما هي بعد أي تعديل */
+function commitFavoriteList(id) {
+  const list = state.favoriteLists.find((x) => x.id === id);
+  if (!list) return null;
+  list.updatedAt = Date.now();
+  push('save', 'favoriteLists', list);
+  return list;
+}
+
+export function renameFavoriteList(id, name, icon) {
+  update((s) => {
+    const l = s.favoriteLists.find((x) => x.id === id);
+    if (!l) return;
+    if (name !== undefined && String(name).trim()) l.name = String(name).trim().slice(0, 40);
+    if (icon !== undefined && String(icon).trim()) l.icon = [...String(icon).trim()].slice(0, 2).join('');
+  });
+  return commitFavoriteList(id);
+}
+
+export function addFavoriteItem(id, { name, quantity = '', category = '' }) {
+  const clean = String(name || '').trim();
+  if (!clean) return null;
+  update((s) => {
+    const l = s.favoriteLists.find((x) => x.id === id);
+    if (l) l.items.push({ name: clean.slice(0, 60), quantity: String(quantity).trim().slice(0, 30), category });
+  });
+  return commitFavoriteList(id);
+}
+
+export function removeFavoriteItem(id, index) {
+  update((s) => {
+    const l = s.favoriteLists.find((x) => x.id === id);
+    if (l && index >= 0 && index < l.items.length) l.items.splice(index, 1);
+  });
+  return commitFavoriteList(id);
+}
+
 export function applyFavoriteList(id) {
   const list = state.favoriteLists.find((x) => x.id === id);
   if (!list) return 0;
