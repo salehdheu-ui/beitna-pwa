@@ -8,7 +8,7 @@
 import { esc, haptic } from '../util.js';
 import {
   getState, seedPantry, addPantryItem, setPantryStock, removePantryItem,
-  sendNeededToShopping, resetPantryReview,
+  sendNeededToShopping, resetPantryReview, fixPantryIds, pantryMissing, completePantry,
 } from '../store.js';
 import { PANTRY_CATEGORIES } from '../pantry-data.js';
 import { emptyState, toast, confirmDialog, openSheet } from '../ui.js';
@@ -18,7 +18,13 @@ let openCat = null;      // القسم المفتوح
 let onlyNeeded = false;  // عرض الناقص فقط
 let query = '';
 
+/* المعرّفات المتصادمة تُفكّ بصمت — عيب تقني لا يعني المستخدم شيئًا.
+   أما استعادة ما ضاع من القائمة الجاهزة فبزرّ يراه ويقرّره هو. */
+const HIDE_FILL = 'beitna:pantry-fill-hidden';
+let idsFixed = false;
+
 export function pantryScreen() {
+  if (!idsFixed) { idsFixed = true; fixPantryIds(); }
   const s = getState();
   const all = s.pantry || [];
 
@@ -50,6 +56,8 @@ export function pantryScreen() {
         ` : ''}
         <button class="btn ghost block mt-s" data-review>🔄 بدء مراجعة جديدة</button>
       </div>
+
+      ${fillHtml()}
 
       <div class="search" style="margin-bottom:10px">
         <span>🔍</span>
@@ -101,6 +109,16 @@ export function pantryScreen() {
           return;
         }
 
+        if (e.target.closest('[data-fill]')) {
+          const n = completePantry();
+          toast(n ? `أُضيف ${n} صنفًا من القائمة الجاهزة ✓` : 'قائمتك مكتملة');
+          rerender(); return;
+        }
+        if (e.target.closest('[data-fill-no]')) {
+          try { localStorage.setItem(HIDE_FILL, '1'); } catch { /* تجاهل */ }
+          rerender(); return;
+        }
+
         const f = e.target.closest('[data-f]');
         if (f) { onlyNeeded = f.dataset.f === 'need'; rerender(); return; }
 
@@ -137,6 +155,28 @@ export function pantryScreen() {
       if (act === 'add') addSheet(rerender);
     },
   };
+}
+
+/**
+ * استيرادٌ قديم نزل ناقصًا (تصادم المعرّفات كان يأكل نحو الثلث)، أو أصنافٌ
+ * حُذفت بقصد. لا نُضيف شيئًا من تلقائنا — نعرض العدد ونترك القرار.
+ */
+function fillHtml() {
+  let hidden = false;
+  try { hidden = localStorage.getItem(HIDE_FILL) === '1'; } catch { /* تجاهل */ }
+  const n = pantryMissing().length;
+  if (hidden || n < 5) return '';
+  return `
+    <div class="card" style="margin-bottom:12px">
+      <div class="row between">
+        <div class="grow">
+          <div class="small strong">${n} صنفًا من القائمة الجاهزة غير موجود عندك</div>
+          <div class="tiny muted">إن كنت حذفتها بقصد فتجاهل هذا.</div>
+        </div>
+        <button class="icon-btn" data-fill-no aria-label="تجاهل">✕</button>
+      </div>
+      <button class="btn sm block mt-s" data-fill>📥 أضِفها إلى قائمتي</button>
+    </div>`;
 }
 
 function groupCard({ cat, items }) {

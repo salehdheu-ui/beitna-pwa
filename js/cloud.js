@@ -459,7 +459,11 @@ async function tick() {
   } finally { ticking = false; }
 }
 
+/** عدّاد نبضات المزامنة — يُقرأ من «الدعم ← حالة التطبيق» */
+export const syncStats = { ticks: 0, lastAt: 0 };
+
 function applySync(res) {
+  syncStats.ticks++; syncStats.lastAt = Date.now();
   const wasFirst = firstEmit;
   let changed = false;
   const fresh = [];

@@ -29,6 +29,7 @@ import { startReminderLoop, notifyPartner, isIOS, isStandalone } from './notify.
 import { helperScreen, langSheet } from './screens/helper.js';
 import { refreshPush } from './push.js';
 import { t, applyLangToDocument, currentLang } from './i18n.js';
+import { diag } from './diag.js';
 
 /* ============================================================
    مسارات الإنقاذ:
@@ -106,6 +107,7 @@ function render(factory, params = {}) {
     && JSON.stringify(params) === JSON.stringify(currentParams);
   const keepScroll = sameScreen ? (window.scrollY || 0) : 0;
 
+  diag.repaints++;
   currentFactory = factory;
   currentParams = params;
   const screen = factory(params);
@@ -148,8 +150,40 @@ function render(factory, params = {}) {
   paintNav();
 }
 
+/* ============================================================
+   إعادة الرسم: مشروطة، ولا تقطع على المستخدم عمله
+
+   كانت كل نبضة مزامنة تُعيد رسم الشاشة كاملةً — يُستبدل ‎#view‎،
+   فيُفقد تركيز حقل الكتابة ويقفز موضع القراءة، وتبدو الصفحة كأنها
+   تُحدِّث نفسها كل ثوانٍ. الآن:
+     • لا نرسم إلا إذا تغيّرت البيانات فعلًا (بصمة لكل مجموعة).
+     • ولا نرسم وأنت تكتب أو ولوحٌ مفتوح — نؤجّل حتى تفرغ.
+   ============================================================ */
+let deferred = false;
+
+/** هل المستخدم منشغل بحقل أو لوح مفتوح؟ */
+function busy() {
+  const ae = document.activeElement;
+  if (ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName) && ae.closest('#view')) return true;
+  return !!($('#sheetRoot')?.innerHTML || $('#dialogRoot')?.innerHTML);
+}
+
 function rerender() {
-  if (currentFactory) render(currentFactory, currentParams);
+  if (!currentFactory) return;
+  if (busy()) { deferred = true; return; }
+  deferred = false;
+  render(currentFactory, currentParams);
+}
+
+/** يُطلق الرسمة المؤجَّلة متى ما فرغ المستخدم */
+function flushDeferred() {
+  if (deferred && !busy()) rerender();
+}
+
+document.addEventListener('focusout', () => setTimeout(flushDeferred, 0));
+for (const id of ['#sheetRoot', '#dialogRoot']) {
+  const el = document.querySelector(id);
+  if (el) new MutationObserver(() => setTimeout(flushDeferred, 0)).observe(el, { childList: true });
 }
 
 /* ---------- شريط التنقل ---------- */
@@ -224,6 +258,16 @@ setOnChange(applyTheme);
 /* ============================================================
    جلسة السحابة
    ============================================================ */
+/** بصمة آخر ما وصل من كل مجموعة — لا نعيد الرسم على بيانات لم تتغيّر */
+const lastSig = new Map();
+function collectionChanged(col, items) {
+  let sig;
+  try { sig = JSON.stringify(items); } catch { return true; }
+  if (lastSig.get(col) === sig) return false;
+  lastSig.set(col, sig);
+  return true;
+}
+
 function cloudBridge(hid) {
   return {
     save: (col, item) => cloud.saveItem(hid, col, item),
@@ -242,6 +286,10 @@ function startCloudSession(hid) {
 
   cloud.startSync(hid, {
     onData(col, items) {
+      /* الخادم يبثّ ما لديه في كل نبضة، وصدى كتابتي يعود إليّ كما هو.
+         بلا هذه المقارنة تُعاد رسمة كاملة كل ست ثوانٍ بلا جديد. */
+      if (!collectionChanged(col, items)) { diag.skipped++; return; }
+
       if (col === 'members') {
         const me = items.find((m) => m.uid === cloud.currentUid());
         update((st) => {
@@ -412,10 +460,19 @@ function hideSplash() {
 if ('serviceWorker' in navigator) {
   let reloading = false;
   const hadController = !!navigator.serviceWorker.controller;
+  /* نسخة جديدة وصلت → إعادة تحميل واحدة.
+     لو تنازعت نسختان على التحكّم لتكرّر الحدث وأُعيد تحميل الصفحة بلا
+     توقّف، فتبدو وكأنها تومض. العدّاد في ‎sessionStorage‎ يصمد عبر
+     التحميل نفسه، فلا تحدث الحلقة أصلًا. */
+  const RELOAD_ONCE = 'beitna:sw-reloaded';
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (!hadController || reloading) return;   // أول تثبيت: لا نحدّث
+    let done = false;
+    try { done = sessionStorage.getItem(RELOAD_ONCE) === '1'; } catch { /* تجاهل */ }
+    if (done) return;
+    try { sessionStorage.setItem(RELOAD_ONCE, '1'); } catch { /* تجاهل */ }
     reloading = true;
-    location.reload();                          // نسخة جديدة وصلت
+    location.reload();
   });
 
   /* الضغط على الإشعار: الـ Service Worker يركّز النافذة ويرسل لنا الوجهة */

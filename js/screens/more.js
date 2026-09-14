@@ -16,8 +16,9 @@ import {
   deleteAccount, loadStats, amAdmin, arabicError,
   changePassword, newRecoveryCode, listBackups, runBackup,
   listHouseholds, switchHousehold, getHelperCode, newHelperCode,
-  setMemberRole, currentPerm, isOwner as amOwner, joinHousehold,
+  setMemberRole, currentPerm, isOwner as amOwner, joinHousehold, syncStats,
 } from '../cloud.js';
+import { diag, upMinutes } from '../diag.js';
 
 /* ============================ المزيد ============================ */
 
@@ -1070,6 +1071,26 @@ export function supportScreen() {
               <span class="grow"><span class="t">${esc(q)}</span></span>
               <span class="arrow">‹</span>
             </button>`).join('')}
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">حالة التطبيق</div>
+        <div class="card">
+          <div class="row between"><span class="small">تحميل الصفحة</span>
+            <span class="small strong">${diag.loads} مرة</span></div>
+          <div class="row between mt-s"><span class="small">رسم الشاشة</span>
+            <span class="small strong">${diag.repaints}</span></div>
+          <div class="row between mt-s"><span class="small">نبضات المزامنة</span>
+            <span class="small strong">${syncStats.ticks} (تجاهلنا ${diag.skipped} بلا جديد)</span></div>
+          <div class="row between mt-s"><span class="small">في انتظار الإرسال</span>
+            <span class="small strong">${pendingWrites()}</span></div>
+          <div class="row between mt-s"><span class="small">مدة التشغيل</span>
+            <span class="small strong">${upMinutes()} دقيقة</span></div>
+          <p class="tiny muted" style="margin:10px 0 0">
+            إن رأيت الصفحة تومض: لو تصاعد «تحميل الصفحة» فهي تُعيد تحميل نفسها،
+            ولو تصاعد «رسم الشاشة» وحده فالمشكلة في المزامنة. أخبرنا بالرقمين.
+          </p>
         </div>
       </div>
 
