@@ -93,7 +93,6 @@ function navItems() {
     .map((key) => ({ route: '/' + key, label: s[key].label, icon: s[key].icon }));
 }
 
-let firstPaint = true;   // أول رسمة في الجلسة: بلا حركة دخول
 let current = null;   // آخر شاشة معروضة
 let currentFactory = null;
 let currentParams = {};
@@ -135,14 +134,6 @@ function render(factory, params = {}) {
   const stale = $('#view');
   const view = stale.cloneNode(false);
 
-  /* حركة الدخول للتنقّل الحقيقي فقط، ولا تعمل أبدًا في أول رسمة.
-
-     قياس الإقلاع: المحتوى يبدأ عند translateY(6px) وشفافية 0 عند 231ms
-     ويستقرّ عند 556ms، بينما السبلاش لا يبدأ الانزياح إلا عند 665ms.
-     على جهاز أبطأ ينكشف السبلاش قبل أن تستقرّ الحركة، فتُرى الصفحة
-     وهي «تتحرك» أول ما تُفتح. أول رسمة تظهر ساكنة تمامًا. */
-  view.classList.toggle('enter', !sameScreen && !firstPaint);
-  firstPaint = false;
 
   /* نملأ العقدة وهي خارج الصفحة ثم نبدّلها دفعة واحدة.
      بالترتيب المعكوس تفرغ الشاشة إطارًا كاملًا قبل أن تمتلئ،
