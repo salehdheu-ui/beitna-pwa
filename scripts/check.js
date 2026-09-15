@@ -185,6 +185,27 @@ const overscrollOnHtml = cssBare.split('}').some((r) => {
 if (overscrollOnHtml) ok('منع السحب المطاطي باقٍ على html');
 else bad('السحب المطاطي / سحب-التحديث غير ممنوع');
 
+/* قرص المفتاح لا يخرج من إطاره.
+   ‎translateX‎ فيزيائي لا يعرف يمنى من يسرى، فلا بدّ من إشارتين:
+   موجبة للاتجاه اليسرى وسالبة لليمنى. والمسافة نفسها محسوبة من
+   القياسات: عرض الإطار − عرض القرص − حاشيتين. أي تغيير في المقاسات
+   بلا تغيير المسافة يُخرج القرص نصفه خارج المفتاح (وقع ذلك فعلاً). */
+const num = (re) => { const m = cssBare.match(re); return m ? parseFloat(m[1]) : NaN; };
+const knobBlock = (cssBare.match(/\.switch::after\s*\{([^}]*)\}/) || [, ''])[1];
+const trackW = num(/\.switch\s*\{[^}]*width:\s*([\d.]+)px/);
+const knobW = parseFloat((knobBlock.match(/width:\s*([\d.]+)px/) || [, NaN])[1]);
+const inset = parseFloat((knobBlock.match(/inset-inline-start:\s*([\d.]+)px/) || [, NaN])[1]);
+const travelLtr = num(/\.switch\.on::after\s*\{[^}]*translateX\((-?[\d.]+)px\)/);
+const travelRtl = num(/rtl"\]\s\.switch\.on::after\s*\{[^}]*translateX\((-?[\d.]+)px\)/);
+const want = trackW - knobW - inset * 2;
+if (!isFinite(inset)) {
+  bad('قرص المفتاح غير مثبّت عند بداية السطر — ينزلق خارج إطاره في العربية');
+} else if (travelLtr === want && travelRtl === -want) {
+  ok('قرص المفتاح ينزلق ' + want + 'px ويبقى داخل إطاره في الاتجاهين');
+} else {
+  bad('مسافة انزلاق المفتاح ' + travelLtr + '/' + travelRtl + ' والصحيح ' + want + '/' + (-want));
+}
+
 if (/\.view\s*\{[^}]*overflow-x:\s*hidden/s.test(css) && /\.tabs\s*\{[^}]*max-width:\s*100%/s.test(css)) {
   ok('تبويبات التذكيرات لا توسّع الصفحة وتحرك الشريط السفلي');
 } else bad('التمدد الأفقي لصفحة التذكيرات غير محصور');

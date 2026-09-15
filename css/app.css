@@ -419,15 +419,21 @@ html[data-theme="dark"] .badge.warn { color: var(--warning); }
 .list-row .t { font-weight: 700; font-size: 14.5px; }
 .list-row .d { font-size: 12px; color: var(--text-soft); }
 
-/* ---------- المفتاح ---------- */
+/* ---------- المفتاح ----------
+   القرص يسكن عند بداية السطر وهو مطفأ، وينزلق إلى نهايته وهو مُشتغل.
+   كان ‎inset-inline-end‎ يضعه عند النهاية أصلاً — أي عند اليسار في
+   العربية — ثم يدفعه ‎translateX(-20px)‎ عشرين بكسلاً أخرى إلى
+   اليسار، فيخرج نصفه خارج المفتاح.
+   المسافة الصحيحة: 48 − 22 − 3 − 3 = 20، وإشارتها تتبع اتجاه الصفحة:
+   ‎translateX‎ فيزيائي لا يعرف يمنى من يسرى. */
 .switch { width: 48px; height: 28px; border-radius: var(--r-pill); background: var(--border); position: relative; flex: 0 0 auto; transition: background .22s; }
 .switch::after {
-  content: ""; position: absolute; top: 3px; inset-inline-end: 3px;
+  content: ""; position: absolute; top: 3px; inset-inline-start: 3px;
   width: 22px; height: 22px; border-radius: 50%; background: #fff;
   box-shadow: 0 1px 3px rgba(0,0,0,.25); transition: transform .22s cubic-bezier(.2,.9,.3,1.3);
 }
 .switch.on { background: var(--emerald); }
-.switch.on::after { transform: translateX(-20px); }
+.switch.on::after { transform: translateX(20px); }
 html[dir="rtl"] .switch.on::after { transform: translateX(-20px); }
 
 /* ---------- النماذج ---------- */
