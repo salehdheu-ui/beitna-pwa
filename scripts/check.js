@@ -224,6 +224,18 @@ if (/['"][0-9a-f]{32,}['"]/.test(line)) {
 if (srv.includes('ADMIN_PANEL_READY')) ok('اللوحة تُغلق إن لم يُضبط المتغيّر (فشل مغلق)');
 else bad('لا فشل مغلق: اللوحة تعمل بلا سرّ مضبوط');
 
+/* ---------- حدود المستند ---------- */
+console.log('حدود ما يُكتب في البيت:');
+const srv2 = read('server/server.js');
+if (srv2.includes('function capDoc(')) ok('المستندات محدودة الحجم قبل الحفظ');
+else bad('لا حدّ لحجم المستند — نصّ ضخم من فرد واحد يُثقل البيت على الجميع');
+if (/op\.data = capDoc\(op\.data\)/.test(srv2)) ok('الحدّ مطبَّق على كل عملية كتابة');
+else bad('capDoc معرّفة ولا تُستدعى في مسار الكتابة');
+if (srv2.includes('IMAGE_FIELDS')) ok('صور الأعطال مستثناة فلا تُقطع');
+else bad('حقول الصور ستُقطع بحدّ النصّ العادي');
+if (/'bad-json'\);/.test(srv2) && srv2.includes("m === 'bad-json'")) ok('الطلب التالف يردّ 400 لا 500');
+else bad('جسم الطلب التالف يردّ خطأ خادم وهميًا');
+
 console.log('');
 console.log(failed ? (failed + ' فحصًا فشل') : 'كل الفحوص سليمة');
 process.exit(failed ? 1 : 0);

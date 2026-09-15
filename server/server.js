@@ -1193,6 +1193,46 @@ async function route(req, res, url) {
     return send(res, 200, out);
   }
 
+/* ============================================================
+   حدود المستند
+
+   كل ما يُكتب في البيت ينزل إلى أجهزة كل أفراده في كل مزامنة، ويُحفظ
+   في مساحة المتصفح المحدودة. اسم بطول 200 ألف حرف من فرد واحد كان
+   يُقبل كما هو — فيُثقل البيت على الجميع ويستهلك حصّة التخزين.
+   ============================================================ */
+const FIELD_MAX = 400;        // النصوص العادية
+const NOTE_MAX = 4000;        // الملاحظات وما يشبهها
+/* صور الأعطال تُحفظ data URI بعد تصغيرها إلى 1000px وجودة 0.72 —
+   أي مئات الكيلوبايتات مشروعة. حدّ 400 حرفًا كان سيمحوها. */
+const IMAGE_MAX = 400000;
+const LONG_FIELDS = new Set(['note', 'notes', 'description', 'details']);
+const IMAGE_FIELDS = new Set(['photoUrl', 'photo', 'imageUrl', 'image']);
+const DOC_FIELDS = 60;        // عدد الحقول في المستند الواحد
+const ARRAY_MAX = 200;        // عناصر أي مصفوفة داخل المستند
+
+function capDoc(data, depth = 0) {
+  if (data === null || typeof data !== 'object') return data;
+  if (Array.isArray(data)) {
+    return data.slice(0, ARRAY_MAX).map((x) => capValue('', x, depth + 1));
+  }
+  const out = {};
+  let n = 0;
+  for (const key of Object.keys(data)) {
+    if (++n > DOC_FIELDS) break;
+    out[key] = capValue(key, data[key], depth + 1);
+  }
+  return out;
+}
+
+function capValue(key, value, depth) {
+  if (typeof value === 'string') {
+    if (IMAGE_FIELDS.has(key)) return value.slice(0, IMAGE_MAX);
+    return value.slice(0, LONG_FIELDS.has(key) ? NOTE_MAX : FIELD_MAX);
+  }
+  if (depth > 4 || value === null || typeof value !== 'object') return value;
+  return capDoc(value, depth);
+}
+
   /* ===== الكتابة: دفعة عمليات ===== */
   if (p === '/write' && method === 'POST') {
     const b = await readBody(req);
@@ -1211,6 +1251,7 @@ async function route(req, res, url) {
       const level = capLevel(myCaps, col);
       if (level !== 'write') { denied++; continue; }
       if (op.op === 'delete' && !myCaps.remove) { denied++; continue; }
+      if (op.data) op.data = capDoc(op.data);
       if (!myCaps.prices && op.data) op.data = stripPrices(op.data);
 
       const id = String(op.id ?? '');
@@ -1308,8 +1349,13 @@ const server = http.createServer((req, res) => {
   let url;
   try { url = new URL(req.url, 'http://x'); } catch { return fail(res, 400, 'bad-url'); }
   route(req, res, url).catch((e) => {
+    const m = String(e && e.message || '');
+    /* جسم الطلب التالف خطأ العميل لا خطأ الخادم. الردّ بـ500 يخفي
+       السبب عن العميل ويُظهر عطبًا وهميًا في سجلّات الخادم. */
+    if (m === 'bad-json') return res.headersSent || fail(res, 400, 'bad-json');
+    if (m === 'too-large') return res.headersSent || fail(res, 413, 'payload-too-large');
     console.error('خطأ', e);
-    if (!res.headersSent) fail(res, 500, String(e.message || 'server-error'));
+    if (!res.headersSent) fail(res, 500, 'server-error');
   });
 });
 
