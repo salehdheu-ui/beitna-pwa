@@ -32,7 +32,7 @@ const DEFAULT_CATEGORIES = [
   { id: 8, name: 'غرفة النوم', icon: '🛏️', type: 'FaultLocation' },
   { id: 9, name: 'الحمام', icon: '🚿', type: 'FaultLocation' },
   { id: 10, name: 'غرفة الغسيل', icon: '🧺', type: 'FaultLocation' },
-  { id: 11, name: 'عيد ميلاد', icon: '🎂', type: 'OccasionType' },
+  /* المعرّف 11 كان لتصنيف مُلغى — لا يُعاد استعماله حتى لا يلتبس ببيانات قديمة */
   { id: 12, name: 'فاتورة', icon: '💡', type: 'OccasionType' },
   { id: 13, name: 'صيانة دورية', icon: '🔧', type: 'OccasionType' },
   { id: 14, name: 'مناسبة عائلية', icon: '👨‍👩‍👧', type: 'OccasionType' },
@@ -161,6 +161,8 @@ export function reserveIds(items) {
 export function applyRemote(collection, items) {
   reserveIds(items);
   update((s) => { s[collection] = items; });
+  /* الخادم ما زال يحمل التصنيف المُلغى لكل بيت أُنشئ قبل إزالته */
+  if (collection === 'categories' || collection === 'occasions') dropRetiredType();
 }
 
 /* ---------- التحميل والحفظ ---------- */
@@ -644,6 +646,43 @@ export function removeCategory(id) {
 export const categoriesOf = (type) => state.categories.filter((c) => c.type === type);
 
 /* ============================================================
+   تصنيف مُلغى
+   أُزيل من التطبيق، لكنه يبقى محفوظًا في كل بيت أُنشئ قبل الإلغاء
+   ويعود مع كل مزامنة — فلا يكفي حذفه من القائمة الافتراضية.
+   ننظّفه عند التحميل وبعد كل دفعة تصل من الخادم:
+     • يُحذف من التصنيفات، والحذف يصل إلى بقية الأجهزة.
+     • والتذكيرات التي تحمل نوعه تنتقل إلى «مناسبة عائلية».
+   عناوين التذكيرات لا تُمسّ: تلك كلمات كتبها أهل البيت بأنفسهم،
+   ليس لنا أن نعيد صياغتها.
+   آمن ومتكرِّر: إن لم يجد شيئًا لم يفعل شيئًا ولم يُرسل شيئًا.
+   ============================================================ */
+/* الاسم المُلغى يُكتب هنا وحده، ولا لزوم له في أي موضع آخر */
+const RETIRED_OCCASION_TYPE = 'عيد ميلاد';
+const RETIRED_FALLBACK = 'مناسبة عائلية';
+
+export function dropRetiredType() {
+  const gone = state.categories.filter((c) => c.name === RETIRED_OCCASION_TYPE);
+  const moved = state.occasions.filter((o) => o.type === RETIRED_OCCASION_TYPE).map((o) => o.id);
+  if (!gone.length && !moved.length) return 0;
+  update((s) => {
+    s.categories = s.categories.filter((c) => c.name !== RETIRED_OCCASION_TYPE);
+    for (const o of s.occasions) {
+      if (o.type !== RETIRED_OCCASION_TYPE) continue;
+      o.type = RETIRED_FALLBACK;
+      o.updatedAt = Date.now();
+    }
+  });
+  gone.forEach((c) => push('remove', 'categories', c.id));
+  state.occasions.filter((o) => moved.includes(o.id)).forEach((o) => push('save', 'occasions', o));
+  return gone.length + moved.length;
+}
+
+/* ونظّفه من النسخة المحفوظة على الجهاز قبل أول رسمة.
+   النداء هنا لا فوق: الثابت أعلاه لا يوجد قبل سطره، فنداءٌ مبكّر
+   يُسقط الوحدة كلها ومعها التطبيق. */
+dropRetiredType();
+
+/* ============================================================
    الإعدادات والإشعارات
    ============================================================ */
 export function setNotification(key, value) {
@@ -720,7 +759,7 @@ export function seedDemo() {
       { id: 1, title: 'تسريب في الحنفية', location: 'المطبخ', priority: 'عاجل', status: 'جديد', note: 'يحتاج متابعة وشراء قطع', linkedItems: [], photoUrl: '', ownerUid: 'local', estimatedCost: 15, actualCost: 0, createdAt: Date.now() - 7200e3 },
     ];
     s.occasions = [
-      { id: 1, title: 'عيد ميلاد سارة', type: 'عيد ميلاد', dateMillis: d(12), note: 'شراء هدية وكيك', recurring: 'سنويًا', reminder: 'مفعّل', reminderTime: '09:00', reminderOffsets: ['WEEK', 'DAY'], linkedItems: [], done: false, createdAt: Date.now() },
+      { id: 1, title: 'صيانة المكيّف', type: 'صيانة دورية', dateMillis: d(12), note: 'تنظيف الفلاتر قبل الصيف', recurring: 'سنويًا', reminder: 'مفعّل', reminderTime: '09:00', reminderOffsets: ['WEEK', 'DAY'], linkedItems: [], done: false, createdAt: Date.now() },
       { id: 2, title: 'فاتورة الكهرباء', type: 'فاتورة', dateMillis: d(3), note: '', recurring: 'شهريًا', reminder: 'مفعّل', reminderTime: '10:00', reminderOffsets: ['DAY'], linkedItems: [], done: false, createdAt: Date.now() },
     ];
     logActivity('تم تحميل بيانات تجريبية');

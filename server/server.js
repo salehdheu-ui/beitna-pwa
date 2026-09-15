@@ -16,7 +16,7 @@ const DB_FILE = path.join(DATA_DIR, 'db.json');
 const SECRET_FILE = path.join(DATA_DIR, 'secret.key');
 const TOKEN_DAYS = 400;
 const PUSH_SUBJECT = process.env.PUSH_SUBJECT || 'mailto:admin@beitna.local';
-const SERVER_VERSION = '1.7.0';
+const SERVER_VERSION = '1.8.0';
 
 /* لوحة الإدارة المنفصلة لها رمز مستقل تمامًا عن حسابات بيتنا.
 
@@ -434,7 +434,8 @@ const DEFAULT_CATEGORIES = [
   [5, 'صيدلية', '💊', 'Shopping'], [6, 'المطبخ', '🍳', 'FaultLocation'],
   [7, 'الصالة', '🛋️', 'FaultLocation'], [8, 'غرفة النوم', '🛏️', 'FaultLocation'],
   [9, 'الحمام', '🚿', 'FaultLocation'], [10, 'غرفة الغسيل', '🧺', 'FaultLocation'],
-  [11, 'عيد ميلاد', '🎂', 'OccasionType'], [12, 'فاتورة', '💡', 'OccasionType'],
+  /* 11: تصنيف مُلغى — المعرّف متروك فلا يُعاد استعماله */
+  [12, 'فاتورة', '💡', 'OccasionType'],
   [13, 'صيانة دورية', '🔧', 'OccasionType'], [14, 'مناسبة عائلية', '👨‍👩‍👧', 'OccasionType'],
 ];
 
