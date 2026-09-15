@@ -133,7 +133,9 @@ a { color: var(--emerald); text-decoration: none; }
   padding: 16px 16px calc(var(--nav-h) + 28px + env(safe-area-inset-bottom)) 16px;
   outline: none;
 }
-.view.enter { animation: fade .22s ease; }
+/* لا حركة دخول للشاشة إطلاقًا — لا عند الفتح ولا عند التنقّل.
+   قياسًا: كل تنقّل كان يقفز بالمحتوى من y=70 إلى y=76 بشفافية صفر
+   ثم يزحف عائدًا خلال 220ms. الشاشة الجديدة تظهر في موضعها فورًا. */
 @keyframes fade { from { opacity: 0; transform: translateY(6px) } to { opacity: 1; transform: none } }
 
 .sidenav { display: none; }
@@ -602,7 +604,7 @@ body.helper-mode .bottomnav, body.helper-mode .sidenav { display: none !importan
   max-width: var(--maxw); margin-inline: auto; margin-bottom: 0;
   background: var(--surface);
   box-shadow: 0 12px 30px rgba(0, 0, 0, .18);
-  animation: fade .22s ease;
+  animation: fadeIn .22s ease;   /* شفافية فقط — بلا انزلاق */
 }
 @media (min-width: 960px) {
   .install-root { bottom: 24px; }
