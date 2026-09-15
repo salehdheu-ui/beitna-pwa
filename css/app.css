@@ -65,9 +65,16 @@ html, body {
   font-size: 15px;
   line-height: 1.65;
   -webkit-font-smoothing: antialiased;
-  overscroll-behavior-y: none;
   overflow-x: hidden;
 }
+
+/* منع السحب المطاطي وسحب-التحديث: على ‎html‎ وحده، لا على ‎body‎.
+   على ‎body‎ كانت النتيجة أن الصفحة لا تنزل بالإصبع ولا بالعجلة إطلاقًا:
+   ‎overflow-x: hidden‎ يجعل ‎body‎ حاوية تمرير قائمة بذاتها، وارتفاعها
+   يساوي محتواها فلا شيء فيها لتمرّره، و‎overscroll-behavior-y: none‎
+   يمنعها من تسليم التمرير إلى الصفحة. ‎window.scrollTo‎ يبقى يعمل —
+   ولهذا لم يكشفه فحصٌ يمرّر برمجيًا. */
+html { overscroll-behavior-y: none; }
 
 body { transition: background .25s ease, color .25s ease; }
 

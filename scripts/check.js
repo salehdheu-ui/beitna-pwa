@@ -163,6 +163,28 @@ if (/^\.navitem\s*\{[^}]*height:\s*100%/ms.test(css)) {
   bad('height:100% على .navitem العامة — تتكدّس أيقونات الشريط الجانبي خارج الشاشة');
 } else ok('ملء الارتفاع محصور بالشريط السفلي');
 
+/* الصفحة تنزل بالإصبع والعجلة، لا بالكود وحده.
+   ‎overflow-x: hidden‎ على ‎body‎ يجعله حاوية تمرير، و‎overscroll-behavior‎
+   عليه يمنعه من تسليم التمرير إلى الصفحة — فتُقفل كل الشاشات.
+   ‎window.scrollTo‎ يظل يعمل، فلا يكشفه إلا فحص بإيماءة حقيقية. */
+const cssBare = css.replace(/[/][*][^]*?[*][/]/g, '');
+const overscrollOnBody = cssBare.split('}').find((r) => {
+  const parts = r.split('{');
+  if (parts.length < 2 || !/overscroll-behavior/.test(parts[1])) return false;
+  return parts[0].split(',').some((sel) => /(^|[\s>+~])body$/.test(sel.trim()));
+});
+if (overscrollOnBody) {
+  bad('overscroll-behavior على body — لا تنزل أي صفحة بالإصبع ولا بالعجلة');
+} else ok('لا شيء يمنع تمرير الصفحة بالإصبع');
+
+const overscrollOnHtml = cssBare.split('}').some((r) => {
+  const parts = r.split('{');
+  if (parts.length < 2 || !/overscroll-behavior-y: *none/.test(parts[1])) return false;
+  return parts[0].split(',').some((sel) => sel.trim() === 'html');
+});
+if (overscrollOnHtml) ok('منع السحب المطاطي باقٍ على html');
+else bad('السحب المطاطي / سحب-التحديث غير ممنوع');
+
 if (/\.view\s*\{[^}]*overflow-x:\s*hidden/s.test(css) && /\.tabs\s*\{[^}]*max-width:\s*100%/s.test(css)) {
   ok('تبويبات التذكيرات لا توسّع الصفحة وتحرك الشريط السفلي');
 } else bad('التمدد الأفقي لصفحة التذكيرات غير محصور');
