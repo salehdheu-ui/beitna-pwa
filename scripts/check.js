@@ -279,6 +279,37 @@ else bad('حقول الصور ستُقطع بحدّ النصّ العادي');
 if (/'bad-json'\);/.test(srv2) && srv2.includes("m === 'bad-json'")) ok('الطلب التالف يردّ 400 لا 500');
 else bad('جسم الطلب التالف يردّ خطأ خادم وهميًا');
 
+/* ---------- اسم مُلغى ---------- */
+console.log('الاسم المُلغى:');
+const walk = (dir) => fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true })
+  .flatMap((e) => (e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)]));
+const shipped = ['js', 'css', 'server']
+  .flatMap(walk)
+  .concat(['index.html', 'admin.html', 'manifest.json', 'README.md'])
+  .filter((f) => /[.](js|css|html|json|md)$/.test(f));
+const retired = 'عيد ميلاد';
+const hits = [];
+for (const f of shipped) {
+  linesOf(read(f)).forEach((ln, i) => {
+    if (ln.includes(retired)) hits.push(f.split(path.sep).join('/') + ':' + (i + 1));
+  });
+}
+const allowed = 'js/store.js';
+const stray = hits.filter((h) => !h.startsWith(allowed + ':'));
+if (stray.length) {
+  bad('الاسم المُلغى ما زال في: ' + stray.join('، '));
+} else if (hits.length === 1) {
+  ok('الاسم المُلغى لا يظهر إلا في سطر تنظيفه');
+} else if (!hits.length) {
+  bad('سطر تنظيف الاسم المُلغى اختفى — يعود التصنيف مع كل مزامنة');
+} else {
+  bad('الاسم المُلغى مكتوب ' + hits.length + ' مرات في store.js — المتوقع مرة');
+}
+const storeSrc = read('js/store.js');
+if (/if \(collection === 'categories' \|\| collection === 'occasions'\) dropRetiredType\(\);/.test(storeSrc)) {
+  ok('التنظيف يعمل بعد كل دفعة تصل من الخادم');
+} else bad('التنظيف لا يعمل بعد المزامنة — يعود التصنيف من الخادم');
+
 console.log('');
 console.log(failed ? (failed + ' فحصًا فشل') : 'كل الفحوص سليمة');
 process.exit(failed ? 1 : 0);

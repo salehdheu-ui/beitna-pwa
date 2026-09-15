@@ -41,7 +41,7 @@ export function occasionsScreen() {
       ${tab === 'التقويم' ? calendarHtml(active) : `
         <div class="stack">
           ${items.length ? items.map(row).join('')
-            : emptyState('🔔', 'لا توجد تذكيرات', 'أضف أول تذكير: عيد ميلاد، فاتورة أو صيانة')}
+            : emptyState('🔔', 'لا توجد تذكيرات', 'أضف أول تذكير: فاتورة، صيانة أو مناسبة عائلية')}
         </div>`}
     `,
     mount(root, rerender) {
@@ -137,7 +137,7 @@ export function occasionFormScreen() {
         <div id="err"></div>
         <div class="field">
           <label for="title">اسم التذكير</label>
-          <input class="input" id="title" placeholder="عيد ميلاد سارة" autocomplete="off">
+          <input class="input" id="title" placeholder="فاتورة الكهرباء" autocomplete="off">
         </div>
         <div class="field">
           <label>النوع</label>
@@ -283,7 +283,7 @@ export function occasionDetailsScreen({ id }) {
           const ok = await confirmDialog({
             title: o.recurring === 'سنويًا' ? 'تجديد التذكير السنوي' : 'تم التذكير',
             message: o.recurring === 'سنويًا'
-              ? 'أعياد الميلاد ستتجدّد تلقائيًا كل سنة. هل تريد التجديد الآن؟'
+              ? 'التذكير السنوي يتجدّد تلقائيًا كل سنة. هل تريد التجديد الآن؟'
               : 'هل تريد إنهاء التذكير وحذفه من القائمة؟',
             confirmText: 'تأكيد',
           });
