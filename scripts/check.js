@@ -310,6 +310,62 @@ if (/if \(collection === 'categories' \|\| collection === 'occasions'\) dropReti
   ok('التنظيف يعمل بعد كل دفعة تصل من الخادم');
 } else bad('التنظيف لا يعمل بعد المزامنة — يعود التصنيف من الخادم');
 
+/* ---------- حقن الشيفرة ---------- */
+console.log('حقن الشيفرة:');
+const screenFiles = fs.readdirSync(path.join(ROOT, 'js', 'screens'))
+  .filter((f) => /[.]js$/.test(f)).map((f) => 'js/screens/' + f).concat(['js/ui.js', 'js/app.js']);
+
+/* الأيقونة يكتبها فرد من البيت وتصل إلى أجهزة البقية. كانت تُحقن في
+   الصفحة بلا تهريب، فوسمٌ واحد في خانة الأيقونة يشتغل عند الجميع
+   ويقرأ رمز الجلسة من التخزين. */
+const rawIcon = [];
+for (const f of screenFiles) {
+  linesOf(read(f)).forEach((ln, i) => {
+    const hits = ln.match(/\$\{[^{}]*\}/g) || [];
+    for (const h of hits) {
+      const inner = h.slice(2, -1).trim();
+      /* شرائح الاختيار تُهرّب عنوانها داخل chipSelect نفسها */
+      if (ln.includes('chipSelect(')) continue;
+      if (!/(catIcon|locIcon|\bcat\.icon\b|\bc\.icon\b)/.test(inner)) continue;
+      if (/\besc\s*\(/.test(inner)) continue;
+      rawIcon.push(f + ':' + (i + 1));
+    }
+  });
+}
+if (rawIcon.length) bad('أيقونة غير مهرَّبة في: ' + rawIcon.join('، '));
+else ok('أيقونات التصنيفات مهرَّبة في كل موضع');
+
+const inlineHandler = [];
+for (const f of screenFiles) {
+  linesOf(read(f)).forEach((ln, i) => {
+    if (/\son(click|error|load|change|input|submit)\s*=\s*["']/.test(ln)) inlineHandler.push(f + ':' + (i + 1));
+  });
+}
+if (inlineHandler.length) bad('معالج مضمَّن داخل HTML — يمنعه CSP فيتعطّل الزر: ' + inlineHandler.join('، '));
+else ok('لا معالج مضمَّن داخل HTML');
+
+for (const page of ['index.html', 'admin.html']) {
+  const html = read(page);
+  const m = html.match(/http-equiv="Content-Security-Policy" content="([^"]*)"/);
+  if (!m) { bad(page + ': لا سياسة محتوى'); continue; }
+  const csp = m[1];
+  const script = (csp.match(/script-src ([^;]*)/) || [, ''])[1];
+  if (!/'self'/.test(script) || /unsafe-inline|unsafe-eval|[*]/.test(script)) {
+    bad(page + ': script-src متساهل — ' + script.trim());
+  } else ok(page + ': السكربت من ملفاتنا وحدها');
+  if (/object-src 'none'/.test(csp) && /base-uri 'self'/.test(csp)) ok(page + ': base-uri و object-src محكمان');
+  else bad(page + ': ينقصه base-uri أو object-src');
+}
+
+if (/'invalid-credentials'/.test(read('server/server.js'))
+    && !/fail\(res, 404, 'user-not-found'\)/.test(read('server/server.js'))) {
+  ok('الدخول لا يفرّق بين بريد مجهول وكلمة خاطئة');
+} else bad('ردّ الدخول يكشف من يملك حسابًا');
+
+if (/rateLimited\('login:' \+ clientIp\(req\)/.test(read('server/server.js'))) {
+  ok('الدخول محدود حسب المصدر أيضًا');
+} else bad('كلمة واحدة تُجرَّب على كل البُرد من مصدر واحد بلا حدّ');
+
 console.log('');
 console.log(failed ? (failed + ' فحصًا فشل') : 'كل الفحوص سليمة');
 process.exit(failed ? 1 : 0);

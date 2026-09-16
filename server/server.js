@@ -16,7 +16,7 @@ const DB_FILE = path.join(DATA_DIR, 'db.json');
 const SECRET_FILE = path.join(DATA_DIR, 'secret.key');
 const TOKEN_DAYS = 400;
 const PUSH_SUBJECT = process.env.PUSH_SUBJECT || 'mailto:admin@beitna.local';
-const SERVER_VERSION = '1.8.0';
+const SERVER_VERSION = '1.9.0';
 
 /* لوحة الإدارة المنفصلة لها رمز مستقل تمامًا عن حسابات بيتنا.
 
@@ -811,11 +811,22 @@ async function route(req, res, url) {
     const email = normEmail(b.email);
     const password = String(b.password || '');
     if (!email || !password) return fail(res, 400, 'invalid-email');
-    if (tooMany(email)) return fail(res, 429, 'too-many-requests');
+    /* الحدّ حسب البريد يمنع تخمين كلمة حسابٍ بعينه. وهذا الحدّ حسب المصدر
+       يمنع الوجه الآخر: كلمةٌ واحدة تُجرَّب على آلاف البُرد من مكان واحد. */
+    if (tooMany(email) || rateLimited('login:' + clientIp(req), 60, 3600000)) {
+      return fail(res, 429, 'too-many-requests');
+    }
     const uid = db.emails[email];
     const u = uid ? db.users[uid] : null;
-    if (!u) { noteAttempt(email, false); return fail(res, 404, 'user-not-found'); }
-    if (!verifyPassword(password, u.pass)) { noteAttempt(email, false); return fail(res, 401, 'wrong-password'); }
+    /* ردٌّ واحد للحالتين: «لا يوجد حساب» كان يكشف من يملك حسابًا عندنا
+       لمن يجرّب البُرد واحدًا واحدًا. ونحسب بصمةً وهمية حين لا يوجد
+       الحساب، وإلا لكشفَ فرقُ الزمن ما أخفاه الردّ. */
+    if (!u) {
+      hashPassword(password);
+      noteAttempt(email, false);
+      return fail(res, 401, 'invalid-credentials');
+    }
+    if (!verifyPassword(password, u.pass)) { noteAttempt(email, false); return fail(res, 401, 'invalid-credentials'); }
     noteAttempt(email, true);
     return send(res, 200, publicUser(u, signToken(uid)));
   }

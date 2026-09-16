@@ -59,7 +59,7 @@ export function faultsScreen() {
 function row(f) {
   return `
     <div class="item tap ${f.status === 'تم الإصلاح' ? 'done' : ''}" data-open="${f.id}">
-      <div class="avatar">${locIcon(f.location)}</div>
+      <div class="avatar">${esc(locIcon(f.location))}</div>
       <div class="grow col">
         <div class="title">${esc(f.title)}</div>
         <div class="meta">
@@ -174,7 +174,7 @@ export function faultDetailsScreen({ id }) {
     html: `
       <div class="card">
         <div class="row" style="gap:14px">
-          <div style="width:54px;height:54px;border-radius:16px;background:var(--mint);display:grid;place-items:center;font-size:26px">${locIcon(f.location)}</div>
+          <div style="width:54px;height:54px;border-radius:16px;background:var(--mint);display:grid;place-items:center;font-size:26px">${esc(locIcon(f.location))}</div>
           <div class="grow">
             <div style="font-size:19px;font-weight:800">${esc(f.title)}</div>
             <div class="muted small">${esc(f.location || 'غير محدد')}</div>

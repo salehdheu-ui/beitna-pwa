@@ -201,7 +201,7 @@ function groupCard({ cat, items }) {
   return `
     <div class="card" style="padding:0;overflow:hidden">
       <button class="list-row" data-cat="${esc(cat.id)}" style="width:100%">
-        <span class="ic">${cat.icon}</span>
+        <span class="ic">${esc(cat.icon)}</span>
         <span class="grow"><span class="t">${esc(cat.name)}</span><br>
           <span class="d">${items.length} صنفًا${need ? ` — ${need} نفد` : ''}</span></span>
         <span class="arrow">${open ? '⌄' : '‹'}</span>
@@ -245,7 +245,7 @@ function emptyPantry(categories) {
       </div>
       ${custom.length ? `<div class="card mt-s">
         <div class="small strong">الأقسام التي أضفتها</div>
-        <div class="chips mt-s">${custom.map((c) => `<span class="chip">${c.icon} ${esc(c.name)}</span>`).join('')}</div>
+        <div class="chips mt-s">${custom.map((c) => `<span class="chip">${esc(c.icon)} ${esc(c.name)}</span>`).join('')}</div>
       </div>` : ''}`,
     mount(root, rerender) {
       root.addEventListener('click', (e) => {
@@ -263,7 +263,7 @@ function emptyPantry(categories) {
 
 function categoryOptions(selected) {
   return pantryCategoriesOf().map((c) =>
-    `<option value="${esc(c.id)}" ${String(c.id) === String(selected) ? 'selected' : ''}>${c.icon} ${esc(c.name)}</option>`
+    `<option value="${esc(c.id)}" ${String(c.id) === String(selected) ? 'selected' : ''}>${esc(c.icon)} ${esc(c.name)}</option>`
   ).join('');
 }
 
