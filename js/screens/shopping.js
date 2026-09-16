@@ -125,7 +125,7 @@ function itemRow(i) {
         <div class="title">${esc(i.name)}</div>
         <div class="meta">
           ${i.quantity ? `<span>${esc(i.quantity)}</span>•` : ''}
-          <span>${catIcon(i.category)} ${esc(i.category || 'بدون تصنيف')}</span>
+          <span>${esc(catIcon(i.category))} ${esc(i.category || 'بدون تصنيف')}</span>
           ${i.priority !== 'عادي' ? `<span class="badge ${priorityTone(i.priority)}">${esc(i.priority)}</span>` : ''}
           ${!done ? `<span class="badge ${statusTone(i.status)}">${esc(i.status)}</span>` : ''}
           ${i.priceValue ? `<span>${i.priceValue} ${CURRENCY}</span>` : ''}
@@ -206,7 +206,7 @@ export function shoppingDetailsScreen({ id }) {
     html: `
       <div class="card">
         <div class="row" style="gap:14px">
-          <div class="avatar" style="width:54px;height:54px;border-radius:16px;background:var(--mint);display:grid;place-items:center;font-size:26px">${catIcon(item.category)}</div>
+          <div class="avatar" style="width:54px;height:54px;border-radius:16px;background:var(--mint);display:grid;place-items:center;font-size:26px">${esc(catIcon(item.category))}</div>
           <div class="grow">
             <div style="font-size:19px;font-weight:800">${esc(item.name)}</div>
             <div class="muted small">${esc(item.quantity || 'بدون كمية محددة')}</div>
@@ -293,7 +293,7 @@ export function shoppingSessionScreen() {
           <button class="check" data-buy="${i.id}" aria-label="تم الشراء">✓</button>
           <div class="grow col">
             <div class="title">${esc(i.name)}</div>
-            <div class="meta">${esc(i.quantity || '')} ${i.quantity ? '•' : ''} ${catIcon(i.category)} ${esc(i.category || '')}</div>
+            <div class="meta">${esc(i.quantity || '')} ${i.quantity ? '•' : ''} ${esc(catIcon(i.category))} ${esc(i.category || '')}</div>
           </div>
           <button class="btn sm ghost" data-later="${i.id}">تأجيل</button>
         </div>`).join('')}</div>`
@@ -422,7 +422,7 @@ export function favoriteListScreen({ id }) {
         <div class="stack">
           ${list.items.length ? list.items.map((it, idx) => `
             <div class="item">
-              <div class="avatar">${catIcon(it.category)}</div>
+              <div class="avatar">${esc(catIcon(it.category))}</div>
               <div class="grow col">
                 <div class="title">${esc(it.name)}</div>
                 <div class="meta">

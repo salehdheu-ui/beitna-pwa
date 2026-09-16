@@ -1126,8 +1126,12 @@ export function supportScreen() {
         const f = e.target.closest('[data-faq]');
         if (f) {
           const [q, ans] = FAQ[Number(f.dataset.faq)];
+          /* بلا onclick مضمَّن: يمنعه CSP، وكان يكرّر منطق الإغلاق يدويًا
+             فلا يُصفّر sheetClose — نستعمل الإغلاق الرسمي للورقة. */
           openSheet(`<h3>${esc(q)}</h3><p class="muted" style="font-size:14.5px">${esc(ans)}</p>
-                     <button class="btn block" onclick="this.closest('.sheet-root').hidden=true;this.closest('.sheet-root').innerHTML='';document.body.style.overflow=''">حسنًا</button>`);
+                     <button class="btn block" data-close>حسنًا</button>`, {
+            onMount(sheet, close) { sheet.querySelector('[data-close]').onclick = close; },
+          });
           return;
         }
         const act = e.target.closest('[data-act]')?.dataset.act;

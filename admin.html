@@ -7,6 +7,13 @@
   <meta name="theme-color" content="#071a17">
   <title>لوحة إدارة بيتنا</title>
   <link rel="icon" href="assets/icons/favicon.svg" type="image/svg+xml">
+<!-- سياسة المحتوى: خطّ الدفاع الثاني. لو تسرّب نصّ فيه وسم إلى الصفحة
+     فلن يُنفَّذ شيء من خارج ملفاتنا، ولن يُرسل شيء إلى خادم غريب.
+     ‎'unsafe-inline'‎ للأنماط وحدها — الصفحة مليئة بـ ‎style=""‎، وحقن
+     نمطٍ لا يُشغّل شيفرة. السكربت لا استثناء له.
+     ملاحظة لمن يستضيف نسخته: خادم API على دومين آخر يحتاج إضافته
+     إلى ‎connect-src‎ هنا. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'none'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap">

@@ -238,6 +238,9 @@ export async function amAdmin() {
 /* ---------- رسائل الأخطاء ---------- */
 export function arabicError(e) {
   const code = String(e?.code || e?.message || '');
+  /* رسالة واحدة للبريد وكلمة المرور معًا: التفريق بينهما يكشف من يملك
+     حسابًا عندنا لمن يجرّب البُرد واحدًا واحدًا. */
+  if (code.includes('invalid-credentials')) return 'البريد الإلكتروني أو كلمة المرور غير صحيحة';
   if (code.includes('wrong-password') || code.includes('invalid-credential')) return 'كلمة المرور خاطئة';
   if (code.includes('user-not-found')) return 'لا يوجد حساب بهذا البريد';
   if (code.includes('email-already-in-use')) return 'هذا البريد مسجَّل من قبل';

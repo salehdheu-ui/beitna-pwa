@@ -630,16 +630,34 @@ boot().catch((e) => {
   console.error('فشل الإقلاع', e);
   try { showApp(); } catch (e2) {
     document.getElementById('splash')?.remove();
-    document.body.innerHTML =
-      '<div style="padding:32px;text-align:center;font-family:Tajawal,system-ui">' +
-      '<div style="font-size:44px">⚠️</div>' +
-      '<h2 style="margin:8px 0">تعذّر تشغيل التطبيق</h2>' +
-      '<p style="color:#6B7280">حدّث الصفحة، وإن تكرر الخطأ اضغط الزر أدناه لمسح الذاكرة المؤقتة.</p>' +
-      '<button onclick="(async()=>{const r=await navigator.serviceWorker.getRegistrations();' +
-      'for(const x of r)await x.unregister();const k=await caches.keys();' +
-      'for(const c of k)await caches.delete(c);location.reload(true)})()" ' +
-      'style="padding:12px 22px;border-radius:999px;background:#0F8B6D;color:#fff;font-weight:700;border:0">' +
-      'إعادة الضبط وتحديث</button></div>';
+    /* مسار العطل التام: نبنيه عقدةً عقدة بلا onclick مضمَّن — يمنعه CSP،
+       وهذه آخر شاشة يراها المستخدم فلا يجوز أن يتعطّل زرّها. */
+    document.body.textContent = '';
+    const box = document.createElement('div');
+    box.setAttribute('style', 'padding:32px;text-align:center;font-family:Tajawal,system-ui');
+    const mark = document.createElement('div');
+    mark.setAttribute('style', 'font-size:44px');
+    mark.textContent = '⚠️';
+    const head = document.createElement('h2');
+    head.setAttribute('style', 'margin:8px 0');
+    head.textContent = 'تعذّر تشغيل التطبيق';
+    const note = document.createElement('p');
+    note.setAttribute('style', 'color:#6B7280');
+    note.textContent = 'حدّث الصفحة، وإن تكرر الخطأ اضغط الزر أدناه لمسح الذاكرة المؤقتة.';
+    const btn = document.createElement('button');
+    btn.setAttribute('style', 'padding:12px 22px;border-radius:999px;background:#0F8B6D;color:#fff;font-weight:700;border:0');
+    btn.textContent = 'إعادة الضبط وتحديث';
+    btn.addEventListener('click', async () => {
+      try {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        for (const r of regs) await r.unregister();
+        const keys = await caches.keys();
+        for (const k of keys) await caches.delete(k);
+      } catch { /* نُحدّث على أي حال */ }
+      location.reload();
+    });
+    box.append(mark, head, note, btn);
+    document.body.appendChild(box);
   }
 });
 
