@@ -127,6 +127,26 @@ async function main() {
   assert.equal(translatedItem.name, 'maziwa', 'لم يُحفظ النص الأصلي');
   assert.equal(translatedItem.translations.ar.name, 'ar:maziwa');
   assert.equal(translatedItem.translations.en.quantity, 'en:pakiti mbili');
+
+  /* تخصيص المشتريات والأعطال للعاملة يعمل، لكن القدرات الحساسة تبقى ثابتة. */
+  const limitedHelper = await request(`/member/${helper.uid}/caps`, {
+    method: 'POST', token: owner.token,
+    body: { caps: {
+      shopping: 'read', faults: 'none', occasions: 'write',
+      invite: true, members: true, prices: true, remove: true,
+    } },
+  });
+  assert.equal(limitedHelper.status, 200);
+  assert.equal(limitedHelper.data.caps.shopping, 'read');
+  assert.equal(limitedHelper.data.caps.faults, 'none');
+  assert.equal(limitedHelper.data.caps.occasions, 'none');
+  assert.equal(limitedHelper.data.caps.prices, false);
+  const blockedShopping = await request('/write', {
+    method: 'POST', token: helper.token,
+    body: { ops: [{ col: 'shopping', id: '9002', op: 'set', data: { name: 'blocked' } }] },
+  });
+  assert.equal(blockedShopping.data.applied, 0);
+  assert.equal(blockedShopping.data.denied, 1);
   const helperMe = await request('/me', { token: helper.token });
   assert.equal('token' in helperMe.data, false, 'أعاد /me رمز الجلسة بلا حاجة');
   const deniedOccasion = await request('/write', {

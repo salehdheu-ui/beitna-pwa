@@ -19,7 +19,7 @@ const SECRET_FILE = path.join(DATA_DIR, 'secret.key');
    بقيمة تتجاوز 30 يومًا حتى لا يعيد إعدادٌ خاطئ جلسات السنة القديمة. */
 const TOKEN_DAYS = Math.min(30, Math.max(1, Number(process.env.TOKEN_DAYS || 14)));
 const PUSH_SUBJECT = process.env.PUSH_SUBJECT || 'mailto:admin@beitna.local';
-const SERVER_VERSION = '1.11.0';
+const SERVER_VERSION = '1.11.1';
 
 /* لوحة الإدارة المنفصلة لها رمز مستقل تمامًا عن حسابات بيتنا.
 
@@ -1228,7 +1228,14 @@ async function route(req, res, url) {
     /* المالك غير قابل للتقييد — ولو قُيّد لأغلق على نفسه بيته */
     if (permOf(m) === 'owner') return fail(res, 400, 'owner-unrestricted');
     const b = await readBody(req);
-    m.caps = sanitizeCaps(b.caps);
+    const requested = sanitizeCaps(b.caps);
+    /* للعاملة يمكن للمالك تقليل/توسيع وصول المشتريات والأعطال فقط.
+       القدرات الحساسة ليست خيارات قابلة للرفع أصلًا. */
+    m.caps = permOf(m) === 'helper'
+      ? Object.fromEntries(['shopping', 'faults']
+        .filter((key) => requested[key])
+        .map((key) => [key, requested[key]]))
+      : requested;
     m.updatedAt = now(); hh.updatedAt = now(); save();
     return send(res, 200, { ok: true, caps: capsOf(m) });
   }
@@ -1305,7 +1312,9 @@ async function route(req, res, url) {
       const owners = Object.values(hh.members).filter((x) => !x.deleted && permOf(x) === 'owner');
       if (owners.length <= 1) return fail(res, 400, 'last-owner');
     }
+    const roleChanged = permOf(m) !== perm;
     m.perm = perm; m.isOwner = perm === 'owner'; m.role = roleLabel(perm); m.updatedAt = now();
+    if (roleChanged) m.caps = {};
     hh.updatedAt = now(); save();
     return send(res, 200, { ok: true });
   }

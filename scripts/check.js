@@ -105,6 +105,15 @@ if (cloudSource.includes('localizedPush') || serverSource.includes('localizedPus
   ok('إشعارات العاملة السحابية تتبع لغة حسابها');
 else bad('إشعارات العاملة السحابية لا تتبع اللغة');
 
+const controlSource = read('js/screens/control.js');
+if (cloudSource.includes('perm: m.perm') && cloudSource.includes('caps: m.caps')) {
+  ok('دور الفرد وصلاحياته يصلان كاملين إلى لوحة التحكم');
+} else bad('قائمة الأفراد تفقد الدور أو الصلاحيات قبل عرضها');
+if (controlSource.includes("helper ? ['shopping', 'faults']") &&
+    controlSource.includes('صلاحيات العاملة المحمية')) {
+  ok('العاملة لا ترى خيارات حساسة وهمية وتخصيصها محصور في المشتريات والأعطال');
+} else bad('واجهة العاملة ما زالت تعرض صلاحيات لا ينفذها الخادم');
+
 
 /* ---------- حاوية الخادم: كل ما يُستدعى محليًا يجب أن يُنسخ ---------- */
 console.log('حاوية الخادم:');

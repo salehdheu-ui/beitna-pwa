@@ -178,11 +178,14 @@ function membersCard(others, me) {
         const caps = capsOf(m);
         const limits = DATA_SECTIONS.filter((c) => caps[c] !== 'write').length
           + FLAGS.filter(([f]) => caps[f] === false).length;
+        const summary = permOf(m) === 'helper'
+          ? 'وصول محدود وآمن للعاملة'
+          : (limits ? `${limits} قيدًا` : 'بلا قيود');
         return `
         <div class="list-row" data-member="${esc(m.uid)}">
           <span class="ic">${permOf(m) === 'helper' ? '🧹' : '👤'}</span>
           <span class="grow"><span class="t">${esc(m.name || 'فرد')}</span><br>
-            <span class="d">${esc(m.role || 'عضو')} — ${limits ? `${limits} قيدًا` : 'بلا قيود'}</span></span>
+            <span class="d">${esc(m.role || 'عضو')} — ${esc(summary)}</span></span>
           <span class="arrow">${openMember === m.uid ? '⌄' : '‹'}</span>
         </div>`;
       }).join('') : ''}
@@ -198,11 +201,13 @@ function capsEditor(m) {
   if (!m) return '';
   const caps = { ...capsOf(m), ...(draftCaps || {}) };
   const sections = sectionsOf();
+  const helper = permOf(m) === 'helper';
+  const editableSections = helper ? ['shopping', 'faults'] : DATA_SECTIONS;
   return `
   <div class="card mt">
     <div class="section-title">صلاحيات ${esc(m.name || 'فرد')}</div>
 
-    ${DATA_SECTIONS.map((key) => `
+    ${editableSections.map((key) => `
       <div style="margin-bottom:12px">
         <div class="t" style="margin-bottom:6px">${sections[key].icon} ${esc(sections[key].label)}</div>
         <div class="chip-select" data-level="${esc(key)}">
@@ -212,7 +217,14 @@ function capsEditor(m) {
         </div>
       </div>`).join('')}
 
-    <div class="list">
+    ${helper ? `
+      <div class="card soft small" style="margin-top:4px">
+        <div class="strong">🔒 صلاحيات العاملة المحمية</div>
+        <p class="muted" style="margin:6px 0 0">
+          يمكن تخصيص المشتريات والأعطال فقط. أما التذكيرات والأسعار وبيانات الأفراد وكود الدعوة والحذف فتبقى محجوبة لحماية البيت.
+        </p>
+      </div>
+    ` : `<div class="list">
       ${FLAGS.map(([flag, icon, title, desc]) => `
         <div class="list-row" data-flag="${flag}">
           <span class="ic">${icon}</span>
@@ -220,7 +232,7 @@ function capsEditor(m) {
             <span class="d">${esc(desc)}</span></span>
           ${switchEl(caps[flag] !== false, 'flag:' + flag)}
         </div>`).join('')}
-    </div>
+    </div>`}
 
     <button class="btn block mt" data-save-caps="${esc(m.uid)}">حفظ الصلاحيات</button>
     <button class="btn ghost block mt-s" data-close-caps>إغلاق</button>
@@ -268,7 +280,11 @@ function mountMembers(root, rerender, others) {
     const m = others.find((x) => x.uid === uid);
     const caps = { ...capsOf(m || {}), ...(draftCaps || {}) };
     try {
-      await cloud.setMemberCaps(uid, caps);
+      const saved = await cloud.setMemberCaps(uid, caps);
+      update((st) => {
+        const member = (st.members || []).find((x) => x.uid === uid);
+        if (member && saved?.caps) member.caps = { ...saved.caps };
+      });
       toast('حُفظت الصلاحيات');
       openMember = null; draftCaps = null;
       rerender();

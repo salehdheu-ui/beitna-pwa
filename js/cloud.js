@@ -406,6 +406,8 @@ function shapeMembers() {
     .map((m, i) => ({
       id: i + 1, uid: m.uid, name: m.name || 'عضو', role: m.role || 'عضو',
       phone: m.phone || '', email: m.email || '',
+      perm: m.perm || (m.isOwner ? 'owner' : 'member'),
+      caps: m.caps && typeof m.caps === 'object' ? { ...m.caps } : {},
       isOwner: !!m.isOwner, isOnline: m.uid === currentUid(), joinedAt: m.joinedAt || 0,
     }));
 }
