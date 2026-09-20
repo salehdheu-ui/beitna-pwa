@@ -53,34 +53,57 @@ else ok('كل وحدات js مخزّنة للعمل بلا إنترنت');
 
 /* ---------- الترجمات ---------- */
 console.log('اللغات:');
-const lines = linesOf(read('js/i18n.js'));
-const tables = {};
-let current = null;
-for (const line of lines) {
-  const open = line.match(/^  ([a-z]{2}): \{$/);
-  if (open) { current = open[1]; tables[current] = []; continue; }
-  if (current && line === '  },') { current = null; continue; }
-  if (current) {
-    const key = line.match(/^    ([A-Za-z_][A-Za-z0-9_]*):/);
-    if (key) tables[current].push(key[1]);
+const i18nText = read('js/i18n.js');
+const expectedCodes = ['ar','en','hi','si','ta','am','tl','id','my','sw','ne'];
+function localeTable(name) {
+  const start = i18nText.indexOf(`const ${name} = {`);
+  const end = i18nText.indexOf('\n};', start);
+  const body = i18nText.slice(start, end);
+  const out = {};
+  for (const code of expectedCodes) {
+    const multi = body.match(new RegExp(`^  ${code}: \\{([\\s\\S]*?)^  \\},`, 'm'));
+    const single = body.match(new RegExp(`^  ${code}: \\{(.*)\\},?$`, 'm'));
+    const localeBody = multi?.[1] ?? single?.[1] ?? '';
+    out[code] = [...localeBody.matchAll(/(?:^|,\s*)([A-Za-z_][A-Za-z0-9_]*)\s*:/gm)].map((m) => m[1]);
   }
+  return out;
 }
-const codes = Object.keys(tables);
-if (!codes.length) bad('لم يُقرأ أي جدول ترجمة');
-else {
-  const base = tables[codes[0]];
-  ok(codes.length + ' لغات (' + codes.join(', ') + ')، ' + base.length + ' مفتاحًا');
+for (const name of ['STR', 'AUTH', 'SYSTEM']) {
+  const tables = localeTable(name);
+  const base = tables.ar;
+  if (!base.length) { bad(`لم يُقرأ جدول ${name}`); continue; }
   let mismatch = 0;
-  for (const c of codes) {
-    const miss = base.filter((k) => !tables[c].includes(k));
-    const extra = tables[c].filter((k) => !base.includes(k));
+  for (const code of expectedCodes) {
+    const miss = base.filter((k) => !tables[code].includes(k));
+    const extra = tables[code].filter((k) => !base.includes(k));
     if (miss.length || extra.length) {
       mismatch++;
-      bad(c + ': ناقص [' + miss.join(',') + '] زائد [' + extra.join(',') + ']');
+      bad(`${name}.${code}: ناقص [${miss.join(',')}] زائد [${extra.join(',')}]`);
     }
   }
-  if (!mismatch) ok('تطابق المفاتيح تام');
+  if (!mismatch) ok(`${name}: ${expectedCodes.length} لغة، ${base.length} مفتاحًا متطابقًا`);
 }
+
+const authScreen = read('js/screens/auth.js');
+const i18nSource = read('js/i18n.js');
+const utilSource = read('js/util.js');
+if (authScreen.includes("t('welcome_title')") && authScreen.includes("t('recover_account')")) ok('رحلة الدخول والانضمام تستخدم ترجمة اللغة المختارة');
+else bad('شاشة الدخول لا تطبّق ترجمة النظام بعد اختيار اللغة');
+if (i18nSource.includes("document.title = `${t('app_name')}") && i18nSource.includes('MAIN_PATTERNS')) {
+  ok('العنوان والنصوص الديناميكية تتبع لغة النظام');
+} else bad('ترجمة العنوان أو النصوص الديناميكية غير موصولة');
+if (utilSource.includes("currentLang() === 'en'") && utilSource.includes('Intl.DateTimeFormat')) {
+  ok('التاريخ والوقت والعدّ التنازلي تتبع اللغة');
+} else bad('تنسيق التاريخ والوقت لا يتبع اللغة');
+const helperSource = read('js/screens/helper.js');
+const cloudSource = read('js/cloud.js');
+const serverSource = read('server/server.js');
+if (helperSource.includes("t('shopping_title')") && helperSource.includes("t('report_fault')"))
+  ok('شاشة العاملة اليومية تستخدم قاموس اللغات');
+else bad('شاشة العاملة تحتوي نصوصًا غير موصولة بالقاموس');
+if (cloudSource.includes('localizedPush') || serverSource.includes('localizedPush'))
+  ok('إشعارات العاملة السحابية تتبع لغة حسابها');
+else bad('إشعارات العاملة السحابية لا تتبع اللغة');
 
 
 /* ---------- حاوية الخادم: كل ما يُستدعى محليًا يجب أن يُنسخ ---------- */

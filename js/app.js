@@ -486,7 +486,7 @@ async function restoreCloud() {
     const prefs = await cloud.loadNotificationPrefs();
     if (prefs?.language) setLang(prefs.language);
     setupHousehold({
-      householdName: hh?.name || getState().household.name || 'بيتي',
+      householdName: hh?.name || getState().household.name || t('app_name'),
       memberName: user.displayName || getState().profile.name || (user.email || '').split('@')[0],
       email: user.email || '',
       inviteCode: hh?.inviteCode || '',
@@ -512,7 +512,9 @@ function startApp() {
     history.replaceState(null, '', '#/helper');
   }
   start();
-  startReminderLoop();
+  /* العاملة لا ترى التذكيرات ولا تتلقى ملخص الأسرة؛ يصلها فقط نشاط
+     المشتريات والأعطال المسموح لها به ومن خلال لغتها المختارة. */
+  if (!amHelper()) startReminderLoop();
   subscribe(applyTheme);
   maybeShowInstall();
 }
@@ -596,13 +598,11 @@ function renderInstallBar(iosMode) {
     <div class="install-bar">
       <span style="font-size:22px">📲</span>
       <div class="grow">
-        <div class="strong small">ثبّت بيتنا على جهازك</div>
-        <div class="tiny muted">${iosMode
-          ? 'خطوتان من متصفح Safari — وتصلك الإشعارات.'
-          : 'يعمل بدون إنترنت وكأنه تطبيق مستقل.'}</div>
+        <div class="strong small">${esc(t('install_title'))}</div>
+        <div class="tiny muted">${esc(iosMode ? t('install_ios') : t('install_hint'))}</div>
       </div>
-      <button class="btn sm" data-install>${iosMode ? 'الطريقة' : 'تثبيت'}</button>
-      <button class="icon-btn" data-dismiss aria-label="إغلاق">✕</button>
+      <button class="btn sm" data-install>${esc(t('install'))}</button>
+      <button class="icon-btn" data-dismiss aria-label="${esc(t('cancel'))}">✕</button>
     </div>`;
 
   root.querySelector('[data-install]').onclick = async () => {
@@ -613,7 +613,7 @@ function renderInstallBar(iosMode) {
     evt.prompt();
     const res = await evt.userChoice.catch(() => ({ outcome: 'dismissed' }));
     hideInstallBar();
-    if (res.outcome !== 'accepted') toast('يمكنك التثبيت لاحقًا من قائمة المتصفح');
+    if (res.outcome !== 'accepted') toast(t('install_later'));
   };
   root.querySelector('[data-dismiss]').onclick = () => {
     try { localStorage.setItem(INSTALL_DISMISS_KEY, '1'); } catch { /* تجاهل */ }
@@ -634,11 +634,11 @@ window.addEventListener('appinstalled', () => {
   deferredPrompt = null;
   hideInstallBar();
   try { localStorage.removeItem(INSTALL_DISMISS_KEY); } catch { /* تجاهل */ }
-  toast('تم تثبيت بيتنا على جهازك 🎉');
+  toast(t('installed'));
 });
 
 /* ---------- حالة الاتصال ---------- */
-window.addEventListener('offline', () => toast('أنت غير متصل — التطبيق يعمل محليًا'));
+window.addEventListener('offline', () => toast(t('offline')));
 
 /* ---------- التشغيل ---------- */
 observeMainUi();
@@ -656,13 +656,13 @@ boot().catch((e) => {
     mark.textContent = '⚠️';
     const head = document.createElement('h2');
     head.setAttribute('style', 'margin:8px 0');
-    head.textContent = 'تعذّر تشغيل التطبيق';
+    head.textContent = t('startup_error');
     const note = document.createElement('p');
     note.setAttribute('style', 'color:#6B7280');
-    note.textContent = 'حدّث الصفحة، وإن تكرر الخطأ اضغط الزر أدناه لمسح الذاكرة المؤقتة.';
+    note.textContent = t('startup_retry');
     const btn = document.createElement('button');
     btn.setAttribute('style', 'padding:12px 22px;border-radius:999px;background:#0F8B6D;color:#fff;font-weight:700;border:0');
-    btn.textContent = 'إعادة الضبط وتحديث';
+    btn.textContent = t('reset_refresh');
     btn.addEventListener('click', async () => {
       try {
         const regs = await navigator.serviceWorker.getRegistrations();

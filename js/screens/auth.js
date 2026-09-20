@@ -5,29 +5,28 @@ import { setupHousehold, seedDemo } from '../store.js';
 import { toast, openSheet } from '../ui.js';
 import * as cloud from '../cloud.js';
 import { langSheet } from './helper.js';
-import { applyLangToDocument } from '../i18n.js';
+import { applyLangToDocument, currentLang, t } from '../i18n.js';
 
 /** يعرض رمز الاسترداد ويُلزم المستخدم بتأكيد حفظه */
 function showRecoveryCode(code, replaced = false) {
   return new Promise((resolve) => {
     openSheet(`
-      <h3>🔑 رمز الاسترداد</h3>
+      <h3>🔑 ${esc(t('recovery_code'))}</h3>
       <p class="muted small" style="margin:0 0 12px">
-        ${replaced ? 'رمزك السابق استُهلك، وهذا بديله.' : ''}
-        احفظ هذا الرمز في مكان آمن. هو طريقك الوحيد لاستعادة حسابك إن نسيت كلمة المرور —
-        الخادم لا يحفظه نصًا ولا يستطيع إرساله لك لاحقًا.
+        ${replaced ? esc(t('recovery_replaced')) : ''}
+        ${esc(t('recovery_explain'))}
       </p>
       <div class="invite-code" id="rcode">${esc(code)}</div>
-      <button class="btn soft block mt" data-copy>📋 نسخ الرمز</button>
+      <button class="btn soft block mt" data-copy>📋 ${esc(t('copy_code'))}</button>
       <label class="row" style="gap:8px;align-items:center;margin:14px 0">
-        <input type="checkbox" id="rok"> <span class="small">حفظته في مكان آمن</span></label>
-      <button class="btn block" data-done disabled>متابعة</button>
+        <input type="checkbox" id="rok"> <span class="small">${esc(t('saved_safe'))}</span></label>
+      <button class="btn block" data-done disabled>${esc(t('continue'))}</button>
     `, {
       onMount(el, close) {
         const done = el.querySelector('[data-done]');
         el.querySelector('#rok').onchange = (e) => { done.disabled = !e.target.checked; };
         el.querySelector('[data-copy]').onclick = async () => {
-          try { await navigator.clipboard.writeText(code); toast('نُسخ الرمز ✓'); } catch { /* تجاهل */ }
+          try { await navigator.clipboard.writeText(code); toast(t('code_copied')); } catch { /* تجاهل */ }
         };
         done.onclick = () => { close(); resolve(); };
       },
@@ -48,123 +47,112 @@ export function renderAuth(onDone) {
     <div class="auth-card">
       <div class="auth-logo">
         <div class="mark">🏡</div>
-        <h1>بيتنا</h1>
-        <p>إدارة المنزل بذكاء</p>
+        <h1>${esc(t('app_name'))}</h1>
+        <p>${esc(t('tagline'))}</p>
       </div>
       <div class="auth-box">${inner}</div>
-      <p class="legal">بيتنا © ${new Date().getFullYear()} — صُمّم بحب لكل عائلة</p>
+      <p class="legal">${esc(t('app_name'))} © ${new Date().getFullYear()} — ${esc(t('legal'))}</p>
     </div>`;
 
   const views = {
     welcome: () => shell(`
-      <h3 style="margin:0 0 6px;font-size:19px;font-weight:800">أهلاً بك</h3>
-      <p class="muted small" style="margin:0 0 18px">
-        سجّل دخولك ليتزامن بيتك بين كل الأجهزة — نفس حساب تطبيق الجوال.
-      </p>
-      <button class="btn block" data-go="signin">🔐 تسجيل الدخول</button>
+      <h3 style="margin:0 0 6px;font-size:19px;font-weight:800">${esc(t('welcome_title'))}</h3>
+      <p class="muted small" style="margin:0 0 18px">${esc(t('welcome_sub'))}</p>
+      <button class="btn block" data-go="signin">🔐 ${esc(t('login'))}</button>
       <div style="height:10px"></div>
-      <button class="btn ghost block" data-go="signup">✨ إنشاء حساب جديد</button>
+      <button class="btn ghost block" data-go="signup">✨ ${esc(t('signup'))}</button>
       <hr class="divider">
-      <button class="btn soft block" data-go="localSetup">📱 استخدام بدون حساب (هذا الجهاز فقط)</button>
-      <button class="btn ghost block mt-s" data-act="lang">🌐 Language / भाषा / භාෂාව</button>
+      <button class="btn soft block" data-go="localSetup">📱 ${esc(t('use_local'))}</button>
+      <button class="btn ghost block mt-s" data-act="lang">🌐 ${esc(t('language'))}</button>
       <p class="hint center" style="margin-top:10px">
-        الوضع المحلي يعمل بدون إنترنت لكنه لا يتزامن مع بقية أفراد البيت.
+        ${esc(t('local_hint'))}
       </p>
     `),
 
     signin: () => shell(`
-      <h3 style="margin:0 0 6px;font-size:19px;font-weight:800">أهلاً بعودتك</h3>
-      <p class="muted small" style="margin:0 0 18px">سجّل دخولك للوصول إلى بيتك المشترك.</p>
+      <h3 style="margin:0 0 6px;font-size:19px;font-weight:800">${esc(t('login'))}</h3>
+      <p class="muted small" style="margin:0 0 18px">${esc(t('welcome_sub'))}</p>
       <div id="err"></div>
-      <div class="field"><label for="email">البريد الإلكتروني</label>
+      <div class="field"><label for="email">${esc(t('email'))}</label>
         <input class="input" id="email" type="email" inputmode="email" autocomplete="email" style="direction:ltr;text-align:left" placeholder="name@example.com"></div>
-      <div class="field"><label for="pass">كلمة المرور</label>
+      <div class="field"><label for="pass">${esc(t('password'))}</label>
         <input class="input" id="pass" type="password" autocomplete="current-password" style="direction:ltr;text-align:left"></div>
-      <button class="btn block" data-submit>دخول</button>
-      <div class="auth-switch">ليس لديك حساب؟ <button data-go="signup">حساب جديد</button></div>
-      <div class="auth-switch"><button data-go="recover">نسيت كلمة المرور؟</button></div>
-      <div class="auth-switch"><button data-go="welcome">رجوع</button></div>
+      <button class="btn block" data-submit>${esc(t('enter'))}</button>
+      <div class="auth-switch">${esc(t('no_account'))} <button data-go="signup">${esc(t('signup'))}</button></div>
+      <div class="auth-switch"><button data-go="recover">${esc(t('forgot_password'))}</button></div>
+      <div class="auth-switch"><button data-go="welcome">${esc(t('back'))}</button></div>
     `),
 
     recover: () => shell(`
-      <h3 style="margin:0 0 6px;font-size:19px;font-weight:800">استعادة الحساب</h3>
-      <p class="muted small" style="margin:0 0 18px">
-        أدخل رمز الاسترداد الذي ظهر لك عند إنشاء الحساب.
-      </p>
+      <h3 style="margin:0 0 6px;font-size:19px;font-weight:800">${esc(t('recover_account'))}</h3>
+      <p class="muted small" style="margin:0 0 18px">${esc(t('recover_prompt'))}</p>
       <div id="err"></div>
-      <div class="field"><label for="email">البريد الإلكتروني</label>
+      <div class="field"><label for="email">${esc(t('email'))}</label>
         <input class="input" id="email" type="email" inputmode="email" autocomplete="email" style="direction:ltr;text-align:left" placeholder="name@example.com"></div>
-      <div class="field"><label for="code">رمز الاسترداد</label>
+      <div class="field"><label for="code">${esc(t('recovery_code'))}</label>
         <input class="input" id="code" placeholder="XXXXX-XXXXX-XXXXX" autocapitalize="characters" style="direction:ltr;text-align:left"></div>
-      <div class="field"><label for="pass">كلمة المرور الجديدة</label>
+      <div class="field"><label for="pass">${esc(t('new_password'))}</label>
         <input class="input" id="pass" type="password" autocomplete="new-password" style="direction:ltr;text-align:left">
-        <div class="hint">6 أحرف على الأقل</div></div>
-      <button class="btn block" data-submit>استعادة الحساب</button>
-      <p class="tiny muted mt">
-        فقدت الرمز أيضًا؟ لا يمكن استعادة الحساب — الخادم لا يحفظ الرمز نصًا،
-        ولا يرسل بريدًا. اطلب من فرد آخر في البيت دعوتك بحساب جديد.
-      </p>
-      <div class="auth-switch"><button data-go="signin">رجوع</button></div>
+        <div class="hint">${esc(t('pass_hint'))}</div></div>
+      <button class="btn block" data-submit>${esc(t('recover_account'))}</button>
+      <p class="tiny muted mt">${esc(t('recover_missing'))}</p>
+      <div class="auth-switch"><button data-go="signin">${esc(t('back'))}</button></div>
     `),
 
     signup: () => shell(`
-      <h3 style="margin:0 0 6px;font-size:19px;font-weight:800">أنشئ حسابك الجديد</h3>
-      <p class="muted small" style="margin:0 0 18px">حساب واحد يجمع كل أفراد البيت على كل الأجهزة.</p>
+      <h3 style="margin:0 0 6px;font-size:19px;font-weight:800">${esc(t('signup'))}</h3>
+      <p class="muted small" style="margin:0 0 18px">${esc(t('welcome_sub'))}</p>
       <div id="err"></div>
-      <div class="field"><label for="name">اسمك داخل التطبيق</label>
-        <input class="input" id="name" placeholder="أحمد" autocomplete="name"></div>
-      <div class="field"><label for="email">البريد الإلكتروني</label>
+      <div class="field"><label for="name">${esc(t('display_name'))}</label>
+        <input class="input" id="name" placeholder="${esc(t('your_name'))}" autocomplete="name"></div>
+      <div class="field"><label for="email">${esc(t('email'))}</label>
         <input class="input" id="email" type="email" inputmode="email" autocomplete="email" style="direction:ltr;text-align:left" placeholder="name@example.com"></div>
-      <div class="field"><label for="pass">كلمة المرور</label>
+      <div class="field"><label for="pass">${esc(t('password'))}</label>
         <input class="input" id="pass" type="password" autocomplete="new-password" style="direction:ltr;text-align:left">
-        <div class="hint">6 أحرف على الأقل</div></div>
-      <button class="btn block" data-submit>إنشاء الحساب</button>
-      <div class="auth-switch">لديك حساب؟ <button data-go="signin">تسجيل الدخول</button></div>
-      <div class="auth-switch"><button data-go="welcome">رجوع</button></div>
+        <div class="hint">${esc(t('pass_hint'))}</div></div>
+      <button class="btn block" data-submit>${esc(t('create_account'))}</button>
+      <div class="auth-switch">${esc(t('have_account'))} <button data-go="signin">${esc(t('login'))}</button></div>
+      <div class="auth-switch"><button data-go="welcome">${esc(t('back'))}</button></div>
     `),
 
     household: () => shell(`
-      <h3 style="margin:0 0 6px;font-size:19px;font-weight:800">بيتك في بيتنا</h3>
-      <p class="muted small" style="margin:0 0 18px">
-        اختر إن كنت تريد إنشاء بيت جديد أو الانضمام إلى بيت موجود.
-      </p>
+      <h3 style="margin:0 0 6px;font-size:19px;font-weight:800">${esc(t('home_setup_title'))}</h3>
+      <p class="muted small" style="margin:0 0 18px">${esc(t('home_setup_sub'))}</p>
       <div id="err"></div>
-      <div class="field"><label for="hname">اسم البيت</label>
-        <input class="input" id="hname" placeholder="بيت أحمد وسارة"></div>
-      <button class="btn block" data-submit>🏠 إنشاء البيت</button>
+      <div class="field"><label for="hname">${esc(t('home_name'))}</label>
+        <input class="input" id="hname" placeholder="${esc(t('home_name'))}"></div>
+      <button class="btn block" data-submit>🏠 ${esc(t('create_home'))}</button>
       <hr class="divider">
-      <button class="btn ghost block" data-go="join">🔑 لديّ كود دعوة</button>
-      <div class="auth-switch"><button data-go="logout">تسجيل خروج بحساب آخر</button></div>
+      <button class="btn ghost block" data-go="join">🔑 ${esc(t('have_invite'))}</button>
+      <div class="auth-switch"><button data-go="logout">${esc(t('logout_other'))}</button></div>
     `),
 
     join: () => shell(`
-      <h3 style="margin:0 0 6px;font-size:19px;font-weight:800">الانضمام بكود دعوة</h3>
-      <p class="muted small" style="margin:0 0 18px">
-        إذا أعطاك شريكك كود دعوة، أدخله للدخول إلى بيته المشترك.
-      </p>
+      <h3 style="margin:0 0 6px;font-size:19px;font-weight:800">${esc(t('join_title'))}</h3>
+      <p class="muted small" style="margin:0 0 18px">${esc(t('join_sub'))}</p>
       <div id="err"></div>
-      <div class="field"><label for="code">كود الدعوة</label>
+      <div class="field"><label for="code">${esc(t('invite_code'))}</label>
         <input class="input" id="code" placeholder="BEITNA-XXXXXX" style="direction:ltr;text-align:left" autocapitalize="characters"></div>
-      <button class="btn block" data-submit>الانضمام</button>
-      <div class="auth-switch"><button data-go="household">رجوع</button></div>
+      <button class="btn block" data-submit>${esc(t('join'))}</button>
+      <div class="auth-switch"><button data-go="household">${esc(t('back'))}</button></div>
     `),
 
     localSetup: () => shell(`
-      <h3 style="margin:0 0 6px;font-size:19px;font-weight:800">وضع بدون حساب</h3>
-      <p class="muted small" style="margin:0 0 18px">
-        البيانات تُحفظ على هذا الجهاز فقط. يمكنك التحويل لحساب مشترك لاحقًا.
-      </p>
+      <h3 style="margin:0 0 6px;font-size:19px;font-weight:800">${esc(t('local_title'))}</h3>
+      <p class="muted small" style="margin:0 0 18px">${esc(t('local_sub'))}</p>
       <div id="err"></div>
-      <div class="field"><label for="hname">اسم البيت</label>
-        <input class="input" id="hname" placeholder="بيت أحمد وسارة"></div>
-      <div class="field"><label for="mname">اسمك داخل التطبيق</label>
-        <input class="input" id="mname" placeholder="أحمد"></div>
-      <button class="btn block" data-submit>ابدأ</button>
-      <div class="auth-switch"><button data-go="welcome">رجوع</button></div>
+      <div class="field"><label for="hname">${esc(t('home_name'))}</label>
+        <input class="input" id="hname" placeholder="${esc(t('home_name'))}"></div>
+      <div class="field"><label for="mname">${esc(t('display_name'))}</label>
+        <input class="input" id="mname" placeholder="${esc(t('your_name'))}"></div>
+      <button class="btn block" data-submit>${esc(t('start'))}</button>
+      <div class="auth-switch"><button data-go="welcome">${esc(t('back'))}</button></div>
     `),
   };
 
-  const draw = () => { root.innerHTML = views[mode](); };
+  const draw = () => {
+    root.innerHTML = views[mode]();
+  };
   const err = (msg) => {
     const box = root.querySelector('#err');
     if (box) box.innerHTML = `<div class="err">${esc(msg)}</div>`;
@@ -173,7 +161,7 @@ export function renderAuth(onDone) {
   const setBusy = (on, label) => {
     busy = on;
     const b = root.querySelector('[data-submit]');
-    if (b) { b.disabled = on; if (on) b.textContent = label || 'لحظة...'; }
+    if (b) { b.disabled = on; if (on) b.textContent = label || t('please_wait'); }
     clearTimeout(busyTimer);
     if (on) {
       /* إن تأخّرت العملية لأي سبب، نفكّ القفل ونخبر المستخدم بدل التعليق */
@@ -181,7 +169,7 @@ export function renderAuth(onDone) {
         if (!busy) return;
         setBusy(false);
         draw();
-        err('تأخّر الاتصال. تحقق من الإنترنت وأعد المحاولة.');
+        err(t('connection_slow'));
       }, 25000);
     }
   };
@@ -207,11 +195,10 @@ export function renderAuth(onDone) {
     if (mode === 'localSetup') {
       const hname = root.querySelector('#hname').value.trim();
       const mname = root.querySelector('#mname').value.trim();
-      if (!hname) return err('اكتب اسم البيت');
-      if (!mname) return err('اكتب اسمك داخل التطبيق');
+      if (!hname || !mname) return err(t('required'));
       setupHousehold({ householdName: hname, memberName: mname });
       seedDemo();
-      toast('تم إنشاء بيتك 🎉');
+      toast(t('home_created'));
       return finish({ cloud: false });
     }
 
@@ -219,8 +206,8 @@ export function renderAuth(onDone) {
     if (mode === 'signin') {
       const email = root.querySelector('#email').value.trim();
       const pass = root.querySelector('#pass').value;
-      if (!email || !pass) return err('البريد وكلمة المرور مطلوبان');
-      setBusy(true, 'جارٍ الدخول...');
+      if (!email || !pass) return err(t('required'));
+      setBusy(true, t('please_wait'));
       try {
         if (!(await cloud.initCloud())) throw new Error('network');
         const user = await cloud.signIn(email, pass);
@@ -240,9 +227,9 @@ export function renderAuth(onDone) {
       const name = root.querySelector('#name').value.trim();
       const email = root.querySelector('#email').value.trim();
       const pass = root.querySelector('#pass').value;
-      if (!name || !email || !pass) return err('كل الحقول مطلوبة');
-      if (pass.length < 6) return err('كلمة المرور يجب 6 أحرف على الأقل');
-      setBusy(true, 'جارٍ الإنشاء...');
+      if (!name || !email || !pass) return err(t('required'));
+      if (pass.length < 6) return err(t('password_short'));
+      setBusy(true, t('please_wait'));
       try {
         if (!(await cloud.initCloud())) throw new Error('network');
         const created = await cloud.signUp(email, pass, name);
@@ -262,14 +249,14 @@ export function renderAuth(onDone) {
       const email = root.querySelector('#email').value.trim();
       const code = root.querySelector('#code').value.trim();
       const pass = root.querySelector('#pass').value;
-      if (!email || !code || !pass) return err('كل الحقول مطلوبة');
-      if (pass.length < 6) return err('كلمة المرور يجب 6 أحرف على الأقل');
-      setBusy(true, 'جارٍ الاستعادة...');
+      if (!email || !code || !pass) return err(t('required'));
+      if (pass.length < 6) return err(t('password_short'));
+      setBusy(true, t('please_wait'));
       try {
         const u = await cloud.recoverAccount(email, code, pass);
         setBusy(false);
         if (u?.recoveryCode) await showRecoveryCode(u.recoveryCode, true);
-        toast('تمت استعادة حسابك ✓');
+        toast(t('account_restored'));
         location.replace(location.origin + location.pathname);
       } catch (ex) {
         setBusy(false); err(cloud.arabicError(ex));
@@ -280,16 +267,16 @@ export function renderAuth(onDone) {
     /* ---------- إنشاء بيت ---------- */
     if (mode === 'household') {
       const hname = root.querySelector('#hname').value.trim();
-      if (!hname) return err('اكتب اسم البيت');
-      setBusy(true, 'جارٍ الإنشاء...');
+      if (!hname) return err(t('required'));
+      setBusy(true, t('please_wait'));
       try {
-        const hh = await cloud.createHousehold(hname, pendingName || 'مستخدم');
+        const hh = await cloud.createHousehold(hname, pendingName || t('user_default'));
         setupHousehold({
           householdName: hh.name, memberName: pendingName, email: cloud.currentEmail() || '',
           inviteCode: hh.inviteCode, isOwner: true, cloud: true, resetData: true,
         });
         setBusy(false);
-        toast('تم إنشاء بيتك 🎉');
+        toast(t('home_created'));
         return finishCloud(hh.id, true);
       } catch (ex) {
         setBusy(false); err(cloud.arabicError(ex));
@@ -300,20 +287,20 @@ export function renderAuth(onDone) {
     /* ---------- الانضمام بكود ---------- */
     if (mode === 'join') {
       const code = root.querySelector('#code').value.trim().toUpperCase();
-      if (!code) return err('أدخل كود الدعوة');
-      setBusy(true, 'جارٍ الانضمام...');
+      if (!code) return err(t('required'));
+      setBusy(true, t('please_wait'));
       try {
-        const hh = await cloud.joinHousehold(code, pendingName || 'مستخدم');
+        const hh = await cloud.joinHousehold(code, pendingName || t('user_default'));
         setupHousehold({
           householdName: hh.name, memberName: pendingName, email: cloud.currentEmail() || '',
           inviteCode: hh.inviteCode, isOwner: false, cloud: true, resetData: true,
         });
         setBusy(false);
-        toast('تم الانضمام إلى البيت ✓');
+        toast(t('joined_home'));
         return finishCloud(hh.id, true);
       } catch (ex) {
         setBusy(false);
-        err(ex?.message === 'bad-code' ? 'كود غير صحيح أو غير موجود' : cloud.arabicError(ex));
+        err(ex?.message === 'bad-code' ? t('invalid_invite') : cloud.arabicError(ex));
       }
     }
   };
@@ -322,11 +309,13 @@ export function renderAuth(onDone) {
     if (!alreadySetUp) {
       const hh = await cloud.loadHousehold(hid);
       setupHousehold({
-        householdName: hh?.name || 'بيتي', memberName: pendingName,
+        householdName: hh?.name || t('app_name'), memberName: pendingName,
         email: cloud.currentEmail() || '', inviteCode: hh?.inviteCode || '',
         isOwner: false, cloud: true, resetData: true,
       });
     }
+    /* اختيار العاملة قبل الدخول يصبح تفضيل حساب دائمًا بعد نجاح الجلسة. */
+    cloud.saveNotificationPrefs({ language: currentLang() });
     finish({ cloud: true, hid });
   }
 

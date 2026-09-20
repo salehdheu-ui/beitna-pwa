@@ -8,6 +8,7 @@
 
 import { getState, REMINDER_OFFSETS } from './store.js';
 import { startOfDay, todayStart } from './util.js';
+import { t, langInfo } from './i18n.js';
 
 const SENT_KEY = 'beitna:sent:v1';
 
@@ -88,8 +89,8 @@ export async function show(title, body, extra = {}) {
     body,
     icon: 'assets/icons/icon-192.png',
     badge: 'assets/icons/icon-192.png',
-    lang: 'ar',
-    dir: 'rtl',
+    lang: langInfo().code,
+    dir: langInfo().dir,
     tag: extra.tag || ('beitna-' + title),
     renotify: false,
     requireInteraction: false,
@@ -116,7 +117,7 @@ export async function show(title, body, extra = {}) {
 
 /** إشعار تجريبي يتجاهل وضع الهدوء — لزر «تجربة» في الإعدادات */
 export function testNotification() {
-  return show('بيتنا ✓', 'الإشعارات تعمل على هذا الجهاز.', { tag: 'beitna-test', force: true });
+  return show(`${t('app_name')} ✓`, t('saved'), { tag: 'beitna-test', force: true });
 }
 
 /* ---------- سجل ما أُرسل ---------- */
@@ -189,7 +190,7 @@ export function checkReminders() {
 export function notifyPartner(text) {
   const s = getState();
   if (!s.notifications.partnerActivity) return;
-  show('بيتنا — نشاط جديد', text, { tag: 'beitna-activity', url: './#/home' });
+  show(`${t('app_name')} — ${t('add')}`, text, { tag: 'beitna-activity', url: './#/helper' });
 }
 
 export function startReminderLoop() {

@@ -1,5 +1,7 @@
 /* أدوات مساعدة عامة */
 
+import { currentLang } from './i18n.js';
+
 export const $ = (sel, root = document) => root.querySelector(sel);
 export const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
@@ -19,24 +21,33 @@ export function nextId(list) {
 /* ---------- التواريخ ---------- */
 const AR_MONTHS = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
 const AR_DAYS = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+const locale = () => currentLang() === 'en' ? 'en-GB' : 'ar-OM';
 
-export const monthName = (i) => AR_MONTHS[i];
-export const dayName = (i) => AR_DAYS[i];
+export const monthName = (i) => currentLang() === 'en'
+  ? new Intl.DateTimeFormat('en-GB', { month: 'long' }).format(new Date(2024, i, 1))
+  : AR_MONTHS[i];
+export const dayName = (i) => currentLang() === 'en'
+  ? new Intl.DateTimeFormat('en-GB', { weekday: 'long' }).format(new Date(2024, 0, 7 + i))
+  : AR_DAYS[i];
 
 export function fmtDate(ms) {
   if (!ms) return '';
   const d = new Date(ms);
-  return `${d.getDate()} ${AR_MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+  return new Intl.DateTimeFormat(locale(), { day: 'numeric', month: 'long', year: 'numeric' }).format(d);
 }
 
 export function fmtDateShort(ms) {
   const d = new Date(ms);
-  return `${d.getDate()} ${AR_MONTHS[d.getMonth()]}`;
+  return new Intl.DateTimeFormat(locale(), { day: 'numeric', month: 'long' }).format(d);
 }
 
 export function fmtTime(hhmm) {
   if (!hhmm) return '';
   const [h, m] = hhmm.split(':').map(Number);
+  if (currentLang() === 'en') {
+    return new Intl.DateTimeFormat('en-GB', { hour: 'numeric', minute: '2-digit' })
+      .format(new Date(2024, 0, 1, h, m));
+  }
   const period = h < 12 ? 'صباحًا' : 'مساءً';
   let hh = h % 12; if (hh === 0) hh = 12;
   return `${String(hh).padStart(2, '0')}:${String(m).padStart(2, '0')} ${period}`;
@@ -49,6 +60,12 @@ export const daysBetween = (ms) => Math.round((startOfDay(ms) - todayStart()) / 
 /** «بعد 3 أيام» / «اليوم» / «انتهت» */
 export function countdownText(ms) {
   const d = daysBetween(ms);
+  if (currentLang() === 'en') {
+    if (d < 0) return 'Ended';
+    if (d === 0) return 'Today';
+    if (d === 1) return 'In 1 day';
+    return `In ${d} days`;
+  }
   if (d < 0) return 'انتهت';
   if (d === 0) return 'اليوم';
   if (d === 1) return 'بعد يوم';
@@ -60,6 +77,17 @@ export function countdownText(ms) {
 /** «الآن» / «قبل 5 دقائق» / تاريخ */
 export function relTime(ms) {
   const diff = Date.now() - ms;
+  if (currentLang() === 'en') {
+    if (diff < 60000) return 'Now';
+    const mins = Math.floor(diff / 60000);
+    if (mins < 60) return `${mins} min ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs} hr ago`;
+    const days = Math.floor(hrs / 24);
+    if (days === 1) return 'Yesterday';
+    if (days < 7) return `${days} days ago`;
+    return fmtDateShort(ms);
+  }
   if (diff < 60000) return 'الآن';
   const mins = Math.floor(diff / 60000);
   if (mins < 60) return `قبل ${mins} دقيقة`;

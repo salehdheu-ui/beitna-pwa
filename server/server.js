@@ -372,6 +372,41 @@ const PUSH_ONE = {
 const countWord = (n, dual, few, many) =>
   (n === 2 ? dual : n <= 10 ? `${n} ${few}` : `${n} ${many}`);
 
+/* إشعارات السحابة تُنشأ لكل مستلم بلغته المحفوظة. أسماء الأصناف والأعطال
+   بيانات كتبها أفراد البيت، لذلك تبقى كما هي ولا تُترجم آليًا. */
+const PUSH_LANG = {
+  ar: { app:'بيتنا', add:'إضافة', update:'تحديث', shopping:'المشتريات', faults:'الأعطال', occasions:'التذكيرات' },
+  en: { app:'Beitna', add:'Added', update:'Updated', shopping:'Shopping', faults:'Repairs', occasions:'Reminders' },
+  hi: { app:'बैतना', add:'जोड़ा गया', update:'अपडेट', shopping:'खरीदारी', faults:'मरम्मत', occasions:'याद दिलाना' },
+  si: { app:'බෙයිත්නා', add:'එක් කළා', update:'යාවත්කාලීන කළා', shopping:'බඩු', faults:'අලුත්වැඩියා', occasions:'මතක් කිරීම්' },
+  ta: { app:'பைத்னா', add:'சேர்க்கப்பட்டது', update:'புதுப்பிக்கப்பட்டது', shopping:'பொருட்கள்', faults:'பழுது', occasions:'நினைவூட்டல்கள்' },
+  am: { app:'ቤይትና', add:'ተጨምሯል', update:'ተዘምኗል', shopping:'ግዢ', faults:'ጥገና', occasions:'ማስታወሻዎች' },
+  tl: { app:'Beitna', add:'Idinagdag', update:'In-update', shopping:'Pamimili', faults:'Sira', occasions:'Mga paalala' },
+  id: { app:'Beitna', add:'Ditambahkan', update:'Diperbarui', shopping:'Belanja', faults:'Perbaikan', occasions:'Pengingat' },
+  my: { app:'Beitna', add:'ထည့်ပြီး', update:'ပြင်ဆင်ပြီး', shopping:'ဈေးဝယ်စာရင်း', faults:'ပြုပြင်ရန်', occasions:'သတိပေးချက်' },
+  sw: { app:'Beitna', add:'Imeongezwa', update:'Imesasishwa', shopping:'Manunuzi', faults:'Matengenezo', occasions:'Vikumbusho' },
+  ne: { app:'Beitna', add:'थपियो', update:'अद्यावधिक भयो', shopping:'किनमेल', faults:'मर्मत', occasions:'सम्झना' },
+};
+
+function localizedPush(payload, user) {
+  const lang = String(user?.prefs?.language || 'ar');
+  const tr = PUSH_LANG[lang] || PUSH_LANG.ar;
+  const meta = payload?._i18n;
+  if (!meta) return { ...payload, lang, dir: lang === 'ar' ? 'rtl' : 'ltr' };
+  const one = meta.items?.[0];
+  const col = one?.col || 'shopping';
+  const name = one?.data?.name || one?.data?.title || one?.doc?.name || one?.doc?.title || '';
+  const action = meta.kind === 'added' ? tr.add : tr.update;
+  const body = meta.items.length === 1
+    ? `${action} — ${tr[col] || tr.shopping}${name ? `: ${name}` : ''}`
+    : `${action} — ${meta.items.length}`;
+  return {
+    title: `${tr.app} — ${meta.who || ''}`.replace(/\s+—\s*$/, ''), body,
+    tag: payload.tag, url: lang === 'ar' || lang === 'en' ? payload.url : './#/helper',
+    lang, dir: lang === 'ar' ? 'rtl' : 'ltr',
+  };
+}
+
 /**
  * إشعار واحد لكل دفعة كتابة، لا إشعار لكل عنصر — وإلا وصلت
  * عشرات الإشعارات دفعة واحدة عند إضافة قائمة أو رفع طابور متراكم.
@@ -383,14 +418,16 @@ function activityPayload(added, actor) {
   const who = actor.displayName || 'أحد أفراد البيت';
   if (notifiable.length === 1) {
     const { col, data } = notifiable[0];
-    return { title: 'بيتنا — ' + who, body: PUSH_ONE[col](data), tag: 'beitna-activity', url: './#/' + col };
+    return { title: 'بيتنا — ' + who, body: PUSH_ONE[col](data), tag: 'beitna-activity', url: './#/' + col,
+      _i18n: { kind: 'added', items: notifiable, who } };
   }
   const cols = [...new Set(notifiable.map((x) => x.col))];
   const n = notifiable.length;
   const body = cols.length === 1
     ? `➕ أُضيفت ${countWord(n, 'عنصران', 'عناصر', 'عنصرًا')} إلى ${PUSH_COL_NAMES[cols[0]]}`
     : `🏡 ${countWord(n, 'إضافتان جديدتان', 'إضافات جديدة', 'إضافة جديدة')}`;
-  return { title: 'بيتنا — ' + who, body, tag: 'beitna-activity', url: './#/home' };
+  return { title: 'بيتنا — ' + who, body, tag: 'beitna-activity', url: './#/home',
+    _i18n: { kind: 'added', items: notifiable, who } };
 }
 
 /* نصّ التكفّل والإنجاز — الفائدة الحقيقية: ألّا يشتري اثنان الشيء نفسه */
@@ -415,6 +452,7 @@ function actsPayload(acts, actor) {
       body: ACT_TEXT[act](nameOf(doc), doc.status || ''),
       tag: 'beitna-act',
       url: './#/' + col,
+      _i18n: { kind: 'updated', items: list, who },
     };
   }
   return {
@@ -422,6 +460,7 @@ function actsPayload(acts, actor) {
     body: `🏡 ${countWord(list.length, 'تحديثان', 'تحديثات', 'تحديثًا')} على عناصر البيت`,
     tag: 'beitna-act',
     url: './#/home',
+    _i18n: { kind: 'updated', items: list, who },
   };
 }
 
@@ -432,7 +471,7 @@ function pushHouseholdActivity(hh, actorUid, payload) {
     if (m.deleted || m.uid === actorUid) continue;
     const target = db.users[m.uid];
     if (!target) continue;
-    pushToUser(target, payload).catch(() => { /* لا يوقف الكتابة */ });
+    pushToUser(target, localizedPush(payload, target)).catch(() => { /* لا يوقف الكتابة */ });
   }
 }
 
@@ -1020,11 +1059,14 @@ async function route(req, res, url) {
   if (p === '/push/test' && method === 'POST') {
     const subs = subsOf(user);
     if (!subs.length) return fail(res, 400, 'no-subscription');
+    const lang = String(user.prefs?.language || 'ar');
+    const tr = PUSH_LANG[lang] || PUSH_LANG.ar;
     const results = await Promise.all(subs.map((sub) =>
       push.sendPush(sub, {
-        title: 'بيتنا ✓',
-        body: 'الإشعارات تصلك حتى والتطبيق مغلق.',
+        title: `${tr.app} ✓`,
+        body: `${tr.update} ✓`,
         tag: 'beitna-test',
+        lang, dir: lang === 'ar' ? 'rtl' : 'ltr',
       }, VAPID, { subject: PUSH_SUBJECT }).catch(() => ({ ok: false, status: 0 }))));
     return send(res, 200, {
       sent: results.filter((r) => r.ok).length,

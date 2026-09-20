@@ -5,6 +5,8 @@
    تُرسل تلقائيًا أول ما يعود الاتصال.
    ============================================================ */
 
+import { t } from './i18n.js';
+
 /* ============================================================
    عنوان الخادم
    كان يُشتق من مكان فتح الصفحة (location.origin + '/api')، فأي نسخة
@@ -240,29 +242,29 @@ export function arabicError(e) {
   const code = String(e?.code || e?.message || '');
   /* رسالة واحدة للبريد وكلمة المرور معًا: التفريق بينهما يكشف من يملك
      حسابًا عندنا لمن يجرّب البُرد واحدًا واحدًا. */
-  if (code.includes('invalid-credentials')) return 'البريد الإلكتروني أو كلمة المرور غير صحيحة';
-  if (code.includes('wrong-password') || code.includes('invalid-credential')) return 'كلمة المرور خاطئة';
-  if (code.includes('user-not-found')) return 'لا يوجد حساب بهذا البريد';
-  if (code.includes('email-already-in-use')) return 'هذا البريد مسجَّل من قبل';
-  if (code.includes('invalid-email')) return 'صيغة البريد غير صحيحة';
-  if (code.includes('weak-password')) return 'كلمة المرور يجب 6 أحرف على الأقل';
-  if (code.includes('too-many-requests')) return 'محاولات كثيرة — انتظر ربع ساعة ثم أعد المحاولة';
-  if (code.includes('bad-code')) return 'كود الدعوة غير صحيح أو غير موجود';
-  if (code.includes('offline')) return 'لا يوجد اتصال بالإنترنت — هذه الخطوة تحتاج اتصالًا';
-  if (code.includes('auth-timeout')) return 'تأخّر ردّ الخادم — تحقق من الإنترنت وأعد المحاولة';
-  if (/http-(404|405|501)/.test(code)) return 'لا يوجد خادم بيتنا على هذا العنوان — افتح التطبيق من beitna.saher.cloud';
-  if (/http-(500|502|503|504)/.test(code)) return 'الخادم لا يستجيب حاليًا — أعد المحاولة بعد قليل';
-  if (code.includes('network')) return 'تعذّر الوصول إلى الخادم — تحقق من الإنترنت';
-  if (code.includes('no-user')) return 'انتهت الجلسة — سجّل دخولك من جديد';
-  if (code.includes('no-household')) return 'لم يعد لك بيت — أنشئ بيتًا أو انضم بكود';
-  if (code.includes('owner-only')) return 'هذه العملية لمالك البيت فقط';
+  if (code.includes('invalid-credentials')) return t('err_credentials');
+  if (code.includes('wrong-password') || code.includes('invalid-credential')) return t('err_credentials');
+  if (code.includes('user-not-found')) return t('err_credentials');
+  if (code.includes('email-already-in-use')) return t('err_email_used');
+  if (code.includes('invalid-email')) return t('err_invalid_email');
+  if (code.includes('weak-password')) return t('password_short');
+  if (code.includes('too-many-requests')) return t('err_many_requests');
+  if (code.includes('bad-code')) return t('invalid_invite');
+  if (code.includes('offline')) return t('err_online_required');
+  if (code.includes('auth-timeout')) return t('err_timeout');
+  if (/http-(404|405|501)/.test(code)) return t('err_server');
+  if (/http-(500|502|503|504)/.test(code)) return t('err_server');
+  if (code.includes('network')) return t('err_online_required');
+  if (code.includes('no-user')) return t('err_session');
+  if (code.includes('no-household')) return t('err_no_home');
+  if (code.includes('owner-only')) return t('err_owner_only');
   if (code.includes('admin-only')) return 'هذه الشاشة للمشرف فقط';
   if (code.includes('no-subscription')) return 'لم تُفعّل الإشعارات الخلفية على هذا الجهاز بعد';
   if (code.includes('bad-subscription')) return 'بيانات الاشتراك غير صحيحة';
-  if (code.includes('bad-recovery')) return 'رمز الاسترداد أو البريد غير صحيح';
+  if (code.includes('bad-recovery')) return t('err_bad_recovery');
   if (code.includes('backup-failed')) return 'تعذّرت النسخة الاحتياطية — راجع سجل الخادم';
-  if (code.includes('not-a-member')) return 'لم تعد عضوًا في هذا البيت';
-  return 'حدث خطأ: ' + code;
+  if (code.includes('not-a-member')) return t('err_not_member');
+  return `${t('err_generic')}: ${code}`;
 }
 
 /* ---------- الحساب ---------- */
@@ -383,9 +385,9 @@ const MAPPERS = {
 };
 
 const LABELS = {
-  shopping: (x) => `🛒 أُضيف للمشتريات: ${x.name}`,
-  faults: (x) => `🔧 عطل جديد: ${x.title}`,
-  occasions: (x) => `🔔 تذكير جديد: ${x.title}`,
+  shopping: (x) => `🛒 ${t('add_item')}: ${x.name}`,
+  faults: (x) => `🔧 ${t('report_fault')}: ${x.title}`,
+  occasions: (x) => `🔔 ${t('add')}: ${x.title}`,
 };
 
 const COLS = ['shopping', 'faults', 'occasions', 'categories', 'favoriteLists', 'pantry', 'pantryCategories'];
@@ -525,14 +527,6 @@ function applySync(res) {
   notifyFresh(fresh);
 }
 
-const COL_NAMES = { shopping: 'المشتريات', faults: 'الأعطال', occasions: 'التذكيرات' };
-
-/** صيغة العدد بالعربية: المثنى، ثم جمع القلة (٣–١٠)، ثم التمييز المفرد */
-function countWord(n, dual, few, many) {
-  if (n === 2) return dual;
-  return n <= 10 ? `${n} ${few}` : `${n} ${many}`;
-}
-
 /**
  * إشعار واحد لكل دفعة مزامنة، لا إشعار لكل عنصر.
  * إضافة قائمة كاملة، أو رفع طابور تراكم بلا إنترنت، كانت تصل
@@ -549,11 +543,8 @@ function notifyFresh(fresh) {
     return;
   }
 
-  const cols = [...new Set(others.map(([col]) => col))];
   const n = others.length;
-  const text = cols.length === 1
-    ? `➕ أُضيفت ${countWord(n, 'عنصران', 'عناصر', 'عنصرًا')} إلى ${COL_NAMES[cols[0]] || 'بيتك'}`
-    : `🏡 ${countWord(n, 'إضافتان جديدتان', 'إضافات جديدة', 'إضافة جديدة')} من أفراد البيت`;
+  const text = `🏡 ${t('add')}: ${n}`;
   listeners?.onPartnerActivity?.(text, n);
 }
 
@@ -589,7 +580,7 @@ async function flushQueue() {
   } catch (e) {
     if (e.code === 'no-household' || e.code === 'no-user') {
       lsSet(K_QUEUE, []);
-      onWriteError?.('انتهت جلستك — سجّل دخولك من جديد لمزامنة التغييرات.');
+      onWriteError?.(t('err_session'));
     }
     /* غير ذلك: يبقى الطابور كما هو ويُعاد إرساله لاحقًا */
   } finally { flushing = false; }

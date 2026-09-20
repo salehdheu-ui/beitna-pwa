@@ -3,7 +3,7 @@
    يعمل بدون إنترنت، ويحدّث نفسه فورًا عند نشر نسخة جديدة.
    ============================================================ */
 
-const VERSION = 'beitna-v3.17.0';
+const VERSION = 'beitna-v3.18.0';
 const NET_TIMEOUT = 2500;
 
 /* لوحة الإدارة ليست جزءًا من الـ PWA إطلاقًا. يجب أن تمر ملفاتها إلى الشبكة
@@ -205,13 +205,13 @@ self.addEventListener('push', (event) => {
   try { payload = event.data ? event.data.json() : {}; }
   catch { payload = { body: (event.data && event.data.text && event.data.text()) || '' }; }
 
-  const title = payload.title || 'بيتنا';
+  const title = payload.title || 'Beitna';
   event.waitUntil(self.registration.showNotification(title, {
     body: payload.body || '',
     icon: 'assets/icons/icon-192.png',
     badge: 'assets/icons/icon-192.png',
-    lang: 'ar',
-    dir: 'rtl',
+    lang: payload.lang || 'ar',
+    dir: payload.dir || (payload.lang === 'ar' ? 'rtl' : 'ltr'),
     tag: payload.tag || 'beitna-push',
     data: { url: payload.url || APP_URL },
   }));
