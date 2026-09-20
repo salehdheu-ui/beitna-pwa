@@ -10,6 +10,7 @@ import {
 } from '../store.js';
 import { emptyState, toast, confirmDialog, openSheet, chipSelect, bindChips, claimBar, trailCard, whoLine } from '../ui.js';
 import { go, back } from '../router.js';
+import { localizedText } from '../i18n.js';
 
 const FILTERS = ['الكل', 'الناقصة', 'قيد الشراء', 'تم الشراء', 'المؤجلة'];
 const FILTER_MAP = { 'الناقصة': 'ناقص', 'قيد الشراء': 'قيد الشراء', 'تم الشراء': 'تم الشراء', 'المؤجلة': 'مؤجل' };
@@ -29,7 +30,7 @@ export function shoppingScreen() {
   if (filter !== 'الكل') items = items.filter((i) => i.status === FILTER_MAP[filter]);
   if (query) {
     const q = query.trim();
-    items = items.filter((i) => i.name.includes(q) || (i.category || '').includes(q));
+    items = items.filter((i) => i.name.includes(q) || localizedText(i, 'name').includes(q) || (i.category || '').includes(q));
   }
 
   const remaining = s.shopping.filter((i) => i.status !== 'تم الشراء').length;
@@ -122,9 +123,9 @@ function itemRow(i) {
     <div class="item ${done ? 'done' : ''}">
       <button class="check ${done ? 'on' : ''}" data-check="${i.id}" aria-label="تم الشراء">✓</button>
       <div class="grow col" data-open="${i.id}" style="cursor:pointer">
-        <div class="title">${esc(i.name)}</div>
+        <div class="title">${esc(localizedText(i, 'name'))}</div>
         <div class="meta">
-          ${i.quantity ? `<span>${esc(i.quantity)}</span>•` : ''}
+          ${i.quantity ? `<span>${esc(localizedText(i, 'quantity'))}</span>•` : ''}
           <span>${esc(catIcon(i.category))} ${esc(i.category || 'بدون تصنيف')}</span>
           ${i.priority !== 'عادي' ? `<span class="badge ${priorityTone(i.priority)}">${esc(i.priority)}</span>` : ''}
           ${!done ? `<span class="badge ${statusTone(i.status)}">${esc(i.status)}</span>` : ''}
@@ -208,8 +209,8 @@ export function shoppingDetailsScreen({ id }) {
         <div class="row" style="gap:14px">
           <div class="avatar" style="width:54px;height:54px;border-radius:16px;background:var(--mint);display:grid;place-items:center;font-size:26px">${esc(catIcon(item.category))}</div>
           <div class="grow">
-            <div style="font-size:19px;font-weight:800">${esc(item.name)}</div>
-            <div class="muted small">${esc(item.quantity || 'بدون كمية محددة')}</div>
+            <div style="font-size:19px;font-weight:800">${esc(localizedText(item, 'name'))}</div>
+            <div class="muted small">${esc(item.quantity ? localizedText(item, 'quantity') : 'بدون كمية محددة')}</div>
           </div>
         </div>
         <hr class="divider">
@@ -219,7 +220,7 @@ export function shoppingDetailsScreen({ id }) {
         <div class="kv"><span class="k">السعر</span><span class="v">${item.priceValue ? `${item.priceValue} ${CURRENCY}` : '—'}</span></div>
         <div class="kv"><span class="k">طلبها</span><span class="v">${esc(nameOfUid(item.createdBy || item.ownerUid) || item.owner || '—')}</span></div>
         <div class="kv"><span class="k">التاريخ</span><span class="v">${esc(relTime(item.createdAt))}</span></div>
-        ${item.note ? `<hr class="divider"><div class="small"><span class="muted">ملاحظة:</span> ${esc(item.note)}</div>` : ''}
+        ${item.note ? `<hr class="divider"><div class="small"><span class="muted">ملاحظة:</span> ${esc(localizedText(item, 'note'))}</div>` : ''}
       </div>
 
       <div class="mt">${claimBar(item)}</div>
@@ -258,7 +259,7 @@ export function shoppingDetailsScreen({ id }) {
         if (e.target.closest('[data-del]')) {
           const ok = await confirmDialog({
             title: 'حذف العنصر',
-            message: `هل أنت متأكد من حذف "${item.name}"؟ لا يمكن استرجاع العنصر بعد الحذف.`,
+            message: `هل أنت متأكد من حذف "${localizedText(item, 'name')}"؟ لا يمكن استرجاع العنصر بعد الحذف.`,
             confirmText: 'حذف', danger: true,
           });
           if (ok) { deleteShopping(item.id); toast('تم حذف عنصر'); back('/shopping'); }
@@ -292,8 +293,8 @@ export function shoppingSessionScreen() {
         <div class="item">
           <button class="check" data-buy="${i.id}" aria-label="تم الشراء">✓</button>
           <div class="grow col">
-            <div class="title">${esc(i.name)}</div>
-            <div class="meta">${esc(i.quantity || '')} ${i.quantity ? '•' : ''} ${esc(catIcon(i.category))} ${esc(i.category || '')}</div>
+            <div class="title">${esc(localizedText(i, 'name'))}</div>
+            <div class="meta">${esc(localizedText(i, 'quantity'))} ${i.quantity ? '•' : ''} ${esc(catIcon(i.category))} ${esc(i.category || '')}</div>
           </div>
           <button class="btn sm ghost" data-later="${i.id}">تأجيل</button>
         </div>`).join('')}</div>`
@@ -380,7 +381,7 @@ async function shareList() {
   const items = getState().shopping.filter((i) => i.status !== 'تم الشراء');
   if (!items.length) return toast('لا توجد عناصر للمشاركة');
   const text = 'قائمة المشتريات الحالية\n\n' +
-    items.map((i) => `• ${i.name}${i.quantity ? ` — ${i.quantity}` : ''}`).join('\n') +
+    items.map((i) => `• ${localizedText(i, 'name')}${i.quantity ? ` — ${localizedText(i, 'quantity')}` : ''}`).join('\n') +
     '\n\nمن تطبيق بيتنا 🏡';
   try {
     if (navigator.share) await navigator.share({ title: 'قائمة المشتريات', text });

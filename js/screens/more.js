@@ -20,7 +20,7 @@ import {
   setMemberRole, currentPerm, isOwner as amOwner, joinHousehold, syncStats,
 } from '../cloud.js';
 import { diag, upMinutes } from '../diag.js';
-import { currentLang, langInfo, applyLangToDocument } from '../i18n.js';
+import { currentLang, langInfo, applyLangToDocument, localizedText } from '../i18n.js';
 import { langSheet } from './helper.js';
 
 /* ============================ المزيد ============================ */
@@ -816,7 +816,7 @@ export function archiveScreen() {
           <div class="item done">
             <div class="avatar">${archTab === 'مشتريات' ? '🛒' : archTab === 'أعطال' ? '🔧' : '🎉'}</div>
             <div class="grow col">
-              <div class="title">${esc(x.name || x.title)}</div>
+              <div class="title">${esc(localizedText(x, x.name !== undefined ? 'name' : 'title'))}</div>
               <div class="meta">${esc(relTime(x.purchasedAt || x.fixedAt || x.doneAt || x.createdAt || x.dateMillis))}</div>
             </div>
           </div>`).join('')

@@ -6,6 +6,7 @@
 const assert = require('assert/strict');
 const crypto = require('crypto');
 const fs = require('fs');
+const http = require('http');
 const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
@@ -16,11 +17,21 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beitna-critical-'));
 const dataDir = path.join(tmp, 'data');
 const offsiteDir = path.join(tmp, 'offsite');
 const port = 31000 + crypto.randomInt(2000);
+const translationPort = port + 3000;
 const base = `http://127.0.0.1:${port}/api`;
 const adminCode = 'TEST-ADMIN-CODE';
 
 let serverLog = '';
 let child;
+const translationServer = http.createServer((req, res) => {
+  const url = new URL(req.url, `http://127.0.0.1:${translationPort}`);
+  const text = url.searchParams.get('q') || '';
+  const target = (url.searchParams.get('langpair') || 'sw|ar').split('|')[1];
+  res.writeHead(200, { 'content-type': 'application/json' });
+  res.end(JSON.stringify({ responseStatus: 200, responseData: { translatedText: `${target}:${text}` } }));
+});
+translationServer.listen(translationPort, '127.0.0.1');
+
 function startServer() {
   child = spawn(process.execPath, [path.join(ROOT, 'server', 'server.js')], {
     env: {
@@ -28,6 +39,8 @@ function startServer() {
       PORT: String(port), DATA_DIR: dataDir, OFFSITE_BACKUP_DIR: offsiteDir,
       ADMIN_PANEL_CODE_HASH: crypto.createHash('sha256').update(adminCode).digest('hex'),
       TOKEN_DAYS: '2',
+      TRANSLATION_ENABLED: '1',
+      TRANSLATION_API_URL: `http://127.0.0.1:${translationPort}/get`,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -99,6 +112,21 @@ async function main() {
   const helperHouse = await request('/household', { token: helper.token });
   assert.equal(helperHouse.data.inviteCode, null);
   assert.equal(helperHouse.data.caps.members, false);
+  assert.equal((await request('/prefs', {
+    method: 'POST', token: helper.token, body: { language: 'sw' },
+  })).status, 200);
+  const helperWrite = await request('/write', {
+    method: 'POST', token: helper.token,
+    body: { ops: [{ col: 'shopping', id: '9001', op: 'set', data: {
+      id: 9001, name: 'maziwa', quantity: 'pakiti mbili', sourceLang: 'sw',
+    } }] },
+  });
+  assert.equal(helperWrite.data.applied, 1);
+  const translatedSync = await request('/sync?since=0', { token: owner.token });
+  const translatedItem = translatedSync.data.cols.shopping.find((x) => x.id === 9001);
+  assert.equal(translatedItem.name, 'maziwa', 'لم يُحفظ النص الأصلي');
+  assert.equal(translatedItem.translations.ar.name, 'ar:maziwa');
+  assert.equal(translatedItem.translations.en.quantity, 'en:pakiti mbili');
   const helperMe = await request('/me', { token: helper.token });
   assert.equal('token' in helperMe.data, false, 'أعاد /me رمز الجلسة بلا حاجة');
   const deniedOccasion = await request('/write', {
@@ -180,7 +208,7 @@ async function main() {
   assert.equal(restored.status, 200, 'فشلت الاستعادة من قاعدة تالفة');
   assert.equal(restored.data.household.name, 'بيت الاختبار');
 
-  console.log('  [ok] الصلاحيات، الدعوات، الجلسات، والنسخ الاحتياطي اجتازت الاختبار التكاملي');
+  console.log('  [ok] الترجمة، الصلاحيات، الدعوات، الجلسات، والنسخ الاحتياطي اجتازت الاختبار التكاملي');
 }
 
 main().catch((error) => {
@@ -189,5 +217,6 @@ main().catch((error) => {
   process.exitCode = 1;
 }).finally(() => {
   try { child?.kill(); } catch { /* تجاهل */ }
+  try { translationServer.close(); } catch { /* تجاهل */ }
   setTimeout(() => { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* تجاهل */ } }, 200);
 });

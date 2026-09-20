@@ -1,6 +1,6 @@
 /* ============================================================
    خادم "بيتنا" — حسابات ومزامنة، مستضاف ذاتيًا بالكامل
-   بدون أي اعتماد على طرف خارجي. بدون أي مكتبات خارجية.
+   بدون أي مكتبات خارجية. مزوّد الترجمة اختياري ولا يوقف الكتابة عند تعطّله.
    البيانات في ملف JSON داخل مجلد دائم (/data).
    ============================================================ */
 
@@ -9,6 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const push = require('./push.js');
+const { createTranslator, normalizeLang, FIELDS: TRANSLATION_FIELDS } = require('./translate.js');
 
 const PORT = Number(process.env.PORT || 3000);
 const DATA_DIR = process.env.DATA_DIR || '/data';
@@ -18,7 +19,7 @@ const SECRET_FILE = path.join(DATA_DIR, 'secret.key');
    بقيمة تتجاوز 30 يومًا حتى لا يعيد إعدادٌ خاطئ جلسات السنة القديمة. */
 const TOKEN_DAYS = Math.min(30, Math.max(1, Number(process.env.TOKEN_DAYS || 14)));
 const PUSH_SUBJECT = process.env.PUSH_SUBJECT || 'mailto:admin@beitna.local';
-const SERVER_VERSION = '1.10.0';
+const SERVER_VERSION = '1.11.0';
 
 /* لوحة الإدارة المنفصلة لها رمز مستقل تمامًا عن حسابات بيتنا.
 
@@ -68,7 +69,7 @@ fs.mkdirSync(BACKUP_DIR, { recursive: true });
 if (OFFSITE_BACKUP_DIR) fs.mkdirSync(OFFSITE_BACKUP_DIR, { recursive: true });
 else console.warn('⚠️  OFFSITE_BACKUP_DIR غير مضبوط — النسخ الاحتياطية محلية فقط.');
 
-const blank = () => ({ users: {}, emails: {}, households: {}, codes: {}, helperCodes: {} });
+const blank = () => ({ users: {}, emails: {}, households: {}, codes: {}, helperCodes: {}, translationCache: {} });
 
 const fillMissing = (o) => {
   for (const k of Object.keys(blank())) if (!o[k]) o[k] = {};
@@ -136,6 +137,13 @@ function loadDb() {
 }
 
 let db = loadDb();
+
+const translator = createTranslator({
+  cache: db.translationCache,
+  apiUrl: String(process.env.TRANSLATION_API_URL || 'https://api.mymemory.translated.net/get'),
+  enabled: String(process.env.TRANSLATION_ENABLED || '1') !== '0',
+  timeoutMs: Math.min(10000, Math.max(1000, Number(process.env.TRANSLATION_TIMEOUT_MS || 5000))),
+});
 
 let writesSinceBackup = 0;
 
@@ -372,8 +380,8 @@ const PUSH_ONE = {
 const countWord = (n, dual, few, many) =>
   (n === 2 ? dual : n <= 10 ? `${n} ${few}` : `${n} ${many}`);
 
-/* إشعارات السحابة تُنشأ لكل مستلم بلغته المحفوظة. أسماء الأصناف والأعطال
-   بيانات كتبها أفراد البيت، لذلك تبقى كما هي ولا تُترجم آليًا. */
+/* إشعارات السحابة تُنشأ لكل مستلم بلغته المحفوظة. محتوى العاملة له نسختان
+   محفوظتان، لذلك يصل اسم الصنف أو العطل بالعربية أو الإنجليزية للمستلم. */
 const PUSH_LANG = {
   ar: { app:'بيتنا', add:'إضافة', update:'تحديث', shopping:'المشتريات', faults:'الأعطال', occasions:'التذكيرات' },
   en: { app:'Beitna', add:'Added', update:'Updated', shopping:'Shopping', faults:'Repairs', occasions:'Reminders' },
@@ -395,7 +403,9 @@ function localizedPush(payload, user) {
   if (!meta) return { ...payload, lang, dir: lang === 'ar' ? 'rtl' : 'ltr' };
   const one = meta.items?.[0];
   const col = one?.col || 'shopping';
-  const name = one?.data?.name || one?.data?.title || one?.doc?.name || one?.doc?.title || '';
+  const item = one?.data || one?.doc || {};
+  const field = Object.prototype.hasOwnProperty.call(item, 'name') ? 'name' : 'title';
+  const name = item?.translations?.[lang]?.[field] || item?.[field] || '';
   const action = meta.kind === 'added' ? tr.add : tr.update;
   const body = meta.items.length === 1
     ? `${action} — ${tr[col] || tr.shopping}${name ? `: ${name}` : ''}`
@@ -1377,6 +1387,20 @@ function capValue(key, value, depth) {
   return capDoc(value, depth);
 }
 
+const owns = (o, key) => Object.prototype.hasOwnProperty.call(o || {}, key);
+
+/** إذا عدّل فرد الأسرة نصًا مترجمًا نزيل النسخة القديمة لذلك الحقل. */
+function invalidateTranslations(col, patch, previous, sourceLang) {
+  const changed = (TRANSLATION_FIELDS[col] || []).filter((field) => owns(patch, field));
+  if (!changed.length) return patch;
+  const translations = {};
+  for (const [lang, values] of Object.entries(previous?.translations || {})) {
+    translations[lang] = { ...(values || {}) };
+    for (const field of changed) delete translations[lang][field];
+  }
+  return { ...patch, sourceLang: normalizeLang(sourceLang), translations };
+}
+
   /* ===== الكتابة: دفعة عمليات ===== */
   if (p === '/write' && method === 'POST') {
     const b = await readBody(req);
@@ -1385,6 +1409,7 @@ function capValue(key, value, depth) {
     let applied = 0, denied = 0;
     const added = [];        // العناصر الجديدة فقط — للإشعار
     const acts = [];         // تكفُّل وإنجاز — يُشعَر بها بقية أفراد البيت
+    let translatedDocs = 0;
     for (const op of ops) {
       const col = String(op.col || '');
       if (!COLS.includes(col)) continue;
@@ -1402,18 +1427,33 @@ function capValue(key, value, depth) {
       if (!id) continue;
       const bucket = hh.cols[col] || (hh.cols[col] = {});
       const prev = bucket[id];
+      const isNew = !prev;
       if (op.op === 'delete') {
         const keepId = op.numericId ?? prev?.id ?? (Number(id) || id);
         bucket[id] = { ...(prev || {}), id: keepId, deleted: true, updatedAt: t };
       } else if (op.op === 'merge' && prev) {
-        const doc = { ...prev, ...stripStamped(op.data), id: prev.id, deleted: false, updatedAt: t };
+        let patch = stripStamped(op.data);
+        delete patch.translations;
+        if (myPerm === 'helper' && translatedDocs < 20) {
+          patch = await translator.translateDocument(col, patch, user.prefs?.language || 'ar', prev);
+          if ((TRANSLATION_FIELDS[col] || []).some((field) => owns(patch, field))) translatedDocs++;
+        } else if (myPerm !== 'helper') {
+          patch = invalidateTranslations(col, patch, prev, user.prefs?.language || 'ar');
+        }
+        const doc = { ...prev, ...patch, id: prev.id, deleted: false, updatedAt: t };
         const act = ACTS.includes(op.act) ? op.act : 'edit';
         const done = stampDoc(doc, prev, act, user.uid);
         bucket[id] = doc;
         if (done && done !== 'create') acts.push({ col, doc, act: done });
       } else {
-        if (!prev) added.push({ col, data: op.data || {} });
-        const data = stripStamped(op.data);
+        let data = stripStamped(op.data);
+        delete data.translations;
+        if (myPerm === 'helper' && translatedDocs < 20) {
+          data = await translator.translateDocument(col, data, user.prefs?.language || 'ar', prev);
+          if ((TRANSLATION_FIELDS[col] || []).some((field) => owns(data, field))) translatedDocs++;
+        } else if (myPerm !== 'helper') {
+          data = invalidateTranslations(col, data, prev, user.prefs?.language || 'ar');
+        }
         /* من لا يرى الأسعار لا يجوز أن يمحوها بإعادة حفظ العنصر */
         const keep = (!myCaps.prices && prev)
           ? Object.fromEntries(PRICE_FIELDS.filter((f) => f in prev).map((f) => [f, prev[f]]))
@@ -1429,6 +1469,7 @@ function capValue(key, value, depth) {
         bucket[id] = doc;
         if (done && done !== 'create') acts.push({ col, doc, act: done });
       }
+      if (isNew && op.op !== 'delete') added.push({ col, data: bucket[id] });
       applied++;
     }
     if (applied) { hh.updatedAt = t; save(); }

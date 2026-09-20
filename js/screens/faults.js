@@ -7,6 +7,7 @@ import {
 } from '../store.js';
 import { emptyState, toast, confirmDialog, chipSelect, bindChips, openSheet, claimBar, trailCard, whoLine } from '../ui.js';
 import { go, back } from '../router.js';
+import { localizedText } from '../i18n.js';
 
 const FILTERS = ['الكل', 'الجديدة', 'قيد المتابعة', 'بانتظار فني', 'تم الإصلاح'];
 const FILTER_MAP = { 'الجديدة': 'جديد', 'قيد المتابعة': 'قيد المتابعة', 'بانتظار فني': 'بانتظار فني', 'تم الإصلاح': 'تم الإصلاح' };
@@ -61,9 +62,9 @@ function row(f) {
     <div class="item tap ${f.status === 'تم الإصلاح' ? 'done' : ''}" data-open="${f.id}">
       <div class="avatar">${esc(locIcon(f.location))}</div>
       <div class="grow col">
-        <div class="title">${esc(f.title)}</div>
+        <div class="title">${esc(localizedText(f, 'title'))}</div>
         <div class="meta">
-          <span>${esc(f.location || 'غير محدد')}</span>
+          <span>${esc(f.location ? localizedText(f, 'location') : 'غير محدد')}</span>
           <span class="badge ${prioTone(f.priority)}">${esc(f.priority)}</span>
           <span class="badge ${statusTone(f.status)}">${esc(f.status)}</span>
           ${f.photoUrl ? '<span>📷</span>' : ''}
@@ -176,8 +177,8 @@ export function faultDetailsScreen({ id }) {
         <div class="row" style="gap:14px">
           <div style="width:54px;height:54px;border-radius:16px;background:var(--mint);display:grid;place-items:center;font-size:26px">${esc(locIcon(f.location))}</div>
           <div class="grow">
-            <div style="font-size:19px;font-weight:800">${esc(f.title)}</div>
-            <div class="muted small">${esc(f.location || 'غير محدد')}</div>
+            <div style="font-size:19px;font-weight:800">${esc(localizedText(f, 'title'))}</div>
+            <div class="muted small">${esc(f.location ? localizedText(f, 'location') : 'غير محدد')}</div>
           </div>
         </div>
         ${f.photoUrl ? `<img class="photo mt" src="${f.photoUrl}" alt="صورة العطل">` : ''}
@@ -189,7 +190,7 @@ export function faultDetailsScreen({ id }) {
         ${f.repairDate ? `<div class="kv"><span class="k">موعد الإصلاح</span><span class="v">${esc(fmtDate(f.repairDate))}${f.technician ? ` — ${esc(f.technician)}` : ''}</span></div>` : ''}
         <div class="kv"><span class="k">سُجّل</span><span class="v">${esc(relTime(f.createdAt))}</span></div>
         <div class="kv"><span class="k">سجّله</span><span class="v">${esc(nameOfUid(f.createdBy || f.ownerUid) || '—')}</span></div>
-        ${f.note ? `<hr class="divider"><div class="small"><span class="muted">ملاحظة:</span> ${esc(f.note)}</div>` : ''}
+        ${f.note ? `<hr class="divider"><div class="small"><span class="muted">ملاحظة:</span> ${esc(localizedText(f, 'note'))}</div>` : ''}
       </div>
 
       <div class="section">
@@ -273,7 +274,7 @@ export function faultDetailsScreen({ id }) {
         if (e.target.closest('[data-del]')) {
           const ok = await confirmDialog({
             title: 'حذف العطل',
-            message: `هل أنت متأكد من حذف "${f.title}"؟ لا يمكن استرجاع العطل بعد الحذف.`,
+            message: `هل أنت متأكد من حذف "${localizedText(f, 'title')}"؟ لا يمكن استرجاع العطل بعد الحذف.`,
             confirmText: 'حذف', danger: true,
           });
           if (ok) { deleteFault(f.id); toast('تم حذف عطل'); back('/faults'); }

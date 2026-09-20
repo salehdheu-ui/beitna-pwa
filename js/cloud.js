@@ -5,7 +5,7 @@
    تُرسل تلقائيًا أول ما يعود الاتصال.
    ============================================================ */
 
-import { t } from './i18n.js';
+import { t, localizedText } from './i18n.js';
 
 /* ============================================================
    عنوان الخادم
@@ -349,6 +349,7 @@ const MAPPERS = {
   shopping: (d) => ({
     id: Number(d.id), name: d.name || '', quantity: d.quantity || '',
     category: d.category || '', priority: d.priority || 'عادي', note: d.note || '',
+    sourceLang: d.sourceLang || '', translations: d.translations && typeof d.translations === 'object' ? d.translations : {},
     status: d.status || 'ناقص', owner: d.owner || '', ownerUid: d.ownerUid || '',
     price: d.price || '', priceValue: Number(d.priceValue) || 0,
     createdAt: Number(d.createdAt) || Date.now(), purchasedAt: d.purchasedAt || 0,
@@ -358,6 +359,7 @@ const MAPPERS = {
   faults: (d) => ({
     id: Number(d.id), title: d.title || '', location: d.location || '',
     priority: d.priority || 'متوسط', status: d.status || 'جديد', note: d.note || '',
+    sourceLang: d.sourceLang || '', translations: d.translations && typeof d.translations === 'object' ? d.translations : {},
     linkedItems: d.linkedItems || [], photoUrl: d.photoUrl || '', ownerUid: d.ownerUid || '',
     estimatedCost: Number(d.estimatedCost) || 0, actualCost: Number(d.actualCost) || 0,
     technician: d.technician || '', repairDate: Number(d.repairDate) || 0,
@@ -385,8 +387,8 @@ const MAPPERS = {
 };
 
 const LABELS = {
-  shopping: (x) => `🛒 ${t('add_item')}: ${x.name}`,
-  faults: (x) => `🔧 ${t('report_fault')}: ${x.title}`,
+  shopping: (x) => `🛒 ${t('add_item')}: ${localizedText(x, 'name')}`,
+  faults: (x) => `🔧 ${t('report_fault')}: ${localizedText(x, 'title')}`,
   occasions: (x) => `🔔 ${t('add')}: ${x.title}`,
 };
 

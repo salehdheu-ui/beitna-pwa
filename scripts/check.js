@@ -271,6 +271,18 @@ if (adminJs.includes("request('/admin/stats')") && adminJs.includes("request('/a
 if (server.includes('signupsDaily') && server.includes('pushDevices') && server.includes('membersTotal')) {
   ok('مؤشرات النشاط والأجهزة والأعضاء متوفرة من الخادم');
 } else bad('مؤشرات لوحة الإدارة ناقصة من الخادم');
+
+console.log('ترجمة محتوى العاملة:');
+const translationSource = read('server/translate.js');
+if (server.includes('translator.translateDocument') && translationSource.includes("TARGETS = ['ar', 'en']")) {
+  ok('الخادم يترجم إدخالات العاملة إلى العربية والإنجليزية');
+} else bad('ترجمة إدخالات العاملة غير موصولة بالخادم');
+if (cloudSource.includes('translations:') && i18nSource.includes('export function localizedText')) {
+  ok('العميل يحتفظ بالترجمات ويعرض لغة المستخدم');
+} else bad('العميل لا يعرض النسخة المترجمة من المحتوى');
+if (translationSource.includes('cacheKey') && translationSource.includes('pruneCache')) {
+  ok('ذاكرة الترجمة المحلية مفعّلة ومحدودة الحجم');
+} else bad('ذاكرة الترجمة غير موجودة أو غير محدودة');
 if (sw.includes("ADMIN_PATHS = new Set(['/admin.html', '/css/admin.css', '/js/admin-app.js'])") &&
     sw.includes('ADMIN_PATHS.has(url.pathname)') &&
     !listed.includes('admin.html') &&

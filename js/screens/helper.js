@@ -7,7 +7,7 @@
 import { esc } from '../util.js';
 import { getState, addShopping, addFault } from '../store.js';
 import { toast, openSheet } from '../ui.js';
-import { t, LANGS, currentLang, setLang, applyLangToDocument } from '../i18n.js';
+import { t, LANGS, currentLang, setLang, applyLangToDocument, localizedText } from '../i18n.js';
 import { saveNotificationPrefs } from '../cloud.js';
 
 const dirAttr = () => (document.documentElement.dir === 'rtl' ? 'rtl' : 'ltr');
@@ -65,8 +65,8 @@ export function helperScreen() {
               <div class="item">
                 <span class="ic">${i.priority === 'ضروري' ? '🔴' : '🛒'}</span>
                 <div class="grow col">
-                  <div class="title">${esc(i.name)}</div>
-                  <div class="meta">${esc(i.quantity || '')} ${
+                  <div class="title">${esc(localizedText(i, 'name'))}</div>
+                  <div class="meta">${esc(localizedText(i, 'quantity'))} ${
                     i.priority === 'ضروري' ? `<span class="badge warn">${esc(t('urgent'))}</span>` : ''}</div>
                 </div>
               </div>`).join('')}
@@ -80,8 +80,8 @@ export function helperScreen() {
           <div class="stack">
             ${openFaults.map((f) => `
               <div class="item"><span class="ic">🔧</span>
-                <div class="grow col"><div class="title">${esc(f.title)}</div>
-                  <div class="meta">${esc(f.location || '')}</div></div>
+                <div class="grow col"><div class="title">${esc(localizedText(f, 'title'))}</div>
+                  <div class="meta">${esc(localizedText(f, 'location'))}</div></div>
               </div>`).join('')}
           </div>`
         : `<div class="card small muted center">${esc(t('faults_empty'))}</div>`}
@@ -123,6 +123,7 @@ function addItemSheet(rerender) {
           name,
           quantity: el.querySelector('#hq').value.trim(),
           priority: el.querySelector('#hu').checked ? 'ضروري' : 'عادي',
+          sourceLang: currentLang(),
         });
         close(); toast(t('saved')); rerender();
       };
@@ -152,6 +153,7 @@ function addFaultSheet(rerender) {
           location: el.querySelector('#fp').value.trim(),
           note: el.querySelector('#fn').value.trim(),
           priority: 'متوسط',
+          sourceLang: currentLang(),
         });
         close(); toast(t('sent')); rerender();
       };

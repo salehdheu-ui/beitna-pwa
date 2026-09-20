@@ -20,9 +20,13 @@ jobs:
       - name: JavaScript syntax
         run: |
           node --check server/server.js
+          node --check server/translate.js
           node --check scripts/check.js
           node --check scripts/security-test.js
+          node --check scripts/translation-test.js
       - name: Structural and PWA checks
         run: node scripts/check.js
       - name: Authorization, session, invite, and backup integration tests
         run: node scripts/security-test.js
+      - name: Helper content translation tests
+        run: node scripts/translation-test.js

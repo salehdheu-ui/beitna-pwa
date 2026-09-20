@@ -899,6 +899,14 @@ export function t(key) {
     ?? STR.ar[key] ?? AUTH.ar[key] ?? SYSTEM.ar[key] ?? key;
 }
 
+/** يعرض محتوى العاملة بالنسخة المحفوظة للغة المستخدم، مع رجوع آمن للأصل. */
+export function localizedText(item, field) {
+  const translated = item?.translations?.[lang]?.[field];
+  return typeof translated === 'string' && translated.trim()
+    ? translated
+    : String(item?.[field] ?? '');
+}
+
 export function setLang(code) {
   if (!STR[code]) return;
   lang = code;
@@ -923,8 +931,8 @@ export function applyLangToDocument() {
    ترجمة واجهة الأسرة العربية/الإنجليزية
 
    واجهة الأسرة أقدم من طبقة i18n وكانت نصوصها موزعة بين الشاشات.
-   هذا القاموس المركزي يترجم العقد الثابتة عند الرسم من دون لمس بيانات
-   المستخدم أو أسماء العناصر. مسار العاملة يبقى على t() أعلاه لأنه يدعم
+   هذا القاموس المركزي يترجم النصوص الثابتة عند الرسم. أما محتوى العاملة
+   فيُعرض عبر localizedText() من النسخة التي جهّزها الخادم. مسار العاملة يبقى على t() أعلاه لأنه يدعم
    اللغات الإحدى عشرة كاملة.
    ============================================================ */
 const MAIN_EN = new Map(Object.entries({

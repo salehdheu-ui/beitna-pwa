@@ -4,6 +4,7 @@ import { esc, relTime, countdownText } from '../util.js';
 import { getState, homeCounts, priorityItems, CURRENCY, profileStats } from '../store.js';
 import { emptyState } from '../ui.js';
 import { go } from '../router.js';
+import { localizedText } from '../i18n.js';
 
 export function homeScreen() {
   const s = getState();
@@ -96,7 +97,7 @@ function priCard(p) {
     <div class="item tap" data-nav="${target}">
       <div class="avatar">${p.icon}</div>
       <div class="grow col">
-        <div class="title">${esc(p.title)}</div>
+        <div class="title">${esc(p.source ? localizedText(p.source, p.field) : p.title)}</div>
         <div class="meta"><span class="badge ${p.tone}">${esc(p.tag)}</span></div>
       </div>
       <span class="muted">‹</span>

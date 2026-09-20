@@ -369,12 +369,12 @@ export function uploadLocalData() {
 /* ============================================================
    المشتريات
    ============================================================ */
-export function addShopping({ name, quantity = '', category = '', priority = 'عادي', note = '', price = '' }) {
+export function addShopping({ name, quantity = '', category = '', priority = 'عادي', note = '', price = '', sourceLang = '' }) {
   let created;
   update((s) => {
     created = {
       id: newId(),
-      name, quantity, category, priority, note,
+      name, quantity, category, priority, note, sourceLang,
       status: 'ناقص',
       owner: s.profile.name || 'أنا',
       ownerUid: cloudUid || 'local',
@@ -495,12 +495,12 @@ export function applyFavoriteList(id) {
 /* ============================================================
    الأعطال
    ============================================================ */
-export function addFault({ title, location = '', priority = 'متوسط', note = '', photoUrl = '', estimatedCost = 0 }) {
+export function addFault({ title, location = '', priority = 'متوسط', note = '', photoUrl = '', estimatedCost = 0, sourceLang = '' }) {
   let created;
   update((s) => {
     created = {
       id: newId(),
-      title, location, priority, note,
+      title, location, priority, note, sourceLang,
       status: 'جديد',
       linkedItems: [],
       photoUrl,
@@ -711,9 +711,9 @@ export function priorityItems() {
   const s = state;
   const out = [];
   s.shopping.filter((i) => i.priority === 'ضروري' && i.status !== 'تم الشراء')
-    .forEach((i) => out.push({ kind: 'shopping', id: i.id, icon: '🛒', title: i.name, tag: 'ضروري', tone: 'danger' }));
+    .forEach((i) => out.push({ kind: 'shopping', id: i.id, icon: '🛒', title: i.name, source: i, field: 'name', tag: 'ضروري', tone: 'danger' }));
   s.faults.filter((f) => f.priority === 'عاجل' && f.status !== 'تم الإصلاح')
-    .forEach((f) => out.push({ kind: 'fault', id: f.id, icon: '🔧', title: f.title, tag: 'عاجل', tone: 'danger' }));
+    .forEach((f) => out.push({ kind: 'fault', id: f.id, icon: '🔧', title: f.title, source: f, field: 'title', tag: 'عاجل', tone: 'danger' }));
   s.occasions.filter((o) => !o.done && o.dateMillis >= todayStart() && o.dateMillis <= todayStart() + 3 * 86400000)
     .forEach((o) => out.push({ kind: 'occasion', id: o.id, icon: '🎉', title: o.title, tag: 'قريبًا', tone: 'warn' }));
   return out.slice(0, 6);
