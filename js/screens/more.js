@@ -15,10 +15,13 @@ import {
   pendingWrites, apiBase, checkServer, currentEmail,
   deleteAccount, arabicError,
   changePassword, newRecoveryCode,
-  listHouseholds, switchHousehold, getHelperCode, newHelperCode,
+  listHouseholds, switchHousehold, getHelperCode, newHelperCode, revokeHelperCode,
+  newInviteCode, revokeInviteCode,
   setMemberRole, currentPerm, isOwner as amOwner, joinHousehold, syncStats,
 } from '../cloud.js';
 import { diag, upMinutes } from '../diag.js';
+import { currentLang, langInfo, applyLangToDocument } from '../i18n.js';
+import { langSheet } from './helper.js';
 
 /* ============================ المزيد ============================ */
 
@@ -111,6 +114,11 @@ export function moreScreen() {
       <div class="section">
         <div class="section-title">التفضيلات</div>
         <div class="list">
+          <button class="list-row" data-act="language">
+            <span class="ic">🌐</span>
+            <span class="grow"><span class="t">اللغة</span><br>
+              <span class="d">${esc(langInfo().native)}</span></span><span class="arrow">‹</span>
+          </button>
           ${listRow('📋', 'قائمة الاحتياجات', 'مخزون البيت الدائم — راجعه وأرسل الناقص', '/pantry')}
           ${listRow('🗂️', 'التصنيفات والأماكن', 'إدارة الأقسام والأنواع', '/categories')}
           ${listRow('📦', 'الأرشيف', 'مشتريات وأعطال وتذكيرات منتهية', '/archive')}
@@ -159,6 +167,11 @@ export function moreScreen() {
         }
 
         const act = e.target.closest('[data-act]')?.dataset.act;
+        if (act === 'language') {
+          /* النظام الرئيسي عربي/إنجليزي؛ بقية اللغات تظهر لمسار العاملة. */
+          langSheet(() => { applyLangToDocument(); rerender(); }, ['ar', 'en']);
+          return;
+        }
         if (act === 'signout') {
           const ok = await confirmDialog({
             title: 'تسجيل الخروج',
@@ -275,7 +288,8 @@ export function householdScreen() {
         <div class="row" style="gap:8px">
           <button class="btn soft grow" data-act="copy">📋 نسخ</button>
           <button class="btn ghost grow" data-act="share">📤 مشاركة</button>
-          ${isCloud() ? '' : `<button class="icon-btn" data-act="regen" title="توليد كود جديد">🔄</button>`}
+          ${amOwner() ? `<button class="icon-btn" data-act="regen" title="توليد كود جديد">🔄</button>` : ''}
+          ${amOwner() && isCloud() && s.household.inviteCode ? `<button class="icon-btn" data-act="revoke" title="إلغاء كود الدعوة">✕</button>` : ''}
         </div>
       </div>
 
@@ -290,6 +304,7 @@ export function householdScreen() {
         <div class="row mt-s" style="gap:8px">
           <button class="btn soft grow" data-act="hcopy">📋 نسخ</button>
           <button class="btn ghost grow" data-act="hnew">🔄 كود جديد</button>
+          <button class="icon-btn" data-act="hrevoke" title="إلغاء كود العاملة">✕</button>
         </div>
       </div>` : ''}
 
@@ -342,6 +357,17 @@ export function householdScreen() {
           toast('تم نسخ كود العاملة ✓');
           return;
         }
+        if (act === 'hrevoke') {
+          const ok = await confirmDialog({
+            title: 'إلغاء كود العاملة',
+            message: 'سيتوقف الكود الحالي عن العمل فورًا. العضوات المنضمات سابقًا لن يُحذفن.',
+            confirmText: 'إلغاء الكود', danger: true,
+          });
+          if (!ok) return;
+          try { await revokeHelperCode(); hbox.textContent = 'لم يُنشأ بعد'; toast('تم إلغاء كود العاملة ✓'); }
+          catch (ex) { toast(arabicError(ex), 3500); }
+          return;
+        }
 
         if (act === 'copy') {
           await navigator.clipboard.writeText(getState().household.inviteCode);
@@ -354,7 +380,27 @@ export function householdScreen() {
         }
         if (act === 'regen') {
           const ok = await confirmDialog({ title: 'كود جديد', message: 'سيتم توليد كود دعوة جديد. الكود القديم لن يعمل.', confirmText: 'توليد' });
-          if (ok) { update((s) => { s.household.inviteCode = generateInviteCode(); }); rerender(); toast('تم توليد كود جديد'); }
+          if (!ok) return;
+          try {
+            const code = isCloud() ? (await newInviteCode()).inviteCode : generateInviteCode();
+            update((s) => { s.household.inviteCode = code; });
+            rerender(); toast('تم توليد كود جديد ✓');
+          } catch (ex) { toast(arabicError(ex), 3500); }
+          return;
+        }
+        if (act === 'revoke') {
+          const ok = await confirmDialog({
+            title: 'إلغاء كود الدعوة',
+            message: 'سيتوقف الكود الحالي عن العمل فورًا. لن يتأثر الأعضاء الموجودون.',
+            confirmText: 'إلغاء الكود', danger: true,
+          });
+          if (!ok) return;
+          try {
+            await revokeInviteCode();
+            update((s) => { s.household.inviteCode = ''; });
+            rerender(); toast('تم إلغاء كود الدعوة ✓');
+          } catch (ex) { toast(arabicError(ex), 3500); }
+          return;
         }
 
         const rm = e.target.closest('[data-remove]');

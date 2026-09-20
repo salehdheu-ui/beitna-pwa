@@ -305,7 +305,9 @@ export function setupHousehold({ householdName, memberName, email = '', joinCode
     s.profile.isOwner = owner;
     s.profile.role = owner ? 'مالك البيت' : 'عضو';
     s.household.name = householdName || `بيت ${memberName}`;
-    s.household.inviteCode = inviteCode || joinCode || generateInviteCode();
+    /* كود الانضمام ليس بالضرورة كود الأسرة (قد يكون كود العاملة).
+       في الوضع السحابي لا نخترع ولا نحفظ أي كود لم يُعده الخادم. */
+    s.household.inviteCode = cloud ? (inviteCode || '') : (inviteCode || joinCode || generateInviteCode());
     s.household.createdAt = Date.now();
     s.household.cloud = cloud;
     if (!cloud) {

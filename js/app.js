@@ -28,7 +28,7 @@ import { emptyState, toast, iosInstallSheet } from './ui.js';
 import { startReminderLoop, notifyPartner, isIOS, isStandalone } from './notify.js';
 import { helperScreen, langSheet } from './screens/helper.js';
 import { refreshPush } from './push.js';
-import { t, applyLangToDocument, currentLang } from './i18n.js';
+import { t, applyLangToDocument, currentLang, setLang, localizeMainUi, observeMainUi } from './i18n.js';
 import { diag } from './diag.js';
 
 /* المسار القديم للوحة المدمجة لم يعد موجودًا. إذا بقي في نافذة أو اختصار
@@ -147,6 +147,7 @@ function render(factory, params = {}) {
   window.scrollTo({ top: keepScroll });
 
   screen.mount?.(view, rerender);
+  localizeMainUi(document.querySelector('#app'));
 
   view.querySelector('[data-fab]')?.addEventListener('click', () => {
     if (screen.fab.to) go(screen.fab.to);
@@ -235,7 +236,7 @@ let paintedNavKey = '';
 function paintNav() {
   const helper = amHelper();
   const items = helper ? [] : navItems();
-  const key = JSON.stringify(items);
+  const key = JSON.stringify([currentLang(), items]);
   const bottom = $('#bottomnav');
   const side = $('#sidenav');
 
@@ -258,6 +259,7 @@ function paintNav() {
   bottom.hidden = helper;
   side.hidden = helper;
   document.body.classList.toggle('helper-mode', helper);
+  if (!helper) localizeMainUi(document.querySelector('#app'));
 }
 
 document.addEventListener('click', (e) => {
@@ -270,7 +272,12 @@ route('/helper', () => render(helperScreen));
 
 /** حارس: العاملة لا تصل إلا شاشتها مهما كان المسار */
 function guarded(factory) {
-  return (p) => (amHelper() ? render(helperScreen) : render(factory, p));
+  return (p) => {
+    if (amHelper()) return render(helperScreen);
+    /* اللغات الإضافية لمسار العاملة فقط؛ واجهة الأسرة عربية/إنجليزية. */
+    if (!['ar', 'en'].includes(currentLang())) setLang('ar');
+    return render(factory, p);
+  };
 }
 
 route('/home', guarded(homeScreen));
@@ -361,6 +368,12 @@ function startCloudSession(hid) {
       } else if (col === 'caps') {
         /* صلاحياتي كما يراها الخادم — الواجهة تُخفي، والخادم يمنع */
         update((st) => { st.caps = items; });
+      } else if (col === 'household') {
+        update((st) => {
+          if (items.name) st.household.name = items.name;
+          /* القيمة الفارغة مقصودة عند الإلغاء أو عند غياب صلاحية الدعوة. */
+          st.household.inviteCode = items.inviteCode || '';
+        });
       } else if (col === 'categories' && items.length === 0) {
         /* لا نفرّغ التصنيفات إن لم تصل من السحابة — نبقي الافتراضية */
       } else {
@@ -470,12 +483,14 @@ async function restoreCloud() {
     if (!hid) return false;
 
     const hh = await cloud.loadHousehold(hid);
+    const prefs = await cloud.loadNotificationPrefs();
+    if (prefs?.language) setLang(prefs.language);
     setupHousehold({
       householdName: hh?.name || getState().household.name || 'بيتي',
       memberName: user.displayName || getState().profile.name || (user.email || '').split('@')[0],
       email: user.email || '',
-      inviteCode: hh?.inviteCode || getState().household.inviteCode || '',
-      isOwner: getState().profile.isOwner,
+      inviteCode: hh?.inviteCode || '',
+      isOwner: cloud.isOwner(),
       cloud: true,
     });
 
@@ -626,6 +641,7 @@ window.addEventListener('appinstalled', () => {
 window.addEventListener('offline', () => toast('أنت غير متصل — التطبيق يعمل محليًا'));
 
 /* ---------- التشغيل ---------- */
+observeMainUi();
 boot().catch((e) => {
   console.error('فشل الإقلاع', e);
   try { showApp(); } catch (e2) {

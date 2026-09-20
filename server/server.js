@@ -14,9 +14,11 @@ const PORT = Number(process.env.PORT || 3000);
 const DATA_DIR = process.env.DATA_DIR || '/data';
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 const SECRET_FILE = path.join(DATA_DIR, 'secret.key');
-const TOKEN_DAYS = 400;
+/* جلسة افتراضية قصيرة نسبيًا. يمكن للمشغّل تقليلها أكثر، لكن لا نسمح
+   بقيمة تتجاوز 30 يومًا حتى لا يعيد إعدادٌ خاطئ جلسات السنة القديمة. */
+const TOKEN_DAYS = Math.min(30, Math.max(1, Number(process.env.TOKEN_DAYS || 14)));
 const PUSH_SUBJECT = process.env.PUSH_SUBJECT || 'mailto:admin@beitna.local';
-const SERVER_VERSION = '1.9.0';
+const SERVER_VERSION = '1.10.0';
 
 /* لوحة الإدارة المنفصلة لها رمز مستقل تمامًا عن حسابات بيتنا.
 
@@ -58,8 +60,13 @@ try {
 const BACKUP_DIR = path.join(DATA_DIR, 'backups');
 const BACKUP_KEEP = Number(process.env.BACKUP_KEEP || 24);
 const BACKUP_HOURS = Number(process.env.BACKUP_HOURS || 1);
+/* يُضبط على مجلد مركّب من قرص/خادم آخر. تركه فارغًا يبقي النسخ المحلية
+   لكنه يُظهر تحذيرًا واضحًا عند الإقلاع ولا يوهم المشغّل بوجود off-site. */
+const OFFSITE_BACKUP_DIR = String(process.env.OFFSITE_BACKUP_DIR || '').trim();
 
 fs.mkdirSync(BACKUP_DIR, { recursive: true });
+if (OFFSITE_BACKUP_DIR) fs.mkdirSync(OFFSITE_BACKUP_DIR, { recursive: true });
+else console.warn('⚠️  OFFSITE_BACKUP_DIR غير مضبوط — النسخ الاحتياطية محلية فقط.');
 
 const blank = () => ({ users: {}, emails: {}, households: {}, codes: {}, helperCodes: {} });
 
@@ -69,13 +76,31 @@ const fillMissing = (o) => {
 };
 
 /** أحدث النسخ الاحتياطية أولًا */
-function backupFiles() {
+function backupFiles(dir = BACKUP_DIR) {
   try {
-    return fs.readdirSync(BACKUP_DIR)
+    return fs.readdirSync(dir)
       .filter((f) => f.startsWith('db-') && f.endsWith('.json'))
       .sort()
       .reverse();
   } catch { return []; }
+}
+
+/** يكتب نسخة ثم يقرأها ويفسّرها قبل اعتبار العملية ناجحة. */
+function writeVerifiedBackup(dir, name) {
+  const file = path.join(dir, name);
+  const tmp = file + '.tmp';
+  const payload = JSON.stringify(db);
+  fs.writeFileSync(tmp, payload, { mode: 0o600 });
+  const parsed = fillMissing(JSON.parse(fs.readFileSync(tmp, 'utf8')));
+  if (!parsed.users || !parsed.households) throw new Error('backup-verification-failed');
+  fs.renameSync(tmp, file);
+  return file;
+}
+
+function rotateBackups(dir) {
+  backupFiles(dir).slice(BACKUP_KEEP).forEach((f) => {
+    try { fs.unlinkSync(path.join(dir, f)); } catch { /* تجاهل */ }
+  });
 }
 
 function loadDb() {
@@ -118,14 +143,16 @@ let writesSinceBackup = 0;
 function backupNow(reason = 'دوري', force = false) {
   if (!force && !writesSinceBackup) return null;
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-  const file = path.join(BACKUP_DIR, `db-${stamp}.json`);
+  const name = `db-${stamp}.json`;
   try {
-    fs.writeFileSync(file, JSON.stringify(db));
+    const file = writeVerifiedBackup(BACKUP_DIR, name);
+    if (OFFSITE_BACKUP_DIR) {
+      writeVerifiedBackup(OFFSITE_BACKUP_DIR, name);
+      rotateBackups(OFFSITE_BACKUP_DIR);
+    }
     writesSinceBackup = 0;
     /* التدوير: نبقي أحدث BACKUP_KEEP فقط */
-    backupFiles().slice(BACKUP_KEEP).forEach((f) => {
-      try { fs.unlinkSync(path.join(BACKUP_DIR, f)); } catch { /* تجاهل */ }
-    });
+    rotateBackups(BACKUP_DIR);
     console.log(`نسخة احتياطية (${reason}): ${path.basename(file)}`);
     return file;
   } catch (e) {
@@ -225,7 +252,8 @@ function issueRecoveryCode(user) {
 const b64 = (s) => Buffer.from(s).toString('base64url');
 function signToken(uid) {
   const epoch = db.users[uid]?.tokenEpoch || 0;
-  const body = b64(JSON.stringify({ u: uid, e: now() + TOKEN_DAYS * 864e5, v: epoch }));
+  const issuedAt = now();
+  const body = b64(JSON.stringify({ u: uid, i: issuedAt, e: issuedAt + TOKEN_DAYS * 864e5, v: epoch }));
   const sig = crypto.createHmac('sha256', SECRET).update(body).digest('base64url');
   return body + '.' + sig;
 }
@@ -237,7 +265,9 @@ function readToken(token) {
     const a = Buffer.from(sig), b = Buffer.from(good);
     if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
     const p = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
-    if (!p.u || !p.e || p.e < now()) return null;
+    /* الرموز القديمة بلا وقت إصدار تُرفض عند نشر سياسة الجلسات الجديدة،
+       ولا يستطيع إعداد قديم إبقاء جلسة أطول من الحد الحالي. */
+    if (!p.u || !p.i || !p.e || p.e < now() || p.e - p.i > TOKEN_DAYS * 864e5) return null;
     /* بعد تصفير كلمة المرور تُرفع الحقبة فتسقط كل الجلسات القديمة */
     if ((db.users[p.u]?.tokenEpoch || 0) !== (p.v || 0)) return null;
     return p.u;
@@ -512,7 +542,7 @@ function myHousehold(user) {
 }
 
 const publicUser = (u, token) => ({
-  token, uid: u.uid, email: u.email, displayName: u.displayName,
+  ...(token ? { token } : {}), uid: u.uid, email: u.email, displayName: u.displayName,
   householdId: u.householdId || null,
 });
 
@@ -572,7 +602,19 @@ function capsOf(m) {
   const perm = permOf(m);
   const base = CAP_PRESETS[perm] || CAP_PRESETS.member;
   if (perm === 'owner') return { ...base };
-  return { ...base, ...sanitizeCaps(m && m.caps) };
+  const caps = { ...base, ...sanitizeCaps(m && m.caps) };
+  /* هذه حدود أمنية للدور وليست خيارات واجهة. حتى لو بقيت تعديلات قديمة
+     في قاعدة البيانات، لا تحصل العاملة على الكود أو بيانات الأسرة/الأسعار. */
+  if (perm === 'helper') return {
+    ...caps,
+    occasions: 'none', prices: false, members: false, invite: false, remove: false,
+  };
+  return caps;
+}
+
+function sensitiveLimited(req, user, action, limit = 10, windowMs = 3600000) {
+  return rateLimited(`${action}:ip:${clientIp(req)}`, limit, windowMs)
+    || rateLimited(`${action}:user:${user.uid}`, limit, windowMs);
 }
 
 /* ============================================================
@@ -940,9 +982,10 @@ async function route(req, res, url) {
     user.householdId = target.id; user.updatedAt = now();
     save();
     const perm = permOf(m);
+    const caps = capsOf(m);
     return send(res, 200, {
       id: target.id, name: target.name, perm, role: roleLabel(perm),
-      inviteCode: perm === 'owner' ? target.inviteCode : null,
+      inviteCode: caps.invite ? (target.inviteCode || null) : null,
     });
   }
 
@@ -991,6 +1034,7 @@ async function route(req, res, url) {
 
   /* ===== رمز استرداد جديد ===== */
   if (p === '/account/recovery' && method === 'POST') {
+    if (sensitiveLimited(req, user, 'new-recovery', 5)) return fail(res, 429, 'too-many-requests');
     const b = await readBody(req);
     if (!verifyPassword(String(b.password || ''), user.pass)) return fail(res, 401, 'wrong-password');
     const recoveryCode = issueRecoveryCode(user);
@@ -1000,6 +1044,7 @@ async function route(req, res, url) {
 
   /* ===== تغيير كلمة المرور ===== */
   if (p === '/account/password' && method === 'POST') {
+    if (sensitiveLimited(req, user, 'change-password', 5)) return fail(res, 429, 'too-many-requests');
     const b = await readBody(req);
     if (!verifyPassword(String(b.current || ''), user.pass)) return fail(res, 401, 'wrong-password');
     const next = String(b.password || '');
@@ -1015,6 +1060,7 @@ async function route(req, res, url) {
   /* ===== حذف الحساب نهائيًا =====
      يطلب كلمة المرور حتى لا يكفي رمز مسروق لمحو الحساب. */
   if (p === '/account/delete' && method === 'POST') {
+    if (sensitiveLimited(req, user, 'delete-account', 5)) return fail(res, 429, 'too-many-requests');
     const b = await readBody(req);
     if (!verifyPassword(String(b.password || ''), user.pass)) return fail(res, 401, 'wrong-password');
     const summary = deleteUser(user);
@@ -1050,6 +1096,7 @@ async function route(req, res, url) {
 
   /* ===== إنشاء بيت ===== */
   if (p === '/household' && method === 'POST') {
+    if (sensitiveLimited(req, user, 'create-household', 10)) return fail(res, 429, 'too-many-requests');
     const b = await readBody(req);
     const hh = newHousehold(String(b.name || '').slice(0, 80), user, String(b.memberName || '').slice(0, 60));
     user.householdId = hh.id; user.updatedAt = now();
@@ -1071,17 +1118,26 @@ async function route(req, res, url) {
     const t = now();
     const memberName = String(b.memberName || user.displayName || 'مستخدم').slice(0, 60);
     const existing = hh.members[user.uid];
-    /* عضو قديم يحتفظ بدوره؛ القادم الجديد يأخذ دوره من نوع الكود */
-    const perm = existing ? permOf(existing) : (asHelper ? 'helper' : 'member');
+    /* العضوية المحذوفة لا تُستعاد بصلاحياتها القديمة. العضو النشط فقط
+       يحتفظ بدوره إذا أدخل كود البيت مرة أخرى بالخطأ. */
+    const activeExisting = existing && !existing.deleted;
+    const perm = activeExisting ? permOf(existing) : (asHelper ? 'helper' : 'member');
     hh.members[user.uid] = {
       uid: user.uid, name: memberName, email: user.email || '',
       role: roleLabel(perm), isOwner: perm === 'owner', perm,
-      joinedAt: existing?.joinedAt || t, updatedAt: t, deleted: false,
+      joinedAt: activeExisting ? existing.joinedAt : t, updatedAt: t, deleted: false,
+      /* لا نعيد تعديلات صلاحيات عضوية محذوفة. */
+      ...(activeExisting && existing.caps ? { caps: sanitizeCaps(existing.caps) } : {}),
     };
     hh.updatedAt = t;
     user.householdId = hh.id; user.displayName = memberName; user.updatedAt = t;
     save();
-    return send(res, 200, { id: hh.id, name: hh.name, inviteCode: hh.inviteCode, createdAt: hh.createdAt });
+    const caps = capsOf(hh.members[user.uid]);
+    return send(res, 200, {
+      id: hh.id, name: hh.name, perm, role: roleLabel(perm), caps,
+      inviteCode: caps.invite ? (hh.inviteCode || null) : null,
+      createdAt: hh.createdAt,
+    });
   }
 
   const hh = myHousehold(user);
@@ -1113,6 +1169,7 @@ async function route(req, res, url) {
   /* ===== صلاحيات فرد بالتفصيل — من المالك فقط ===== */
   if (p.startsWith('/member/') && p.endsWith('/caps') && method === 'POST') {
     if (!isOwner) return fail(res, 403, 'owner-only');
+    if (sensitiveLimited(req, user, 'member-caps', 30)) return fail(res, 429, 'too-many-requests');
     const target = decodeURIComponent(p.slice('/member/'.length, -'/caps'.length));
     const m = hh.members[target];
     if (!m || m.deleted) return fail(res, 404, 'no-member');
@@ -1126,14 +1183,37 @@ async function route(req, res, url) {
 
   if (p === '/household/rename' && method === 'POST') {
     if (!isOwner) return fail(res, 403, 'owner-only');
+    if (sensitiveLimited(req, user, 'rename-household', 20)) return fail(res, 429, 'too-many-requests');
     const b = await readBody(req);
     if (b.name) { hh.name = String(b.name).slice(0, 80); hh.updatedAt = now(); save(); }
     return send(res, 200, { ok: true });
   }
 
+  /* ===== كود دعوة الأسرة: تدوير أو إلغاء — من المالك فقط ===== */
+  if (p === '/household/invite-code' && method === 'POST') {
+    if (!isOwner) return fail(res, 403, 'owner-only');
+    if (sensitiveLimited(req, user, 'rotate-invite', 10)) return fail(res, 429, 'too-many-requests');
+    if (hh.inviteCode) delete db.codes[hh.inviteCode];
+    const code = makeInviteCode();
+    hh.inviteCode = code;
+    db.codes[code] = hh.id;
+    hh.updatedAt = now(); save();
+    return send(res, 200, { inviteCode: code });
+  }
+
+  if (p === '/household/invite-code' && method === 'DELETE') {
+    if (!isOwner) return fail(res, 403, 'owner-only');
+    if (sensitiveLimited(req, user, 'revoke-invite', 10)) return fail(res, 429, 'too-many-requests');
+    if (hh.inviteCode) delete db.codes[hh.inviteCode];
+    hh.inviteCode = null;
+    hh.updatedAt = now(); save();
+    return send(res, 200, { ok: true, inviteCode: null });
+  }
+
   /* ===== كود دعوة خاص بالعاملة — من المالك فقط ===== */
   if (p === '/household/helper-code' && method === 'POST') {
     if (!isOwner) return fail(res, 403, 'owner-only');
+    if (sensitiveLimited(req, user, 'rotate-helper-invite', 10)) return fail(res, 429, 'too-many-requests');
     if (hh.helperCode) delete db.helperCodes[hh.helperCode];
     let code;
     do { code = makeInviteCode().replace('BEITNA-', 'AMEL-'); }
@@ -1149,9 +1229,19 @@ async function route(req, res, url) {
     return send(res, 200, { helperCode: hh.helperCode || null });
   }
 
+  if (p === '/household/helper-code' && method === 'DELETE') {
+    if (!isOwner) return fail(res, 403, 'owner-only');
+    if (sensitiveLimited(req, user, 'revoke-helper-invite', 10)) return fail(res, 429, 'too-many-requests');
+    if (hh.helperCode) delete db.helperCodes[hh.helperCode];
+    hh.helperCode = null;
+    hh.updatedAt = now(); save();
+    return send(res, 200, { ok: true, helperCode: null });
+  }
+
   /* ===== تغيير دور عضو — من المالك فقط ===== */
   if (p.startsWith('/member/') && p.endsWith('/role') && method === 'POST') {
     if (!isOwner) return fail(res, 403, 'owner-only');
+    if (sensitiveLimited(req, user, 'member-role', 30)) return fail(res, 429, 'too-many-requests');
     const target = decodeURIComponent(p.slice('/member/'.length, -'/role'.length));
     const b = await readBody(req);
     const perm = String(b.perm || '');
@@ -1336,9 +1426,15 @@ function capValue(key, value, depth) {
   if (p.startsWith('/member/') && method === 'DELETE') {
     const target = decodeURIComponent(p.slice('/member/'.length));
     const me = hh.members[user.uid];
-    if (!me?.isOwner && target !== user.uid) return fail(res, 403, 'owner-only');
+    if (permOf(me) !== 'owner' && target !== user.uid) return fail(res, 403, 'owner-only');
+    if (sensitiveLimited(req, user, 'remove-member', 30)) return fail(res, 429, 'too-many-requests');
     const m = hh.members[target];
-    if (m) { m.deleted = true; m.updatedAt = now(); hh.updatedAt = now(); }
+    if (!m || m.deleted) return fail(res, 404, 'no-member');
+    if (permOf(m) === 'owner') {
+      const owners = Object.values(hh.members).filter((x) => !x.deleted && permOf(x) === 'owner');
+      if (owners.length <= 1) return fail(res, 400, 'last-owner');
+    }
+    m.deleted = true; m.updatedAt = now(); hh.updatedAt = now();
     if (db.users[target] && db.users[target].householdId === hh.id) db.users[target].householdId = null;
     save();
     return send(res, 200, { ok: true });

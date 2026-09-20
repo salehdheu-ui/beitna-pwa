@@ -8,14 +8,16 @@ import { esc } from '../util.js';
 import { getState, addShopping, addFault } from '../store.js';
 import { toast, openSheet } from '../ui.js';
 import { t, LANGS, currentLang, setLang, applyLangToDocument } from '../i18n.js';
+import { saveNotificationPrefs } from '../cloud.js';
 
 const dirAttr = () => (document.documentElement.dir === 'rtl' ? 'rtl' : 'ltr');
 
-function langSheet(onPick) {
+function langSheet(onPick, allowed = null) {
+  const choices = allowed ? LANGS.filter((l) => allowed.includes(l.code)) : LANGS;
   openSheet(`
     <h3>${esc(t('language'))}</h3>
     <div class="list">
-      ${LANGS.map((l) => `
+      ${choices.map((l) => `
         <button class="list-row" data-lang="${esc(l.code)}">
           <span class="ic">${l.flag}</span>
           <span class="grow"><span class="t" style="direction:${l.dir}">${esc(l.native)}</span></span>
@@ -28,6 +30,8 @@ function langSheet(onPick) {
         const b = e.target.closest('[data-lang]');
         if (!b) return;
         setLang(b.dataset.lang);
+        /* تحفظ على الحساب إن وُجدت جلسة، وتبقى محليًا أيضًا داخل setLang. */
+        saveNotificationPrefs({ language: b.dataset.lang });
         close();
         onPick?.();
       });

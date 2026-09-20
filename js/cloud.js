@@ -507,6 +507,12 @@ function applySync(res) {
     const sig = JSON.stringify(res.household.ui || null);
     if (sig !== lastUiSig) { lastUiSig = sig; listeners?.onData?.('ui', res.household.ui); }
   }
+  if (res.household) {
+    listeners?.onData?.('household', {
+      name: res.household.name || '',
+      inviteCode: res.household.inviteCode || '',
+    });
+  }
   if (res.caps) {
     const sig = JSON.stringify(res.caps);
     if (sig !== lastCapsSig) { lastCapsSig = sig; listeners?.onData?.('caps', res.caps); }
@@ -705,6 +711,9 @@ export function setMemberCaps(uid, caps) {
 
 export function getHelperCode() { return req('/household/helper-code', { timeout: 10000 }); }
 export function newHelperCode() { return req('/household/helper-code', { method: 'POST', timeout: 12000 }); }
+export function revokeHelperCode() { return req('/household/helper-code', { method: 'DELETE', timeout: 12000 }); }
+export function newInviteCode() { return req('/household/invite-code', { method: 'POST', timeout: 12000 }); }
+export function revokeInviteCode() { return req('/household/invite-code', { method: 'DELETE', timeout: 12000 }); }
 
 /** تغيير دور عضو — للمالك فقط */
 export function setMemberRole(uid, perm) {

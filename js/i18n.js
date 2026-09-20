@@ -1,8 +1,7 @@
 /* ============================================================
    اللغات
-   الواجهة العربية هي الأصل. الترجمات تغطّي ما تراه العاملة المنزلية
-   فقط: الدخول، المشتريات، الإبلاغ عن عطل، والإعدادات الأساسية —
-   لا واجهة العائلة الكاملة.
+   واجهة الأسرة تدعم العربية والإنجليزية. ومسار العاملة المنزلية يدعم
+   إحدى عشرة لغة للدخول والمشتريات والإبلاغ عن عطل والإعدادات الأساسية.
    ============================================================ */
 
 const K_LANG = 'beitna:lang';
@@ -16,6 +15,9 @@ export const LANGS = [
   { code: "am", name: "الأمهرية", native: "አማርኛ", dir: "ltr", flag: "🇪🇹" },
   { code: "tl", name: "الفلبينية", native: "Filipino", dir: "ltr", flag: "🇵🇭" },
   { code: "id", name: "الإندونيسية", native: "Bahasa Indonesia", dir: "ltr", flag: "🇮🇩" },
+  { code: "my", name: "البورمية", native: "မြန်မာ", dir: "ltr", flag: "🇲🇲" },
+  { code: "sw", name: "السواحيلية", native: "Kiswahili", dir: "ltr", flag: "🇹🇿" },
+  { code: "ne", name: "النيبالية", native: "नेपाली", dir: "ltr", flag: "🇳🇵" },
 ];
 
 const STR = {
@@ -451,6 +453,168 @@ const STR = {
     helper_role: "Pekerja",
     offline: "Luring — tetap berfungsi",
   },
+  my: {
+    app_name: "Beitna",
+    tagline: "အိမ်မှုကိစ္စများကို လွယ်ကူစွာ စီမံပါ",
+    welcome_title: "ကြိုဆိုပါတယ်",
+    welcome_sub: "အိမ်စာရင်းကို အသုံးပြုရန် အကောင့်ဝင်ပါ။",
+    login: "အကောင့်ဝင်ရန်",
+    signup: "အကောင့်ဖွင့်ရန်",
+    logout: "အကောင့်ထွက်ရန်",
+    email: "အီးမေးလ်",
+    password: "စကားဝှက်",
+    your_name: "သင့်နာမည်",
+    pass_hint: "အနည်းဆုံး စာလုံး ၆ လုံး",
+    create_account: "အကောင့်ဖွင့်ရန်",
+    enter: "ဝင်ရန်",
+    have_account: "အကောင့်ရှိပါသလား?",
+    no_account: "အကောင့်မရှိသေးပါသလား?",
+    join_title: "အိမ်သို့ ဝင်ရန်",
+    join_sub: "မိသားစုပေးထားသော ကုဒ်ကို ရိုက်ထည့်ပါ။",
+    invite_code: "ဖိတ်ခေါ်ကုဒ်",
+    join: "ဝင်ရန်",
+    nav_shopping: "ဈေးဝယ်စာရင်း",
+    nav_faults: "ပြုပြင်ရန်",
+    nav_more: "နောက်ထပ်",
+    shopping_title: "ဈေးဝယ်စာရင်း",
+    shopping_empty: "ယခု လိုအပ်တာ မရှိပါ",
+    add_item: "လိုအပ်သည့်ပစ္စည်း ထည့်ရန်",
+    item_name: "ပစ္စည်း",
+    item_qty: "အရေအတွက်",
+    item_note: "မှတ်ချက်",
+    urgent: "အရေးကြီး",
+    normal: "ပုံမှန်",
+    missing: "လိုအပ်",
+    bought: "ဝယ်ပြီး",
+    faults_title: "ပြုပြင်ရန်",
+    faults_empty: "ပြုပြင်စရာ မရှိပါ",
+    report_fault: "ပြဿနာ တင်ပြရန်",
+    fault_title: "ဘာပျက်နေလဲ?",
+    fault_place: "နေရာ",
+    fault_note: "အသေးစိတ်",
+    more_title: "နောက်ထပ်",
+    language: "ဘာသာစကား",
+    my_name: "ကျွန်ုပ်နာမည်",
+    save: "သိမ်းရန်",
+    cancel: "မလုပ်တော့ပါ",
+    add: "ထည့်ရန်",
+    back: "နောက်သို့",
+    done: "ပြီးပါပြီ",
+    saved: "သိမ်းပြီးပါပြီ ✓",
+    sent: "ပို့ပြီးပါပြီ ✓",
+    required: "ဤအချက် လိုအပ်သည်",
+    err_network: "အင်တာနက်မရှိပါ — ပြန်ရလာလျှင် အလိုအလျောက် ပို့ပါမည်",
+    helper_role: "အိမ်အကူ",
+    offline: "အင်တာနက်မရှိသော်လည်း အသုံးပြုနိုင်သည်",
+  },
+  sw: {
+    app_name: "Beitna",
+    tagline: "Usimamizi rahisi wa nyumba",
+    welcome_title: "Karibu",
+    welcome_sub: "Ingia ili kufikia nyumba.",
+    login: "Ingia",
+    signup: "Fungua akaunti",
+    logout: "Toka",
+    email: "Barua pepe",
+    password: "Nenosiri",
+    your_name: "Jina lako",
+    pass_hint: "Angalau herufi 6",
+    create_account: "Fungua akaunti",
+    enter: "Ingia",
+    have_account: "Una akaunti?",
+    no_account: "Huna akaunti?",
+    join_title: "Jiunge na nyumba",
+    join_sub: "Weka msimbo uliopewa na familia.",
+    invite_code: "Msimbo wa mwaliko",
+    join: "Jiunge",
+    nav_shopping: "Manunuzi",
+    nav_faults: "Matengenezo",
+    nav_more: "Zaidi",
+    shopping_title: "Orodha ya manunuzi",
+    shopping_empty: "Hakuna kinachokosekana sasa",
+    add_item: "Ongeza kinachokosekana",
+    item_name: "Bidhaa",
+    item_qty: "Kiasi",
+    item_note: "Maelezo",
+    urgent: "Haraka",
+    normal: "Kawaida",
+    missing: "Kinakosekana",
+    bought: "Kimenunuliwa",
+    faults_title: "Matengenezo",
+    faults_empty: "Hakuna hitilafu",
+    report_fault: "Ripoti hitilafu",
+    fault_title: "Nini kimeharibika?",
+    fault_place: "Mahali",
+    fault_note: "Maelezo",
+    more_title: "Zaidi",
+    language: "Lugha",
+    my_name: "Jina langu",
+    save: "Hifadhi",
+    cancel: "Ghairi",
+    add: "Ongeza",
+    back: "Rudi",
+    done: "Imekamilika",
+    saved: "Imehifadhiwa ✓",
+    sent: "Imetumwa ✓",
+    required: "Sehemu hii inahitajika",
+    err_network: "Hakuna intaneti — itatumwa mtandao ukirudi",
+    helper_role: "Msaidizi",
+    offline: "Nje ya mtandao — bado inafanya kazi",
+  },
+  ne: {
+    app_name: "Beitna",
+    tagline: "घरको सहज व्यवस्थापन",
+    welcome_title: "स्वागत छ",
+    welcome_sub: "घरमा पहुँच गर्न साइन इन गर्नुहोस्।",
+    login: "साइन इन",
+    signup: "खाता खोल्नुहोस्",
+    logout: "साइन आउट",
+    email: "इमेल",
+    password: "पासवर्ड",
+    your_name: "तपाईंको नाम",
+    pass_hint: "कम्तीमा ६ अक्षर",
+    create_account: "खाता खोल्नुहोस्",
+    enter: "प्रवेश",
+    have_account: "खाता छ?",
+    no_account: "खाता छैन?",
+    join_title: "घरमा सामेल हुनुहोस्",
+    join_sub: "परिवारले दिएको कोड लेख्नुहोस्।",
+    invite_code: "निमन्त्रणा कोड",
+    join: "सामेल हुनुहोस्",
+    nav_shopping: "किनमेल",
+    nav_faults: "मर्मत",
+    nav_more: "थप",
+    shopping_title: "किनमेल सूची",
+    shopping_empty: "अहिले केही कमी छैन",
+    add_item: "चाहिएको सामान थप्नुहोस्",
+    item_name: "सामान",
+    item_qty: "परिमाण",
+    item_note: "टिप्पणी",
+    urgent: "अत्यावश्यक",
+    normal: "सामान्य",
+    missing: "चाहिएको",
+    bought: "किनिसकियो",
+    faults_title: "मर्मत",
+    faults_empty: "कुनै समस्या छैन",
+    report_fault: "समस्या रिपोर्ट गर्नुहोस्",
+    fault_title: "के बिग्रिएको छ?",
+    fault_place: "स्थान",
+    fault_note: "विवरण",
+    more_title: "थप",
+    language: "भाषा",
+    my_name: "मेरो नाम",
+    save: "सुरक्षित गर्नुहोस्",
+    cancel: "रद्द गर्नुहोस्",
+    add: "थप्नुहोस्",
+    back: "पछाडि",
+    done: "सम्पन्न",
+    saved: "सुरक्षित भयो ✓",
+    sent: "पठाइयो ✓",
+    required: "यो विवरण आवश्यक छ",
+    err_network: "इन्टरनेट छैन — फर्किएपछि पठाइनेछ",
+    helper_role: "सहयोगी",
+    offline: "अफलाइन — अझै काम गर्छ",
+  },
 };
 
 let lang = (() => {
@@ -483,4 +647,202 @@ export function applyLangToDocument() {
   el.lang = info.code;
   el.dir = info.dir;
   el.dataset.lang = info.code;
+}
+
+/* ============================================================
+   ترجمة واجهة الأسرة العربية/الإنجليزية
+
+   واجهة الأسرة أقدم من طبقة i18n وكانت نصوصها موزعة بين الشاشات.
+   هذا القاموس المركزي يترجم العقد الثابتة عند الرسم من دون لمس بيانات
+   المستخدم أو أسماء العناصر. مسار العاملة يبقى على t() أعلاه لأنه يدعم
+   اللغات الإحدى عشرة كاملة.
+   ============================================================ */
+const MAIN_EN = new Map(Object.entries({
+  'الرئيسية': 'Home', 'المشتريات': 'Shopping', 'الأعطال': 'Repairs',
+  'التذكيرات': 'Reminders', 'المزيد': 'More', 'قائمة الاحتياجات': 'Pantry',
+  'إضافة': 'Add', 'حفظ': 'Save', 'إلغاء': 'Cancel', 'حذف': 'Delete',
+  'تعديل': 'Edit', 'رجوع': 'Back', 'إغلاق': 'Close', 'بحث': 'Search',
+  'الكل': 'All', 'اليوم': 'Today', 'هذا الأسبوع': 'This week',
+  'الجديدة': 'New', 'القادمة': 'Upcoming', 'المؤجلة': 'Postponed',
+  'المتكررة': 'Recurring', 'الناقصة': 'Missing', 'تم الشراء': 'Bought',
+  'قيد الشراء': 'Being purchased', 'جديد': 'New', 'قيد المتابعة': 'In progress',
+  'بانتظار فني': 'Waiting for technician', 'تم الإصلاح': 'Fixed',
+  'ضروري': 'Urgent', 'مهم': 'Important', 'عادي': 'Normal',
+  'عاجل': 'Urgent', 'متوسط': 'Medium', 'بدون': 'None', 'اختياري': 'Optional',
+  'ابدأ': 'Start', 'تم ✓': 'Done ✓', 'تم': 'Done', 'أصلحه': 'Mark fixed',
+  'نفّذه': 'Complete', 'إضافة عنصر': 'Add item', 'إضافة عطل': 'Add repair',
+  'عطل جديد': 'New repair', 'إضافة المنتج': 'Add product',
+  'إدارة قائمة الاحتياجات': 'Manage pantry', 'بدء مراجعة جديدة': 'Start a new review',
+  'كل شيء متوفر': 'Everything is stocked', 'لا توجد نتائج': 'No results',
+  'جرّب كلمة أخرى أو أعد الفلتر إلى «الكل»': 'Try another word or reset the filter to “All”',
+  'الأرشيف فارغ': 'The archive is empty',
+  'العناصر اللي تكمّلها أو تنتهي راح تظهر هنا': 'Completed items will appear here',
+  'الحساب': 'Account', 'الملف الشخصي': 'Profile', 'المعلومات الشخصية': 'Personal information',
+  'أفراد البيت': 'Household members', 'بيوتي': 'My homes',
+  'التبديل بين بيتك وبيت أهلك': 'Switch between your homes',
+  'الإشعارات': 'Notifications', 'التنبيهات والتفضيلات': 'Alerts and preferences',
+  'إدارة': 'Management', 'لوحة التحكم': 'Control panel',
+  'التفضيلات': 'Preferences', 'اللغة': 'Language',
+  'التصنيفات والأماكن': 'Categories and places', 'إدارة الأقسام والأنواع': 'Manage categories and types',
+  'الأرشيف': 'Archive', 'مشتريات وأعطال وتذكيرات منتهية': 'Completed shopping, repairs, and reminders',
+  'الوضع الليلي': 'Dark mode', 'مفعّل — مظهر داكن': 'On — dark appearance',
+  'غير مفعّل — مظهر فاتح': 'Off — light appearance', 'أخرى': 'Other',
+  'الدعم والمساعدة': 'Help and support', 'أسئلة شائعة وتواصل': 'FAQs and contact',
+  'تصدير نسخة احتياطية': 'Export backup', 'حفظ بياناتك كملف JSON': 'Save your data as a JSON file',
+  'استيراد نسخة': 'Import backup', 'استرجاع بياناتك من ملف': 'Restore your data from a file',
+  'تسجيل الخروج': 'Sign out', 'تسجيل الدخول': 'Sign in', 'إنشاء حساب جديد': 'Create account',
+  'كود الدعوة': 'Invite code', 'نسخ': 'Copy', 'مشاركة': 'Share',
+  'كود جديد': 'New code', 'إلغاء الكود': 'Revoke code',
+  'دعوة العاملة المنزلية': 'Invite household helper', 'كود جديد للعاملة': 'New helper code',
+  'لم يُنشأ بعد': 'Not created yet', 'الأعضاء': 'Members', 'عضو': 'Member',
+  'مالك': 'Owner', 'العاملة': 'Helper', 'إزالة': 'Remove', 'إزالة عضو': 'Remove member',
+  'الإعدادات': 'Settings', 'الصوت': 'Sound', 'الاهتزاز': 'Vibration',
+  'وضع الهدوء الليلي': 'Quiet hours', 'ملخص يومي': 'Daily summary',
+  'نشاط الشريك': 'Household activity', 'تحديثات الأعطال': 'Repair updates',
+  'تنبيهات التذكيرات': 'Reminder alerts', 'تذكيرات المشتريات': 'Shopping reminders',
+  'تشغيل صوت مع الإشعارات': 'Play a sound with notifications',
+  'اهتزاز خفيف عند التنبيه': 'Vibrate gently for alerts',
+  'تقرير قصير كل صباح': 'A short report every morning',
+  'كتم الإشعارات من 11 مساءً إلى 7 صباحًا': 'Mute notifications from 11 PM to 7 AM',
+  'حالة التطبيق': 'App status', 'تحميل الصفحة': 'Page loads', 'رسم الشاشة': 'Screen renders',
+  'نبضات المزامنة': 'Sync cycles', 'في انتظار الإرسال': 'Waiting to send',
+  'مدة التشغيل': 'Uptime', 'تواصل معنا': 'Contact us', 'الإبلاغ عن مشكلة': 'Report a problem',
+  'اقتراح ميزة جديدة': 'Suggest a feature', 'الحساب والأمان': 'Account and security',
+  'تغيير كلمة المرور': 'Change password', 'يُخرج جلساتك على الأجهزة الأخرى': 'Signs out your other devices',
+  'رمز استرداد جديد': 'New recovery code', 'يُعرض مرة واحدة — احفظه': 'Shown once — keep it safe',
+  'حالة الاتصال بالخادم': 'Server connection', 'الحساب:': 'Account:', 'عنوان الخادم:': 'Server address:',
+  'فحص الاتصال': 'Check connection', 'تفاصيل العطل': 'Repair details',
+  'تفاصيل التذكير': 'Reminder details', 'صورة العطل': 'Repair photo',
+  'المكان': 'Location', 'الأولوية': 'Priority', 'الحالة': 'Status', 'ملاحظات': 'Notes',
+  'الكمية': 'Quantity', 'الصنف': 'Item', 'السعر': 'Price', 'الأسعار': 'Prices',
+  'التصنيف': 'Category', 'بدون تصنيف': 'Uncategorized', 'بدون تذكير': 'No reminder',
+  'حذف العطل': 'Delete repair', 'حذف تذكير': 'Delete reminder',
+  'حذف القائمة المحفوظة': 'Delete saved list', 'حذف الكل': 'Delete all',
+  'قائمة سريعة': 'Quick list', 'القوائم المحفوظة': 'Saved lists',
+  'قائمة المشتريات الحالية': 'Current shopping list', 'لا توجد عناصر للمشاركة': 'No items to share',
+  'لا توجد عناصر غير مكتملة للحفظ': 'No incomplete items to save',
+  'لا توجد تصنيفات': 'No categories', 'أضف تصنيفًا جديدًا من الأسفل': 'Add a new category below',
+  'اسم البيت': 'Home name', 'اسم العضو': 'Member name', 'الدور': 'Role',
+  'رقم الجوال': 'Phone number', 'البريد الإلكتروني': 'Email', 'كلمة المرور': 'Password',
+  'تأكيد': 'Confirm', 'توليد': 'Generate', 'مستخدم': 'User', 'بيتي': 'My home',
+  'الصفحة غير موجودة': 'Page not found', 'لم نجد هذه الصفحة': 'We could not find this page',
+  'ارجع للرئيسية وواصل من هناك': 'Return home and continue from there',
+  'بدون إنترنت — التطبيق يعمل عادي': 'Offline — the app still works',
+  'كل شيء محفوظ ومتزامن مع بقية أفراد البيت.': 'Everything is saved and synced with the household.',
+  'المزامنة مع بيتك مفعّلة': 'Sync with your home is active', 'جارٍ رفع تغييراتك...': 'Uploading your changes…',
+  'تم الحفظ ✓': 'Saved ✓', 'تم الإرسال ✓': 'Sent ✓', 'تم الحذف': 'Deleted',
+  'تم نسخ الكود ✓': 'Code copied ✓', 'تم توليد كود جديد ✓': 'New code generated ✓',
+  'تم إلغاء كود الدعوة ✓': 'Invite code revoked ✓', 'تم إلغاء كود العاملة ✓': 'Helper code revoked ✓',
+  'ولّد كودًا أولًا': 'Generate a code first', 'تعذّر الحفظ — تأكد من الاتصال': 'Could not save — check your connection',
+  'ابحث عن صنف': 'Search for an item', 'أدخل كود الدعوة': 'Enter invite code',
+  'اكتب اسم البيت': 'Enter the home name', 'اكتب اسم العضو': 'Enter the member name',
+  'اكتب اسم العنصر': 'Enter the item name', 'اكتب اسمك داخل التطبيق': 'Enter your name in the app',
+  'اسمك': 'Your name', 'اسم العنصر': 'Item name', 'تفاصيل': 'Details',
+  'فاتورة': 'Bill', 'صيانة دورية': 'Routine maintenance', 'مناسبة عائلية': 'Family occasion',
+  'مناسبة عامة': 'General occasion', 'سنويًا': 'Yearly', 'التقويم': 'Calendar',
+  'سبت': 'Saturday', 'أحد': 'Sunday', 'اثنين': 'Monday', 'ثلاثاء': 'Tuesday',
+  'أربعاء': 'Wednesday', 'خميس': 'Thursday', 'جمعة': 'Friday',
+  'كل الحقول مطلوبة': 'All fields are required', 'هذا الحقل مطلوب': 'This field is required',
+  'البريد وكلمة المرور مطلوبان': 'Email and password are required',
+  'كلمة المرور يجب 6 أحرف على الأقل': 'Password must be at least 6 characters',
+  'كود غير صحيح أو غير موجود': 'The code is invalid or no longer active',
+  'جارٍ الدخول...': 'Signing in…', 'جارٍ الإنشاء...': 'Creating…',
+  'جارٍ الانضمام...': 'Joining…', 'جارٍ الاستعادة...': 'Restoring…', 'لحظة...': 'One moment…',
+  'تم الانضمام إلى البيت ✓': 'Joined the home ✓', 'تم إنشاء بيتك 🎉': 'Your home was created 🎉',
+  'تمت استعادة حسابك ✓': 'Account restored ✓', 'تم إزالة عضو': 'Member removed',
+  'تم حذف عطل': 'Repair deleted', 'تم حذف تذكير': 'Reminder deleted',
+  'تم حفظ الموعد ✓': 'Reminder saved ✓', 'تم تعديل التنبيه': 'Reminder updated',
+  'تم إنهاء الجلسة ✓': 'Session completed ✓', 'جاهز — أزل علامة ما نفد': 'Ready — uncheck anything out of stock',
+  'أنت غير متصل — التطبيق يعمل محليًا': 'You are offline — the app is working locally',
+  'لا يوجد اتصال — سيُرسل تلقائيًا عند عودة الإنترنت': 'No connection — it will send when internet returns',
+  'غير مسجّل': 'Not set', 'أنت': 'You', 'طلبها': 'Requested by', 'سجّله': 'Reported by',
+  'أضافه': 'Added by', 'صالح': 'Valid', 'مؤجل': 'Postponed',
+  'التذكير غير موجود': 'Reminder not found', 'العطل غير موجود': 'Repair not found',
+  'قد يكون تم حذفه أو تغييره': 'It may have been deleted or changed',
+  'ربما تم إنهاؤه أو حذفه': 'It may have been completed or deleted',
+  'إشعار عند تغيير حالة عطل': 'Notify when a repair status changes',
+  'نبهني عند أي إضافة من شريك البيت': 'Notify me when a household member adds something',
+  'ينبّهك قبل الموعد بوقت كافٍ': 'Alerts you before the due time',
+  'يوجد عناصر ضرورية لم تُشترَ بعد': 'There are urgent items that have not been bought',
+  'يشاهد فقط': 'View only', 'يضيف ويعدّل': 'Add and edit', 'لا يراه': 'No access',
+  'الحذف': 'Delete items', 'بيانات الأفراد': 'Member details',
+  'يرى أسعار المشتريات وتكاليف الأعطال ويعدّلها': 'Can view and edit shopping prices and repair costs',
+  'يرى هواتف أفراد البيت وبُرُدهم': 'Can view household phone numbers and emails',
+  'يستطيع ضمّ أفراد جدد إلى البيت': 'Can invite new household members',
+  'يحذف عناصر — بلا هذه الراية يضيف ويعدّل فقط': 'Can delete items — without this, can only add and edit',
+  'أنت مالك البيت — كل شيء هنا': 'You own this home — all permissions are enabled',
+  'حُفظت الصلاحيات': 'Permissions saved', 'استعادة الأسماء الافتراضية': 'Restore default names',
+  'إضافة عضو جديد': 'Add a new member', 'إضافة تصنيف': 'Add category',
+  'إضافة مكان': 'Add place', 'إضافة قائمة': 'Add list', 'حذف كل البيانات': 'Delete all data',
+  'إعادة الضبط وتحديث': 'Reset and refresh', 'تعذّر تشغيل التطبيق': 'Could not start the app',
+  'فشل الإقلاع': 'Startup failed', 'يمكنك التثبيت لاحقًا من قائمة المتصفح': 'You can install later from the browser menu',
+  'إن لم تكن أنت من فتح هذا الرابط بنفسك، اضغط «إلغاء».': 'If you did not open this link yourself, select Cancel.',
+  'سيتم توليد كود دعوة جديد. الكود القديم لن يعمل.': 'A new invite code will be generated. The old code will stop working.',
+  'سيتوقف الكود الحالي عن العمل فورًا. لن يتأثر الأعضاء الموجودون.': 'The current code will stop working immediately. Existing members are not affected.',
+  'سيتوقف الكود القديم عن العمل. من انضمّت به سابقًا تبقى في البيت.': 'The old code will stop working. Existing helpers remain in the home.',
+  'سيتوقف الكود الحالي عن العمل فورًا. العضوات المنضمات سابقًا لن يُحذفن.': 'The current code will stop working immediately. Existing helpers are not removed.',
+  'هل أنت متأكد من إزالة هذا العضو من البيت؟': 'Are you sure you want to remove this member from the home?',
+  'هل تريد إنهاء التذكير وحذفه من القائمة؟': 'Complete this reminder and remove it from the list?',
+  'التذكير السنوي يتجدّد تلقائيًا كل سنة. هل تريد التجديد الآن؟': 'This yearly reminder renews automatically. Renew it now?',
+  'تجديد التذكير السنوي': 'Renew yearly reminder',
+  'سيُعاد كل صنف إلى «متوفر»، ثم تمرّ على القائمة وتُزيل علامة ما نفد.': 'Every item will be marked stocked; then uncheck anything that ran out.',
+}));
+
+const MAIN_PATTERNS = [
+  [/^(\d+) أعضاء • كود الدعوة$/, '$1 members • invite code'],
+  [/^(\d+) أعضاء$/, '$1 members'],
+  [/^(\d+) تذكيرًا في هذا العرض$/, '$1 reminders in this view'],
+  [/^(\d+) متبقٍ للشراء$/, '$1 left to buy'],
+  [/^(\d+) صنفًا نفد$/, '$1 items out of stock'],
+  [/^(\d+) أعطال بين جديدة وتحت المتابعة$/, '$1 new or active repairs'],
+  [/^(\d+) دقيقة$/, '$1 min'],
+  [/^(\d+) مرة$/, '$1 times'],
+  [/^تمت إضافة (\d+) عناصر ✓$/, '$1 items added ✓'],
+  [/^أُضيف (\d+) صنفًا إلى المشتريات ✓$/, '$1 items added to shopping ✓'],
+  [/^أُضيف (\d+) صنفًا من القائمة الجاهزة ✓$/, '$1 items added from the starter list ✓'],
+  [/^🙋 (.+) تكفّل$/, '🙋 $1 took responsibility'],
+];
+
+function translateMainText(value) {
+  const direct = MAIN_EN.get(value);
+  if (direct) return direct;
+  for (const [pattern, replacement] of MAIN_PATTERNS) {
+    if (pattern.test(value)) return value.replace(pattern, replacement);
+  }
+  return value;
+}
+
+/** يترجم النصوص الثابتة فقط؛ لا يرسل شيئًا للشبكة ولا يستخدم ترجمة لحظية. */
+export function localizeMainUi(root = document) {
+  if (currentLang() !== 'en' || !root) return;
+  const translateNode = (node) => {
+    const raw = node.nodeValue || '';
+    const trimmed = raw.trim();
+    if (!trimmed) return;
+    const translated = translateMainText(trimmed);
+    if (translated !== trimmed) node.nodeValue = raw.replace(trimmed, translated);
+  };
+  if (root.nodeType === Node.TEXT_NODE) translateNode(root);
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let node;
+  while ((node = walker.nextNode())) translateNode(node);
+  const elements = root.querySelectorAll?.('[title],[placeholder],[aria-label]') || [];
+  for (const el of elements) {
+    for (const attr of ['title', 'placeholder', 'aria-label']) {
+      const value = el.getAttribute(attr);
+      if (value) el.setAttribute(attr, translateMainText(value));
+    }
+  }
+}
+
+let mainObserver;
+export function observeMainUi() {
+  if (mainObserver || typeof MutationObserver === 'undefined') return;
+  mainObserver = new MutationObserver((records) => {
+    if (currentLang() !== 'en') return;
+    for (const record of records) for (const node of record.addedNodes) {
+      if (node.nodeType === Node.ELEMENT_NODE || node.nodeType === Node.TEXT_NODE) localizeMainUi(node);
+    }
+  });
+  mainObserver.observe(document.body, { childList: true, subtree: true });
 }
