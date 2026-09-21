@@ -128,6 +128,37 @@ async function main() {
   assert.equal(translatedItem.translations.ar.name, 'ar:maziwa');
   assert.equal(translatedItem.translations.en.quantity, 'en:pakiti mbili');
 
+  /* قائمة المالك تصل للعاملة بلغتها، والعاملة تستطيع تعليم الناقص
+     وإضافة منتج ما دامت صلاحية المشتريات على «تعديل». */
+  const ownerPantry = await request('/write', {
+    method: 'POST', token: owner.token,
+    body: { ops: [{ col: 'pantry', id: '9101', op: 'set', data: {
+      id: 9101, name: 'حليب', sourceLang: 'ar', stocked: true,
+    } }] },
+  });
+  assert.equal(ownerPantry.data.applied, 1);
+  let helperPantry;
+  for (let i = 0; i < 30; i++) {
+    const sync = await request('/sync?since=0', { token: helper.token });
+    helperPantry = sync.data.cols.pantry.find((x) => x.id === 9101);
+    if (helperPantry?.translations?.sw?.name) break;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  assert.equal(helperPantry.translations.sw.name, 'sw:حليب');
+  assert.equal((await request('/write', {
+    method: 'POST', token: helper.token,
+    body: { ops: [{ col: 'pantry', id: '9101', op: 'merge', data: { stocked: false } }] },
+  })).data.applied, 1);
+  assert.equal((await request('/write', {
+    method: 'POST', token: helper.token,
+    body: { ops: [{ col: 'pantry', id: '9102', op: 'set', data: {
+      id: 9102, name: 'mafuta', sourceLang: 'sw', stocked: true,
+    } }] },
+  })).data.applied, 1);
+  const ownerPantrySync = await request('/sync?since=0', { token: owner.token });
+  assert.equal(ownerPantrySync.data.cols.pantry.find((x) => x.id === 9101).stocked, false);
+  assert.equal(ownerPantrySync.data.cols.pantry.find((x) => x.id === 9102).translations.ar.name, 'ar:mafuta');
+
   /* تخصيص المشتريات والأعطال للعاملة يعمل، لكن القدرات الحساسة تبقى ثابتة. */
   const limitedHelper = await request(`/member/${helper.uid}/caps`, {
     method: 'POST', token: owner.token,
@@ -147,6 +178,12 @@ async function main() {
   });
   assert.equal(blockedShopping.data.applied, 0);
   assert.equal(blockedShopping.data.denied, 1);
+  const blockedPantry = await request('/write', {
+    method: 'POST', token: helper.token,
+    body: { ops: [{ col: 'pantry', id: '9103', op: 'set', data: { name: 'blocked pantry' } }] },
+  });
+  assert.equal(blockedPantry.data.applied, 0);
+  assert.equal(blockedPantry.data.denied, 1);
   const helperMe = await request('/me', { token: helper.token });
   assert.equal('token' in helperMe.data, false, 'أعاد /me رمز الجلسة بلا حاجة');
   const deniedOccasion = await request('/write', {

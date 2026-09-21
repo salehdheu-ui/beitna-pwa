@@ -379,10 +379,14 @@ const MAPPERS = {
   }),
   categories: (d) => ({ id: Number(d.id), name: d.name || '', icon: d.icon || '📦', type: d.type || 'Shopping' }),
   favoriteLists: (d) => ({ id: Number(d.id), name: d.name || '', icon: d.icon || '⭐', items: d.items || [] }),
-  pantry: (d) => ({ id: Number(d.id), name: d.name || '', cat: d.cat || 'canned', stocked: d.stocked !== false }),
+  pantry: (d) => ({
+    id: Number(d.id), name: d.name || '', cat: d.cat || 'canned', stocked: d.stocked !== false,
+    sourceLang: d.sourceLang || '', translations: d.translations && typeof d.translations === 'object' ? d.translations : {},
+  }),
   pantryCategories: (d) => ({
     id: String(d.id || ''), name: String(d.name || '').slice(0, 40),
     icon: String(d.icon || '📦').slice(0, 8), createdAt: Number(d.createdAt) || Date.now(),
+    sourceLang: d.sourceLang || '', translations: d.translations && typeof d.translations === 'object' ? d.translations : {},
   }),
 };
 

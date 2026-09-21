@@ -13,6 +13,7 @@ import {
 } from '../store.js';
 import { emptyState, toast, confirmDialog, openSheet } from '../ui.js';
 import { go } from '../router.js';
+import { currentLang, localizedText } from '../i18n.js';
 
 let openCat = null;      // القسم المفتوح
 let onlyNeeded = false;  // عرض الناقص فقط
@@ -32,7 +33,7 @@ export function pantryScreen() {
   if (!all.length) return emptyPantry(categories);
 
   const q = query.trim();
-  const match = (p) => (!q || p.name.includes(q)) && (!onlyNeeded || !p.stocked);
+  const match = (p) => (!q || localizedText(p, 'name').includes(q)) && (!onlyNeeded || !p.stocked);
   const needed = all.filter((p) => !p.stocked);
   const pct = all.length ? Math.round(((all.length - needed.length) / all.length) * 100) : 0;
 
@@ -115,7 +116,7 @@ export function pantryScreen() {
           const p = getState().pantry.find((x) => x.id === id);
           const ok = await confirmDialog({
             title: 'حذف من القائمة',
-            message: `حذف "${p ? p.name : ''}" من قائمة الاحتياجات نهائيًا؟`,
+            message: `حذف "${p ? localizedText(p, 'name') : ''}" من قائمة الاحتياجات نهائيًا؟`,
             confirmText: 'حذف', danger: true,
           });
           if (ok) { removePantryItem(id); toast('حُذف من القائمة'); rerender(); }
@@ -202,7 +203,7 @@ function groupCard({ cat, items }) {
     <div class="card" style="padding:0;overflow:hidden">
       <button class="list-row" data-cat="${esc(cat.id)}" style="width:100%">
         <span class="ic">${esc(cat.icon)}</span>
-        <span class="grow"><span class="t">${esc(cat.name)}</span><br>
+        <span class="grow"><span class="t">${esc(localizedText(cat, 'name'))}</span><br>
           <span class="d">${items.length} صنفًا${need ? ` — ${need} نفد` : ''}</span></span>
         <span class="arrow">${open ? '⌄' : '‹'}</span>
       </button>
@@ -217,10 +218,10 @@ function itemRow(p) {
       <button class="check ${p.stocked ? 'on' : ''}" data-tick="${p.id}"
               aria-label="${p.stocked ? 'متوفر' : 'نفد'}">✓</button>
       <div class="grow col">
-        <div class="title">${esc(p.name)}</div>
+        <div class="title">${esc(localizedText(p, 'name'))}</div>
         ${p.stocked ? '' : '<div class="meta"><span class="badge warn">نفد</span></div>'}
       </div>
-      <button class="icon-btn" data-edit="${p.id}" title="تعديل" aria-label="تعديل ${esc(p.name)}">✏️</button>
+      <button class="icon-btn" data-edit="${p.id}" title="تعديل" aria-label="تعديل ${esc(localizedText(p, 'name'))}">✏️</button>
       <button class="icon-btn" data-del="${p.id}" title="حذف">🗑️</button>
     </div>`;
 }
@@ -245,7 +246,7 @@ function emptyPantry(categories) {
       </div>
       ${custom.length ? `<div class="card mt-s">
         <div class="small strong">الأقسام التي أضفتها</div>
-        <div class="chips mt-s">${custom.map((c) => `<span class="chip">${esc(c.icon)} ${esc(c.name)}</span>`).join('')}</div>
+        <div class="chips mt-s">${custom.map((c) => `<span class="chip">${esc(c.icon)} ${esc(localizedText(c, 'name'))}</span>`).join('')}</div>
       </div>` : ''}`,
     mount(root, rerender) {
       root.addEventListener('click', (e) => {
@@ -263,7 +264,7 @@ function emptyPantry(categories) {
 
 function categoryOptions(selected) {
   return pantryCategoriesOf().map((c) =>
-    `<option value="${esc(c.id)}" ${String(c.id) === String(selected) ? 'selected' : ''}>${esc(c.icon)} ${esc(c.name)}</option>`
+    `<option value="${esc(c.id)}" ${String(c.id) === String(selected) ? 'selected' : ''}>${esc(c.icon)} ${esc(localizedText(c, 'name'))}</option>`
   ).join('');
 }
 
@@ -272,7 +273,7 @@ function itemSheet(rerender, item = null) {
   openSheet(`
     <h3>${editing ? 'تعديل المنتج' : 'إضافة منتج للاحتياجات'}</h3>
     <div class="field"><label for="pname">اسم الصنف</label>
-      <input class="input" id="pname" placeholder="تونة" autocomplete="off" value="${esc(item?.name || '')}"></div>
+      <input class="input" id="pname" placeholder="تونة" autocomplete="off" value="${esc(item ? localizedText(item, 'name') : '')}"></div>
     <div class="field"><label for="pcat">القسم</label>
       <select class="input" id="pcat">
         ${categoryOptions(item?.cat || openCat || 'canned')}
@@ -285,8 +286,8 @@ function itemSheet(rerender, item = null) {
         const name = sheet.querySelector('#pname').value.trim();
         if (!name) return toast('اكتب اسم الصنف');
         const cat = sheet.querySelector('#pcat').value;
-        if (editing) updatePantryItem(item.id, { name, cat });
-        else addPantryItem({ name, cat });
+        if (editing) updatePantryItem(item.id, { name, cat, sourceLang: currentLang() });
+        else addPantryItem({ name, cat, sourceLang: currentLang() });
         openCat = cat;
         close(); toast(editing ? `تم تعديل "${name}" ✓` : `أُضيف "${name}" ✓`); rerender();
       };
@@ -308,7 +309,7 @@ function categorySheet(rerender) {
       sheet.querySelector('#pcadd').onclick = () => {
         const name = sheet.querySelector('#pcname').value.trim();
         if (!name) return toast('اكتب اسم القسم');
-        const category = addPantryCategory({ name, icon: sheet.querySelector('#pcicon').value });
+        const category = addPantryCategory({ name, icon: sheet.querySelector('#pcicon').value, sourceLang: currentLang() });
         if (!category) return toast('اسم القسم موجود بالفعل');
         openCat = category.id;
         close(); toast(`أُضيف قسم "${name}" ✓`); rerender();

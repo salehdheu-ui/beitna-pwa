@@ -5,12 +5,16 @@
    ============================================================ */
 
 import { esc } from '../util.js';
-import { getState, addShopping, addFault, signOut, persistNow } from '../store.js';
+import {
+  getState, addShopping, addFault, signOut, persistNow, canSee, canWrite,
+  setPantryStock, addPantryItem, sendPantryItemToShopping,
+} from '../store.js';
 import { toast, openSheet } from '../ui.js';
 import { t, LANGS, currentLang, setLang, applyLangToDocument, localizedText } from '../i18n.js';
 import { saveNotificationPrefs } from '../cloud.js';
 
 const dirAttr = () => (document.documentElement.dir === 'rtl' ? 'rtl' : 'ltr');
+let pantryQuery = '';
 
 function langSheet(onPick, allowed = null) {
   const choices = allowed ? LANGS.filter((l) => allowed.includes(l.code)) : LANGS;
@@ -62,6 +66,14 @@ export function helperScreen() {
   const s = getState();
   const missing = s.shopping.filter((i) => i.status !== 'تم الشراء');
   const openFaults = s.faults.filter((f) => f.status !== 'تم الإصلاح');
+  const shoppingVisible = canSee('shopping');
+  const shoppingWritable = canWrite('shopping');
+  const faultsVisible = canSee('faults');
+  const faultsWritable = canWrite('faults');
+  const query = pantryQuery.trim().toLocaleLowerCase(currentLang());
+  const pantry = (s.pantry || []).filter((item) => !query ||
+    localizedText(item, 'name').toLocaleLowerCase(currentLang()).includes(query));
+  const pantryMissing = (s.pantry || []).filter((item) => !item.stocked).length;
 
   return {
     title: t('shopping_title'),
@@ -71,10 +83,40 @@ export function helperScreen() {
       <button class="icon-btn" data-act="lang" title="${esc(t('language'))}">🌐</button>`,
     html: `
       <div class="section">
-        <button class="btn block" data-act="additem">＋ ${esc(t('add_item'))}</button>
-        <button class="btn ghost block mt-s" data-act="addfault">🔧 ${esc(t('report_fault'))}</button>
+        ${shoppingWritable ? `<button class="btn block" data-act="additem">＋ ${esc(t('add_item'))}</button>` : ''}
+        ${faultsWritable ? `<button class="btn ghost block mt-s" data-act="addfault">🔧 ${esc(t('report_fault'))}</button>` : ''}
       </div>
 
+      ${shoppingVisible ? `
+      <div class="section">
+        <div class="section-title">📋 ${esc(t('needs_list'))} (${(s.pantry || []).length})</div>
+        <div class="card small muted" style="margin-bottom:10px">${esc(t('needs_hint'))}</div>
+        ${shoppingWritable ? `<button class="btn soft block" data-act="addpantry">＋ ${esc(t('add_product'))}</button>` : ''}
+        <div class="search mt-s">
+          <span>🔍</span>
+          <input id="helperPantrySearch" placeholder="${esc(t('search_item'))}" value="${esc(pantryQuery)}" dir="${dirAttr()}">
+        </div>
+        <div class="row between mt-s">
+          <span class="tiny muted">${esc(t('available'))}: ${(s.pantry || []).length - pantryMissing}</span>
+          <span class="tiny muted">${esc(t('out_of_stock'))}: ${pantryMissing}</span>
+        </div>
+        <div class="stack mt-s">
+          ${pantry.length ? pantry.map((item) => `
+            <div class="item">
+              ${shoppingWritable
+                ? `<button class="check ${item.stocked ? 'on' : ''}" data-pantry-tick="${item.id}"
+                    aria-label="${esc(item.stocked ? t('available') : t('out_of_stock'))}">✓</button>`
+                : `<span class="check ${item.stocked ? 'on' : ''}" aria-hidden="true">✓</span>`}
+              <div class="grow col">
+                <div class="title">${esc(localizedText(item, 'name'))}</div>
+                <div class="meta">${esc(item.stocked ? t('available') : t('out_of_stock'))}</div>
+              </div>
+            </div>`).join('')
+            : `<div class="card small muted center">${esc(t('no_items'))}</div>`}
+        </div>
+      </div>` : ''}
+
+      ${shoppingVisible ? `
       <div class="section">
         <div class="section-title">${esc(t('shopping_title'))} (${missing.length})</div>
         ${missing.length ? `
@@ -90,8 +132,9 @@ export function helperScreen() {
               </div>`).join('')}
           </div>`
         : `<div class="card small muted center">${esc(t('shopping_empty'))}</div>`}
-      </div>
+      </div>` : ''}
 
+      ${faultsVisible ? `
       <div class="section">
         <div class="section-title">${esc(t('faults_title'))} (${openFaults.length})</div>
         ${openFaults.length ? `
@@ -103,7 +146,7 @@ export function helperScreen() {
               </div>`).join('')}
           </div>`
         : `<div class="card small muted center">${esc(t('faults_empty'))}</div>`}
-      </div>
+      </div>` : ''}
 
       <div class="section">
         <button class="btn ghost block" data-act="logout">🚪 ${esc(t('logout'))}</button>
@@ -115,11 +158,32 @@ export function helperScreen() {
       root.addEventListener('click', (e) => {
         if (e.target.closest('[data-act="additem"]')) { addItemSheet(rerender); return; }
         if (e.target.closest('[data-act="addfault"]')) { addFaultSheet(rerender); return; }
+        if (e.target.closest('[data-act="addpantry"]')) { addPantrySheet(rerender); return; }
+        const pantryTick = e.target.closest('[data-pantry-tick]');
+        if (pantryTick && shoppingWritable) {
+          const id = Number(pantryTick.dataset.pantryTick);
+          const item = getState().pantry.find((entry) => entry.id === id);
+          if (!item) return;
+          const stocked = !item.stocked;
+          setPantryStock(id, stocked);
+          const moved = stocked ? 0 : sendPantryItemToShopping(id);
+          toast(moved ? t('moved_to_shopping') : t('saved'));
+          rerender(); return;
+        }
         if (e.target.closest('[data-act="logout"]')) {
           signOut();
           persistNow();
           location.replace(location.origin + location.pathname);
         }
+      });
+
+      const search = root.querySelector('#helperPantrySearch');
+      search?.addEventListener('input', () => {
+        pantryQuery = search.value;
+        const pos = search.selectionStart;
+        rerender();
+        const next = document.querySelector('#helperPantrySearch');
+        if (next) { next.focus({ preventScroll: true }); next.setSelectionRange(pos, pos); }
       });
     },
 
@@ -128,6 +192,27 @@ export function helperScreen() {
       if (act === 'update') updateHelperApp();
     },
   };
+}
+
+function addPantrySheet(rerender) {
+  openSheet(`
+    <h3>${esc(t('add_product'))}</h3>
+    <div class="field"><label for="hpn">${esc(t('item_name'))}</label>
+      <input class="input" id="hpn" dir="${dirAttr()}"></div>
+    <button class="btn block" data-save>${esc(t('save'))}</button>
+    <button class="btn ghost block mt-s" data-close>${esc(t('cancel'))}</button>
+  `, {
+    onMount(el, close) {
+      el.querySelector('[data-close]').onclick = close;
+      el.querySelector('[data-save]').onclick = () => {
+        const name = el.querySelector('#hpn').value.trim();
+        if (!name) return toast(t('required'));
+        addPantryItem({ name, sourceLang: currentLang(), stocked: true });
+        close(); toast(t('saved')); rerender();
+      };
+      el.querySelector('#hpn').focus({ preventScroll: true });
+    },
+  });
 }
 
 function addItemSheet(rerender) {

@@ -19,7 +19,7 @@ const SECRET_FILE = path.join(DATA_DIR, 'secret.key');
    بقيمة تتجاوز 30 يومًا حتى لا يعيد إعدادٌ خاطئ جلسات السنة القديمة. */
 const TOKEN_DAYS = Math.min(30, Math.max(1, Number(process.env.TOKEN_DAYS || 14)));
 const PUSH_SUBJECT = process.env.PUSH_SUBJECT || 'mailto:admin@beitna.local';
-const SERVER_VERSION = '1.12.0';
+const SERVER_VERSION = '1.13.0';
 
 /* لوحة الإدارة المنفصلة لها رمز مستقل تمامًا عن حسابات بيتنا.
 
@@ -144,6 +144,54 @@ const translator = createTranslator({
   enabled: String(process.env.TRANSLATION_ENABLED || '1') !== '0',
   timeoutMs: Math.min(10000, Math.max(1000, Number(process.env.TRANSLATION_TIMEOUT_MS || 5000))),
 });
+
+/* أسماء قائمة الاحتياجات يكتبها المالك غالبًا بالعربية أو الإنجليزية،
+   بينما العاملة يجب أن تراها باللغة المحفوظة في حسابها. نترجمها في
+   الخلفية عند مزامنتها، ونحفظ النتيجة داخل المستند كي تصبح متاحة دون
+   إنترنت ولا نعيد طلبها من المزوّد كل مرة. */
+const pantryTranslationJobs = new Map();
+function schedulePantryTranslations(hh, language) {
+  const target = normalizeLang(language || 'ar');
+  const jobKey = `${hh.id}:${target}`;
+  if (pantryTranslationJobs.has(jobKey)) return;
+
+  const work = [];
+  for (const col of ['pantry', 'pantryCategories']) {
+    for (const doc of Object.values(hh.cols[col] || {})) {
+      if (doc.deleted || !String(doc.name || '').trim()) continue;
+      if (String(doc.translations?.[target]?.name || '').trim()) continue;
+      const source = normalizeLang(doc.sourceLang || 'ar');
+      if (source === target) continue;
+      work.push({ doc, col, source, original: String(doc.name) });
+    }
+  }
+  if (!work.length) return;
+
+  const job = (async () => {
+    for (let i = 0; i < work.length; i += 6) {
+      let changed = false;
+      await Promise.allSettled(work.slice(i, i + 6).map(async ({ doc, source, original }) => {
+        const translated = await translator.translateText(original, source, target);
+        /* لو عُدّل الاسم أثناء انتظار المزوّد، لا نربط به ترجمة قديمة. */
+        if (!translated || doc.deleted || String(doc.name) !== original) return;
+        doc.translations = { ...(doc.translations || {}) };
+        doc.translations[target] = { ...(doc.translations[target] || {}), name: translated };
+        doc.updatedAt = Math.max(now(), Number(doc.updatedAt || 0) + 1);
+        changed = true;
+      }));
+      if (changed) { hh.updatedAt = now(); save(); }
+    }
+  })().finally(() => pantryTranslationJobs.delete(jobKey));
+  pantryTranslationJobs.set(jobKey, job);
+}
+
+function schedulePantryForHelpers(hh) {
+  for (const member of Object.values(hh.members || {})) {
+    if (member.deleted || permOf(member) !== 'helper') continue;
+    const helper = db.users[member.uid];
+    if (helper) schedulePantryTranslations(hh, helper.prefs?.language || 'ar');
+  }
+}
 
 let writesSinceBackup = 0;
 
@@ -1353,7 +1401,9 @@ async function route(req, res, url) {
       .map((m) => (myCaps.members
         ? m
         : { uid: m.uid, name: m.name, role: m.role, deleted: !!m.deleted, updatedAt: m.updatedAt }));
-    return send(res, 200, out);
+    send(res, 200, out);
+    if (myPerm === 'helper') schedulePantryTranslations(hh, user.prefs?.language || 'ar');
+    return;
   }
 
 /* ============================================================
@@ -1419,6 +1469,7 @@ function invalidateTranslations(col, patch, previous, sourceLang) {
     const added = [];        // العناصر الجديدة فقط — للإشعار
     const acts = [];         // تكفُّل وإنجاز — يُشعَر بها بقية أفراد البيت
     let translatedDocs = 0;
+    let pantryTouched = false;
     for (const op of ops) {
       const col = String(op.col || '');
       if (!COLS.includes(col)) continue;
@@ -1479,9 +1530,11 @@ function invalidateTranslations(col, patch, previous, sourceLang) {
         if (done && done !== 'create') acts.push({ col, doc, act: done });
       }
       if (isNew && op.op !== 'delete') added.push({ col, data: bucket[id] });
+      if (col === 'pantry' || col === 'pantryCategories') pantryTouched = true;
       applied++;
     }
     if (applied) { hh.updatedAt = t; save(); }
+    if (pantryTouched) schedulePantryForHelpers(hh);
     if (added.length) pushHouseholdActivity(hh, user.uid, activityPayload(added, user));
     if (acts.length) pushHouseholdActivity(hh, user.uid, actsPayload(acts, user));
     return send(res, 200, { ok: true, applied, denied, now: t });
@@ -1548,6 +1601,7 @@ function invalidateTranslations(col, patch, previous, sourceLang) {
     const b = await readBody(req);
     user.prefs = { ...(user.prefs || {}), ...b, updatedAt: now() };
     save();
+    if (myPerm === 'helper' && b.language) schedulePantryTranslations(hh, b.language);
     return send(res, 200, { ok: true });
   }
 

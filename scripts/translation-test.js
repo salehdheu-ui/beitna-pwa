@@ -40,6 +40,12 @@ async function main() {
   assert.equal(arabic.translations.ar.title, 'تسريب ماء');
   assert.equal(arabic.translations.en.title, 'en:تسريب ماء');
 
+  const pantry = await translator.translateDocument('pantry', {
+    name: 'mafuta', sourceLang: 'sw', stocked: true,
+  }, 'sw');
+  assert.equal(pantry.translations.ar.name, 'ar:mafuta');
+  assert.equal(pantry.translations.en.name, 'en:mafuta');
+
   const unavailable = createTranslator({
     cache: {}, apiUrl: 'https://translation.test/get',
     fetchFn: async () => ({ ok: false, status: 503 }),

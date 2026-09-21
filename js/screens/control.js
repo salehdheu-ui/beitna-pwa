@@ -209,7 +209,9 @@ function capsEditor(m) {
 
     ${editableSections.map((key) => `
       <div style="margin-bottom:12px">
-        <div class="t" style="margin-bottom:6px">${sections[key].icon} ${esc(sections[key].label)}</div>
+        <div class="t" style="margin-bottom:6px">${sections[key].icon} ${esc(
+          helper && key === 'shopping' ? `${sections[key].label} + قائمة الاحتياجات` : sections[key].label
+        )}</div>
         <div class="chip-select" data-level="${esc(key)}">
           ${LEVELS.map((l) => `
             <button type="button" class="chip-opt ${caps[key] === l.value ? 'active' : ''}"
@@ -221,7 +223,7 @@ function capsEditor(m) {
       <div class="card soft small" style="margin-top:4px">
         <div class="strong">🔒 صلاحيات العاملة المحمية</div>
         <p class="muted" style="margin:6px 0 0">
-          يمكن تخصيص المشتريات والأعطال فقط. أما التذكيرات والأسعار وبيانات الأفراد وكود الدعوة والحذف فتبقى محجوبة لحماية البيت.
+          يمكن تخصيص المشتريات وقائمة الاحتياجات والأعطال فقط. «عرض» يتيح القراءة، و«تعديل» يسمح للعاملة بوضع علامة المتوفر والناقص وإضافة منتج. أما التذكيرات والأسعار وبيانات الأفراد وكود الدعوة والحذف فتبقى محجوبة لحماية البيت.
         </p>
       </div>
     ` : `<div class="list">

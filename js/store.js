@@ -370,12 +370,12 @@ export function uploadLocalData() {
 /* ============================================================
    المشتريات
    ============================================================ */
-export function addShopping({ name, quantity = '', category = '', priority = 'عادي', note = '', price = '', sourceLang = '' }) {
+export function addShopping({ name, quantity = '', category = '', priority = 'عادي', note = '', price = '', sourceLang = '', translations = {} }) {
   let created;
   update((s) => {
     created = {
       id: newId(),
-      name, quantity, category, priority, note, sourceLang,
+      name, quantity, category, priority, note, sourceLang, translations,
       status: 'ناقص',
       owner: s.profile.name || 'أنا',
       ownerUid: cloudUid || 'local',
@@ -784,6 +784,7 @@ export function seedPantry(force = false) {
     name: x.n,
     cat: x.c,
     stocked: !x.out,
+    sourceLang: 'ar',
     updatedAt: t,
   }));
   update((s) => {
@@ -830,7 +831,7 @@ export function completePantry() {
   if (!missing.length) return 0;
   const t = Date.now();
   const items = missing.map((x) => ({
-    id: newId(), name: x.n, cat: x.c, stocked: !x.out, updatedAt: t,
+    id: newId(), name: x.n, cat: x.c, stocked: !x.out, sourceLang: 'ar', updatedAt: t,
   }));
   update((s) => {
     s.pantry = s.pantry.concat(items);
@@ -840,10 +841,10 @@ export function completePantry() {
   return items.length;
 }
 
-export function addPantryItem({ name, cat = 'canned', stocked = true }) {
+export function addPantryItem({ name, cat = 'canned', stocked = true, sourceLang = 'ar' }) {
   const clean = String(name || '').trim();
   if (!clean) return null;
-  const item = { id: newId(), name: clean.slice(0, 60), cat, stocked: !!stocked, updatedAt: Date.now() };
+  const item = { id: newId(), name: clean.slice(0, 60), cat, stocked: !!stocked, sourceLang, updatedAt: Date.now() };
   update((s) => { s.pantry.unshift(item); });
   push('save', 'pantry', item);
   return item;
@@ -861,15 +862,16 @@ export function pantryCategoriesOf() {
     .map((c) => ({
       id: String(c.id), name: String(c.name || 'قسم').slice(0, 40),
       icon: String(c.icon || '📦').slice(0, 8), custom: !PANTRY_CATEGORIES.some((x) => x.id === String(c.id)),
+      sourceLang: c.sourceLang || 'ar', translations: c.translations && typeof c.translations === 'object' ? c.translations : {},
     }));
 }
 
-export function addPantryCategory({ name, icon = '📦' }) {
+export function addPantryCategory({ name, icon = '📦', sourceLang = 'ar' }) {
   const clean = String(name || '').trim().slice(0, 40);
   const mark = String(icon || '').trim().slice(0, 8) || '📦';
   if (!clean) return null;
   if (pantryCategoriesOf().some((c) => c.name.trim().toLocaleLowerCase() === clean.toLocaleLowerCase())) return null;
-  const category = { id: 'custom-' + uid(), name: clean, icon: mark, createdAt: Date.now(), updatedAt: Date.now() };
+  const category = { id: 'custom-' + uid(), name: clean, icon: mark, sourceLang, createdAt: Date.now(), updatedAt: Date.now() };
   update((s) => { s.pantryCategories.push(category); });
   push('save', 'pantryCategories', category);
   return category;
@@ -910,7 +912,7 @@ export function renamePantryItem(id, name) {
 }
 
 /** تعديل الاسم والقسم معًا من شاشة قائمة الاحتياجات. */
-export function updatePantryItem(id, { name, cat }) {
+export function updatePantryItem(id, { name, cat, sourceLang }) {
   const clean = String(name || '').trim();
   if (!clean) return null;
   let item = null;
@@ -919,6 +921,7 @@ export function updatePantryItem(id, { name, cat }) {
     if (!p) return;
     p.name = clean.slice(0, 60);
     if (cat !== undefined && cat !== null && String(cat)) p.cat = String(cat);
+    if (sourceLang) p.sourceLang = sourceLang;
     p.updatedAt = Date.now();
     item = p;
   });
@@ -942,11 +945,28 @@ export function sendNeededToShopping() {
   let added = 0;
   for (const p of needed) {
     if (pending.has(p.name)) continue;
-    addShopping({ name: p.name, category: '', note: 'من قائمة الاحتياجات' });
+    addShopping({
+      name: p.name, category: '', note: 'من قائمة الاحتياجات',
+      sourceLang: p.sourceLang || 'ar', translations: p.translations || {},
+    });
     added++;
   }
   if (added) logActivity(`أُرسل ${added} صنفًا من الاحتياجات إلى المشتريات`);
   return added;
+}
+
+/** يرسل صنفًا واحدًا عند تعليم العاملة أنه نفد، من دون إنشاء نسخة مكررة. */
+export function sendPantryItemToShopping(id) {
+  const p = state.pantry.find((item) => item.id === id);
+  if (!p || p.stocked) return 0;
+  const exists = state.shopping.some((item) => item.status !== 'تم الشراء' && item.name === p.name);
+  if (exists) return 0;
+  addShopping({
+    name: p.name, category: '', note: 'من قائمة الاحتياجات',
+    sourceLang: p.sourceLang || 'ar', translations: p.translations || {},
+  });
+  logActivity(`أُرسل ${p.name} من الاحتياجات إلى المشتريات`);
+  return 1;
 }
 
 /** مراجعة دورية: يُعيد كل شيء إلى «متوفر» لتبدأ جولة جديدة */

@@ -1,8 +1,8 @@
 'use strict';
 
-/* ترجمة محتوى العاملة فقط. النص الأصلي يبقى المصدر الرسمي، بينما تُحفظ
-   النسختان العربية والإنجليزية بجانبه حتى لا نعيد إرسال النص إلى المزود
-   عند كل فتح أو مزامنة. */
+/* ترجمة المحتوى المتبادل مع العاملة. النص الأصلي يبقى المصدر الرسمي؛
+   إدخالاتها تُحفظ معها العربية والإنجليزية، وقائمة الاحتياجات التي ينشئها
+   المالك تُترجم إلى لغتها عبر translateText وتُحفظ بالطريقة نفسها. */
 
 const crypto = require('crypto');
 
@@ -10,6 +10,8 @@ const SUPPORTED_LANGS = new Set(['ar', 'en', 'hi', 'si', 'ta', 'am', 'tl', 'id',
 const FIELDS = {
   shopping: ['name', 'quantity', 'note'],
   faults: ['title', 'location', 'note'],
+  pantry: ['name'],
+  pantryCategories: ['name'],
 };
 const TARGETS = ['ar', 'en'];
 const CACHE_MAX = 5000;

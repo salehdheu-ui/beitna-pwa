@@ -105,6 +105,10 @@ if (helperSource.includes('data-act="logout"') && helperSource.includes('data-ac
     helperSource.includes('persistNow()')) {
   ok('شاشة العاملة فيها خروج صريح وتحديث يدوي محفوظ');
 } else bad('شاشة العاملة تفتقد زر الخروج أو التحديث');
+if (helperSource.includes('data-pantry-tick') && helperSource.includes('sendPantryItemToShopping') &&
+    helperSource.includes("t('needs_list')")) {
+  ok('قائمة الاحتياجات موصولة بشاشة العاملة والناقص ينتقل للمشتريات');
+} else bad('قائمة الاحتياجات غير مكتملة في شاشة العاملة');
 if (cloudSource.includes('localizedPush') || serverSource.includes('localizedPush'))
   ok('إشعارات العاملة السحابية تتبع لغة حسابها');
 else bad('إشعارات العاملة السحابية لا تتبع اللغة');
@@ -119,7 +123,7 @@ if (cloudSource.includes('perm: m.perm') && cloudSource.includes('caps: m.caps')
   ok('دور الفرد وصلاحياته يصلان كاملين إلى لوحة التحكم');
 } else bad('قائمة الأفراد تفقد الدور أو الصلاحيات قبل عرضها');
 if (controlSource.includes("helper ? ['shopping', 'faults']") &&
-    controlSource.includes('صلاحيات العاملة المحمية')) {
+    controlSource.includes('قائمة الاحتياجات') && controlSource.includes('صلاحيات العاملة المحمية')) {
   ok('العاملة لا ترى خيارات حساسة وهمية وتخصيصها محصور في المشتريات والأعطال');
 } else bad('واجهة العاملة ما زالت تعرض صلاحيات لا ينفذها الخادم');
 
@@ -267,10 +271,16 @@ for (const [name, source] of [['المخزن', store], ['المزامنة', clou
 }
 if (pantry.includes('data-edit=') && pantry.includes('updatePantryItem')) ok('تعديل اسم المنتج وقسمه موصول');
 else bad('ميزة تعديل منتج الاحتياجات غير مكتملة');
+if (pantry.includes("localizedText(p, 'name')") && pantry.includes("localizedText(cat, 'name')"))
+  ok('المالك يرى أسماء الاحتياجات باللغة العربية أو الإنجليزية المختارة');
+else bad('قائمة المالك لا تعرض الترجمات المحفوظة لمحتوى الاحتياجات');
 if (pantry.includes('data-add-product') && pantry.includes('data-add-category')) ok('زرا إضافة المنتج والقسم ظاهران');
 else bad('أزرار إضافة المنتجات والأقسام غير ظاهرة');
 if (store.includes("push('save', 'pantryCategories'") && cloud.includes("'pantryCategories'")) ok('الأقسام الجديدة تتزامن بين الأجهزة');
 else bad('الأقسام الجديدة لا تتزامن بين الأجهزة');
+if (cloud.includes('translations: d.translations') && server.includes('schedulePantryTranslations')) {
+  ok('محتوى قائمة الاحتياجات يُحفظ ويصل مترجمًا إلى لغة العاملة');
+} else bad('ترجمة محتوى قائمة الاحتياجات غير موصولة من الخادم إلى العاملة');
 
 /* ---------- لوحة إدارة النظام ---------- */
 console.log('لوحة الإدارة:');
