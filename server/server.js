@@ -19,7 +19,7 @@ const SECRET_FILE = path.join(DATA_DIR, 'secret.key');
    بقيمة تتجاوز 30 يومًا حتى لا يعيد إعدادٌ خاطئ جلسات السنة القديمة. */
 const TOKEN_DAYS = Math.min(30, Math.max(1, Number(process.env.TOKEN_DAYS || 14)));
 const PUSH_SUBJECT = process.env.PUSH_SUBJECT || 'mailto:admin@beitna.local';
-const SERVER_VERSION = '1.11.1';
+const SERVER_VERSION = '1.12.0';
 
 /* لوحة الإدارة المنفصلة لها رمز مستقل تمامًا عن حسابات بيتنا.
 
@@ -1525,6 +1525,16 @@ function invalidateTranslations(col, patch, previous, sourceLang) {
     if (permOf(m) === 'owner') {
       const owners = Object.values(hh.members).filter((x) => !x.deleted && permOf(x) === 'owner');
       if (owners.length <= 1) return fail(res, 400, 'last-owner');
+    }
+    /* حساب العاملة مخصّص لهذا الدور، لذلك حذفها من المالك يعني حذف
+       الحساب نفسه، لا مجرد إخفاء عضويتها. بهذا تُرفض رموز جلساتها فورًا
+       وتُزال من أي بيت آخر كذلك. الأعضاء العاديون يبقون قابلين لإعادة الانضمام. */
+    if (permOf(me) === 'owner' && target !== user.uid && permOf(m) === 'helper') {
+      const targetUser = db.users[target];
+      if (targetUser) deleteUser(targetUser);
+      else delete hh.members[target];
+      save();
+      return send(res, 200, { ok: true, accountDeleted: true });
     }
     m.deleted = true; m.updatedAt = now(); hh.updatedAt = now();
     if (db.users[target] && db.users[target].householdId === hh.id) db.users[target].householdId = null;

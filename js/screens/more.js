@@ -321,7 +321,7 @@ export function householdScreen() {
                   <span>${esc(m.role)}</span>${m.phone ? ` • <span style="direction:ltr">${esc(m.phone)}</span>` : ''}
                 </div>
               </div>
-              ${m.isOwner ? '' : `<button class="icon-btn" data-remove="${m.id}" title="إزالة">✕</button>`}
+              ${!amOwner() || m.isOwner ? '' : `<button class="icon-btn" data-remove="${m.id}" title="${m.perm === 'helper' ? 'حذف حساب العاملة' : 'إزالة'}">✕</button>`}
             </div>`).join('')}
         </div>
         ${isCloud()
@@ -405,11 +405,22 @@ export function householdScreen() {
 
         const rm = e.target.closest('[data-remove]');
         if (rm) {
+          const member = getState().members.find((m) => m.id === Number(rm.dataset.remove));
+          const helper = member?.perm === 'helper';
           const ok = await confirmDialog({
-            title: 'إزالة عضو', message: 'هل أنت متأكد من إزالة هذا العضو من البيت؟',
-            confirmText: 'إزالة', danger: true,
+            title: helper ? 'حذف حساب العاملة نهائيًا' : 'إزالة عضو',
+            message: helper
+              ? 'سيُحذف حسابها بالكامل وتُسجّل خروجها من كل أجهزتها. لا يمكن التراجع عن هذا الإجراء.'
+              : 'هل أنت متأكد من إزالة هذا العضو من البيت؟',
+            confirmText: helper ? 'حذف الحساب' : 'إزالة', danger: true,
           });
-          if (ok) { removeMember(Number(rm.dataset.remove)); rerender(); toast('تم إزالة عضو'); }
+          if (ok) {
+            try {
+              await removeMember(Number(rm.dataset.remove));
+              rerender();
+              toast(helper ? 'تم حذف حساب العاملة بالكامل' : 'تم إزالة عضو');
+            } catch (ex) { toast(arabicError(ex), 3500); }
+          }
           return;
         }
 

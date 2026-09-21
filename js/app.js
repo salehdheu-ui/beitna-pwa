@@ -7,7 +7,7 @@ import { $, esc } from './util.js';
 import {
   getState, subscribe, update, applyRemote, setCloudBridge, setCloudUid,
   setLogoutHook, setupHousehold, signOut as signOutLocal, uploadLocalData,
-  sectionsOf, canSee, amOwner,
+  sectionsOf, canSee, amOwner, persistNow,
 } from './store.js';
 import * as cloud from './cloud.js';
 const amHelper = () => cloud.isHelper();
@@ -385,6 +385,13 @@ function startCloudSession(hid) {
       notifyPartner(text);
       toast(text);
     },
+    onSessionEnded() {
+      /* حذف المالك للعاملة يحذف حسابها على الخادم. أول نبضة مزامنة
+         تُسقط الجلسة محليًا أيضًا، فلا تبقى شاشة قديمة مفتوحة عندها. */
+      signOutLocal();
+      persistNow();
+      location.replace(location.origin + location.pathname);
+    },
   });
 
   cloud.recordSession();
@@ -529,16 +536,20 @@ function hideSplash() {
 
 /* ---------- Service Worker ---------- */
 if ('serviceWorker' in navigator) {
-  /* النسخة الجديدة تُثبّت وتصبح جاهزة بصمت. لا نعيد تحميل النافذة عند
-     controllerchange: قد يقع الحدث لحظة فتح التطبيق أو رجوعه من الخلفية
-     فيبدو كوميض أو إقلاع مزدوج. النسخة الجديدة تُستخدم عند الفتح الطبيعي
-     التالي، بينما تبقى الصفحة الحالية متماسكة على وحداتها المحمّلة. */
+  /* لا نعتمد على controllerchange لأنه قد يتكرر عند الرجوع من الخلفية.
+     عامل الخدمة نفسه يرسل app-update مرة واحدة بعد اكتمال تفعيل إصدار
+     جديد، وعندها فقط نعيد التحميل كي يصل التحديث للأجهزة المفتوحة. */
 
   /* الضغط على الإشعار: الـ Service Worker يركّز النافذة ويرسل لنا الوجهة */
   navigator.serviceWorker.addEventListener('message', (e) => {
-    if (e.data?.type !== 'notification-click') return;
-    const hash = String(e.data.url || '').split('#')[1];
-    if (hash) go('/' + hash.replace(/^\/+/, ''));
+    if (e.data?.type === 'app-update') {
+      location.reload();
+      return;
+    }
+    if (e.data?.type === 'notification-click') {
+      const hash = String(e.data.url || '').split('#')[1];
+      if (hash) go('/' + hash.replace(/^\/+/, ''));
+    }
   });
 
   window.addEventListener('load', () => {

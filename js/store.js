@@ -112,7 +112,8 @@ export function setCloudBridge(b, hid) {
 
 function push(op, col, ...args) {
   if (mode !== 'cloud' || !bridge) return;
-  try { bridge[op]?.(col, ...args); } catch (e) { console.warn('تعذّرت المزامنة', e); }
+  try { return bridge[op]?.(col, ...args); }
+  catch (e) { console.warn('تعذّرت المزامنة', e); throw e; }
 }
 
 /**
@@ -617,7 +618,7 @@ export function removeMember(id) {
     s.members = s.members.filter((m) => m.id !== id || m.isOwner);
     logActivity('تم إزالة عضو');
   });
-  if (target?.uid) push('removeMember', null, target.uid);
+  if (target?.uid) return push('removeMember', null, target.uid);
 }
 
 export function updateProfile(patch) {

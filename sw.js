@@ -3,7 +3,7 @@
    يعمل بدون إنترنت، ويحدّث نفسه فورًا عند نشر نسخة جديدة.
    ============================================================ */
 
-const VERSION = 'beitna-v3.20.0';
+const VERSION = 'beitna-v3.21.0';
 const NET_TIMEOUT = 2500;
 
 /* لوحة الإدارة ليست جزءًا من الـ PWA إطلاقًا. يجب أن تمر ملفاتها إلى الشبكة
@@ -53,18 +53,24 @@ self.addEventListener('install', (event) => {
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil((async () => {
+  const activated = (async () => {
     const keys = await caches.keys();
     await Promise.all(keys.filter((k) => k !== VERSION).map((k) => caches.delete(k)));
     await self.clients.claim();
+  })();
+  event.waitUntil(activated);
 
-    /* لا تنقّل للنوافذ من داخل activate إطلاقًا.
-       client.navigate() طلبُ تصفّح لا يكتمل إلا إذا ردّ عليه هذا العامل،
-       وهذا العامل لا يستقبل طلبات fetch قبل أن ينتهي activate — و activate
-       ينتظر التنقّل عبر waitUntil. فيقف الطرفان: الصفحة تعلّق بلا استجابة
-       والعامل لا ينشط أبدًا. المسار القديم ‎#/admin‎ تتكفّل به app.js عند
-       الإقلاع، وهو المكان الآمن لذلك. */
-  })());
+  /* بعد اكتمال التفعيل — وخارج الوعد الذي ينتظره activate — نبلّغ كل
+     نافذة ونطلب تنقّلها إلى عنوانها نفسه. التنقّل غير داخل waitUntil كي
+     لا يحدث اعتماد دائري، ويضمن وصول النسخة الجديدة حتى للأجهزة التي
+     ما زالت تشغّل كودًا قديمًا لا يفهم رسالة app-update. */
+  activated.then(async () => {
+    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const client of windows) {
+      try { client.postMessage({ type: 'app-update', version: VERSION }); } catch { /* تجاهل */ }
+      try { client.navigate(client.url).catch(() => {}); } catch { /* تجاهل */ }
+    }
+  }).catch(() => {});
 });
 
 /** الشبكة أولًا مع مهلة، ثم النسخة المحفوظة */

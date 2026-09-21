@@ -198,6 +198,18 @@ async function main() {
   })).status, 404);
   assert.equal((await request('/household/helper-code', { method: 'DELETE', token: owner.token })).status, 200);
 
+  /* حذف العاملة من المالك يحذف حسابها كله ويسقط جلستها فورًا، بخلاف
+     العضو العادي الذي يمكنه إعادة الانضمام بحسابه نفسه. */
+  const deletedHelper = await request(`/member/${helper.uid}`, {
+    method: 'DELETE', token: owner.token,
+  });
+  assert.equal(deletedHelper.status, 200);
+  assert.equal(deletedHelper.data.accountDeleted, true);
+  assert.equal((await request('/me', { token: helper.token })).status, 401);
+  assert.equal((await request('/login', {
+    method: 'POST', body: { email: helper.email, password: 'Strong-pass-123' },
+  })).status, 401);
+
   /* تغيير كلمة المرور يُسقط كل الرموز السابقة ويعيد رمزًا للجلسة الحالية فقط. */
   const passwordChanged = await request('/account/password', {
     method: 'POST', token: formerOwner.token,

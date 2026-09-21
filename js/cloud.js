@@ -429,10 +429,10 @@ function emitAll() {
   listeners?.onData?.('members', shapeMembers());
 }
 
-export function startSync(hid, { onData, onPartnerActivity }) {
+export function startSync(hid, { onData, onPartnerActivity, onSessionEnded }) {
   stopSync();
   hidActive = hid;
-  listeners = { onData, onPartnerActivity };
+  listeners = { onData, onPartnerActivity, onSessionEnded };
   firstEmit = true;
 
   /* 1) البيانات المحفوظة تظهر فورًا — حتى بدون إنترنت */
@@ -468,7 +468,11 @@ async function tick() {
     const res = await req('/sync?since=' + cursor, { timeout: 12000 });
     applySync(res);
   } catch (e) {
-    if (e.code === 'no-user') { /* الجلسة انتهت — الواجهة ستطلب الدخول */ }
+    if (e.code === 'no-user' || e.code === 'no-household') {
+      const ended = listeners?.onSessionEnded;
+      stopSync();
+      ended?.(e.code);
+    }
   } finally { ticking = false; }
 }
 
@@ -736,12 +740,15 @@ export function updateMemberProfile(hid, patch) {
   });
 }
 
-export function removeMemberCloud(hid, uid) {
+export async function removeMemberCloud(hid, uid) {
   if (membersMap[uid]) { membersMap[uid].deleted = true; persistDocs(); }
   listeners?.onData?.('members', shapeMembers());
-  req('/member/' + encodeURIComponent(uid), { method: 'DELETE' }).catch((e) => {
+  try {
+    return await req('/member/' + encodeURIComponent(uid), { method: 'DELETE' });
+  } catch (e) {
     onWriteError?.(arabicError(e));
-  });
+    throw e;
+  }
 }
 
 /* ---------- تفضيلات الإشعارات ---------- */

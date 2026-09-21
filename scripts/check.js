@@ -101,9 +101,18 @@ const serverSource = read('server/server.js');
 if (helperSource.includes("t('shopping_title')") && helperSource.includes("t('report_fault')"))
   ok('شاشة العاملة اليومية تستخدم قاموس اللغات');
 else bad('شاشة العاملة تحتوي نصوصًا غير موصولة بالقاموس');
+if (helperSource.includes('data-act="logout"') && helperSource.includes('data-act="update"') &&
+    helperSource.includes('persistNow()')) {
+  ok('شاشة العاملة فيها خروج صريح وتحديث يدوي محفوظ');
+} else bad('شاشة العاملة تفتقد زر الخروج أو التحديث');
 if (cloudSource.includes('localizedPush') || serverSource.includes('localizedPush'))
   ok('إشعارات العاملة السحابية تتبع لغة حسابها');
 else bad('إشعارات العاملة السحابية لا تتبع اللغة');
+if (serverSource.includes("permOf(m) === 'helper'") &&
+    serverSource.includes('accountDeleted: true') &&
+    cloudSource.includes('onSessionEnded')) {
+  ok('حذف العاملة يحذف حسابها ويُنهي الجلسة على جهازها');
+} else bad('حذف العاملة لا يزال يترك الحساب أو الجلسة فعّالين');
 
 const controlSource = read('js/screens/control.js');
 if (cloudSource.includes('perm: m.perm') && cloudSource.includes('caps: m.caps')) {
@@ -170,7 +179,11 @@ const css = read('css/app.css');
 const swBlock = app.slice(app.indexOf("if ('serviceWorker' in navigator)"), app.indexOf('const INSTALL_DISMISS_KEY'));
 if (/addEventListener\(['"]controllerchange['"][\s\S]{0,1200}location\.reload\s*\(/.test(swBlock)) {
   bad('controllerchange يعيد تحميل الصفحة — سيظهر كوميض عند العودة من الخلفية');
-} else ok('تحديث عامل الخدمة لا يعيد تحميل الصفحة النشطة');
+} else ok('التحديث لا يعتمد على controllerchange المتكرر');
+const swSource = read('sw.js');
+if (swSource.includes("type: 'app-update'") && swSource.includes('client.navigate(client.url)')) {
+  ok('الإصدار الجديد يصل للنوافذ القديمة ويعيد فتحها بعد اكتمال التفعيل');
+} else bad('عامل الخدمة لا يجبر الأجهزة المفتوحة على استلام الإصدار الجديد');
 
 /* الشاشة لا تتحرك أبدًا: لا عند الفتح ولا عند التنقّل.
    قياسًا قبل الإصلاح: كل تنقّل يقفز بالمحتوى من y=70 إلى y=76 بشفافية

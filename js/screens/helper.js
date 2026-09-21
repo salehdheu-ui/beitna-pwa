@@ -5,7 +5,7 @@
    ============================================================ */
 
 import { esc } from '../util.js';
-import { getState, addShopping, addFault } from '../store.js';
+import { getState, addShopping, addFault, signOut, persistNow } from '../store.js';
 import { toast, openSheet } from '../ui.js';
 import { t, LANGS, currentLang, setLang, applyLangToDocument, localizedText } from '../i18n.js';
 import { saveNotificationPrefs } from '../cloud.js';
@@ -41,6 +41,22 @@ function langSheet(onPick, allowed = null) {
 
 export { langSheet };
 
+async function updateHelperApp() {
+  toast(`${t('update_app')}…`);
+  try {
+    if ('serviceWorker' in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map((reg) => reg.update().catch(() => {})));
+      regs.forEach((reg) => reg.waiting?.postMessage('skipWaiting'));
+    }
+    if ('caches' in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.filter((key) => key.startsWith('beitna-v')).map((key) => caches.delete(key)));
+    }
+  } catch { /* إعادة التحميل تكمل حتى لو تعذّر تنظيف الذاكرة المؤقتة */ }
+  location.reload();
+}
+
 /** الشاشة الوحيدة التي تراها العاملة */
 export function helperScreen() {
   const s = getState();
@@ -50,7 +66,9 @@ export function helperScreen() {
   return {
     title: t('shopping_title'),
     subtitle: s.household.name || t('app_name'),
-    actions: `<button class="icon-btn" data-act="lang" title="${esc(t('language'))}">🌐</button>`,
+    actions: `
+      <button class="icon-btn" data-act="update" title="${esc(t('update_app'))}">🔄</button>
+      <button class="icon-btn" data-act="lang" title="${esc(t('language'))}">🌐</button>`,
     html: `
       <div class="section">
         <button class="btn block" data-act="additem">＋ ${esc(t('add_item'))}</button>
@@ -87,17 +105,27 @@ export function helperScreen() {
         : `<div class="card small muted center">${esc(t('faults_empty'))}</div>`}
       </div>
 
+      <div class="section">
+        <button class="btn ghost block" data-act="logout">🚪 ${esc(t('logout'))}</button>
+      </div>
+
       <p class="tiny muted center mt">${esc(t('helper_role'))} · ${esc(s.profile.name || '')}</p>`,
 
     mount(root, rerender) {
       root.addEventListener('click', (e) => {
         if (e.target.closest('[data-act="additem"]')) { addItemSheet(rerender); return; }
         if (e.target.closest('[data-act="addfault"]')) { addFaultSheet(rerender); return; }
+        if (e.target.closest('[data-act="logout"]')) {
+          signOut();
+          persistNow();
+          location.replace(location.origin + location.pathname);
+        }
       });
     },
 
     topActions(act, rerender) {
       if (act === 'lang') langSheet(() => { applyLangToDocument(); rerender(); });
+      if (act === 'update') updateHelperApp();
     },
   };
 }
