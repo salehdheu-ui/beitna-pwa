@@ -105,9 +105,10 @@ if (helperSource.includes('data-act="logout"') && helperSource.includes('data-ac
     helperSource.includes('persistNow()')) {
   ok('شاشة العاملة فيها خروج صريح وتحديث يدوي محفوظ');
 } else bad('شاشة العاملة تفتقد زر الخروج أو التحديث');
-if (helperSource.includes('data-pantry-tick') && helperSource.includes('sendPantryItemToShopping') &&
+if (helperSource.includes('data-pantry-tick') && helperSource.includes('data-helper-cat') &&
+    helperSource.includes('pantryCategoriesOf') && helperSource.includes('sendPantryItemToShopping') &&
     helperSource.includes("t('needs_list')")) {
-  ok('قائمة الاحتياجات موصولة بشاشة العاملة والناقص ينتقل للمشتريات');
+  ok('قائمة الاحتياجات مقسمة في شاشة العاملة والناقص ينتقل للمشتريات');
 } else bad('قائمة الاحتياجات غير مكتملة في شاشة العاملة');
 if (cloudSource.includes('localizedPush') || serverSource.includes('localizedPush'))
   ok('إشعارات العاملة السحابية تتبع لغة حسابها');
@@ -281,6 +282,11 @@ else bad('الأقسام الجديدة لا تتزامن بين الأجهزة'
 if (cloud.includes('translations: d.translations') && server.includes('schedulePantryTranslations')) {
   ok('محتوى قائمة الاحتياجات يُحفظ ويصل مترجمًا إلى لغة العاملة');
 } else bad('ترجمة محتوى قائمة الاحتياجات غير موصولة من الخادم إلى العاملة');
+const pantryData = read('js/pantry-data.js');
+if ((pantryData.match(/names: categoryNames\(/g) || []).length === 12 &&
+    pantryData.includes('{ ar, en, hi, si, ta, am, tl, id, my, sw, ne }')) {
+  ok('أسماء أقسام الاحتياجات ثابتة بكل لغات العاملة الإحدى عشرة');
+} else bad('أقسام الاحتياجات لا تحمل كل ترجمات لغات العاملة');
 
 /* ---------- لوحة إدارة النظام ---------- */
 console.log('لوحة الإدارة:');

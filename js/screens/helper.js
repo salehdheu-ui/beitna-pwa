@@ -7,7 +7,7 @@
 import { esc } from '../util.js';
 import {
   getState, addShopping, addFault, signOut, persistNow, canSee, canWrite,
-  setPantryStock, addPantryItem, sendPantryItemToShopping,
+  setPantryStock, addPantryItem, sendPantryItemToShopping, pantryCategoriesOf,
 } from '../store.js';
 import { toast, openSheet } from '../ui.js';
 import { t, LANGS, currentLang, setLang, applyLangToDocument, localizedText } from '../i18n.js';
@@ -15,6 +15,7 @@ import { saveNotificationPrefs } from '../cloud.js';
 
 const dirAttr = () => (document.documentElement.dir === 'rtl' ? 'rtl' : 'ltr');
 let pantryQuery = '';
+let helperOpenCat = null;
 
 function langSheet(onPick, allowed = null) {
   const choices = allowed ? LANGS.filter((l) => allowed.includes(l.code)) : LANGS;
@@ -74,6 +75,17 @@ export function helperScreen() {
   const pantry = (s.pantry || []).filter((item) => !query ||
     localizedText(item, 'name').toLocaleLowerCase(currentLang()).includes(query));
   const pantryMissing = (s.pantry || []).filter((item) => !item.stocked).length;
+  const categories = pantryCategoriesOf();
+  const knownCats = new Set(categories.map((cat) => String(cat.id)));
+  const pantryGroups = categories
+    .map((cat) => ({ cat, items: pantry.filter((item) => String(item.cat) === String(cat.id)) }))
+    .filter((group) => group.items.length);
+  const uncategorized = pantry.filter((item) => !knownCats.has(String(item.cat)));
+  if (uncategorized.length) pantryGroups.push({
+    cat: { id: 'other', name: t('other_section'), icon: '📦', translations: {} },
+    items: uncategorized,
+  });
+  const firstCategory = pantryGroups[0]?.cat.id || null;
 
   return {
     title: t('shopping_title'),
@@ -101,17 +113,9 @@ export function helperScreen() {
           <span class="tiny muted">${esc(t('out_of_stock'))}: ${pantryMissing}</span>
         </div>
         <div class="stack mt-s">
-          ${pantry.length ? pantry.map((item) => `
-            <div class="item">
-              ${shoppingWritable
-                ? `<button class="check ${item.stocked ? 'on' : ''}" data-pantry-tick="${item.id}"
-                    aria-label="${esc(item.stocked ? t('available') : t('out_of_stock'))}">✓</button>`
-                : `<span class="check ${item.stocked ? 'on' : ''}" aria-hidden="true">✓</span>`}
-              <div class="grow col">
-                <div class="title">${esc(localizedText(item, 'name'))}</div>
-                <div class="meta">${esc(item.stocked ? t('available') : t('out_of_stock'))}</div>
-              </div>
-            </div>`).join('')
+          ${pantryGroups.length ? pantryGroups.map((group) => helperPantryGroup(
+            group, shoppingWritable, !!query, firstCategory
+          )).join('')
             : `<div class="card small muted center">${esc(t('no_items'))}</div>`}
         </div>
       </div>` : ''}
@@ -159,6 +163,12 @@ export function helperScreen() {
         if (e.target.closest('[data-act="additem"]')) { addItemSheet(rerender); return; }
         if (e.target.closest('[data-act="addfault"]')) { addFaultSheet(rerender); return; }
         if (e.target.closest('[data-act="addpantry"]')) { addPantrySheet(rerender); return; }
+        const pantryCategory = e.target.closest('[data-helper-cat]');
+        if (pantryCategory) {
+          const id = pantryCategory.dataset.helperCat;
+          helperOpenCat = helperOpenCat === id ? '__none__' : id;
+          rerender(); return;
+        }
         const pantryTick = e.target.closest('[data-pantry-tick]');
         if (pantryTick && shoppingWritable) {
           const id = Number(pantryTick.dataset.pantryTick);
@@ -194,6 +204,32 @@ export function helperScreen() {
   };
 }
 
+function helperPantryGroup({ cat, items }, writable, searching, firstCategory) {
+  const missing = items.filter((item) => !item.stocked).length;
+  const open = searching || helperOpenCat === String(cat.id) ||
+    (helperOpenCat === null && String(firstCategory) === String(cat.id));
+  return `
+    <div class="card" style="padding:0;overflow:hidden">
+      <button class="list-row" data-helper-cat="${esc(cat.id)}" style="width:100%">
+        <span class="ic">${esc(cat.icon || '📦')}</span>
+        <span class="grow"><span class="t">${esc(localizedText(cat, 'name'))}</span><br>
+          <span class="d">${items.length}${missing ? ` · ${esc(t('out_of_stock'))}: ${missing}` : ''}</span></span>
+        <span class="arrow">${open ? '⌄' : '‹'}</span>
+      </button>
+      ${open ? items.map((item) => `
+        <div class="item" style="border-top:1px solid var(--line)">
+          ${writable
+            ? `<button class="check ${item.stocked ? 'on' : ''}" data-pantry-tick="${item.id}"
+                aria-label="${esc(item.stocked ? t('available') : t('out_of_stock'))}">✓</button>`
+            : `<span class="check ${item.stocked ? 'on' : ''}" aria-hidden="true">✓</span>`}
+          <div class="grow col">
+            <div class="title">${esc(localizedText(item, 'name'))}</div>
+            <div class="meta">${esc(item.stocked ? t('available') : t('out_of_stock'))}</div>
+          </div>
+        </div>`).join('') : ''}
+    </div>`;
+}
+
 function addPantrySheet(rerender) {
   openSheet(`
     <h3>${esc(t('add_product'))}</h3>
@@ -208,6 +244,7 @@ function addPantrySheet(rerender) {
         const name = el.querySelector('#hpn').value.trim();
         if (!name) return toast(t('required'));
         addPantryItem({ name, sourceLang: currentLang(), stocked: true });
+        helperOpenCat = 'canned';
         close(); toast(t('saved')); rerender();
       };
       el.querySelector('#hpn').focus({ preventScroll: true });

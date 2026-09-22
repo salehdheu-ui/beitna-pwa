@@ -859,11 +859,16 @@ export function pantryCategoriesOf() {
       if (!id || seen.has(id)) return false;
       seen.add(id); return true;
     })
-    .map((c) => ({
-      id: String(c.id), name: String(c.name || 'قسم').slice(0, 40),
-      icon: String(c.icon || '📦').slice(0, 8), custom: !PANTRY_CATEGORIES.some((x) => x.id === String(c.id)),
-      sourceLang: c.sourceLang || 'ar', translations: c.translations && typeof c.translations === 'object' ? c.translations : {},
-    }));
+    .map((c) => {
+      const fixed = Object.fromEntries(Object.entries(c.names || {})
+        .map(([lang, name]) => [lang, { name }]));
+      return {
+        id: String(c.id), name: String(c.name || 'قسم').slice(0, 40),
+        icon: String(c.icon || '📦').slice(0, 8), custom: !PANTRY_CATEGORIES.some((x) => x.id === String(c.id)),
+        sourceLang: c.sourceLang || 'ar',
+        translations: { ...fixed, ...(c.translations && typeof c.translations === 'object' ? c.translations : {}) },
+      };
+    });
 }
 
 export function addPantryCategory({ name, icon = '📦', sourceLang = 'ar' }) {

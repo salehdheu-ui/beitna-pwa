@@ -4,19 +4,36 @@
    out: true تعني «ناقص الآن»؛ وما عداه متوفر.
    ============================================================ */
 
+const categoryNames = (ar, en, hi, si, ta, am, tl, id, my, sw, ne) =>
+  ({ ar, en, hi, si, ta, am, tl, id, my, sw, ne });
+
+/* أسماء الأقسام ثابتة ومراجعة، فلا ننتظر مزوّد الترجمة عند أول فتح.
+   أسماء المنتجات نفسها تبقى ديناميكية وتترجمها خدمة الخادم. */
 export const PANTRY_CATEGORIES = [
-  { id: 'canned',   name: 'معلبات',               icon: '🥫' },
-  { id: 'grains',   name: 'حبوب ومكرونة',         icon: '🍝' },
-  { id: 'oils',     name: 'زيوت وصوصات',          icon: '🫒' },
-  { id: 'spices',   name: 'بهارات',               icon: '🧂' },
-  { id: 'frozen',   name: 'مأكولات مجمدة',        icon: '🧊' },
-  { id: 'chilled',  name: 'مبردات',               icon: '🧀' },
-  { id: 'pickles',  name: 'مخللات ومربى',         icon: '🫙' },
-  { id: 'baby',     name: 'احتياجات الأطفال',     icon: '🍼' },
-  { id: 'cleaning', name: 'منظفات البيت والمطبخ', icon: '🧼' },
-  { id: 'kitchen',  name: 'احتياجات المطبخ',      icon: '🍽️' },
-  { id: 'personal', name: 'أدوات صحية',           icon: '🧴' },
-  { id: 'produce',  name: 'خضروات وفواكه',        icon: '🥬' },
+  { id: 'canned', name: 'معلبات', icon: '🥫', names: categoryNames(
+    'معلبات', 'Canned goods', 'डिब्बाबंद सामान', 'ටින් ආහාර', 'டப்பா உணவுகள்', 'የታሸጉ ምግቦች', 'De-lata', 'Makanan kaleng', 'စည်သွပ်အစားအစာ', 'Vyakula vya makopo', 'डिब्बाबन्द खाना') },
+  { id: 'grains', name: 'حبوب ومكرونة', icon: '🍝', names: categoryNames(
+    'حبوب ومكرونة', 'Grains and pasta', 'अनाज और पास्ता', 'ධාන්‍ය සහ පැස්ටා', 'தானியங்கள் மற்றும் பாஸ்தா', 'እህሎችና ፓስታ', 'Butil at pasta', 'Biji-bijian dan pasta', 'အစေ့အဆန်နှင့် ပါစတာ', 'Nafaka na pasta', 'अन्न र पास्ता') },
+  { id: 'oils', name: 'زيوت وصوصات', icon: '🫒', names: categoryNames(
+    'زيوت وصوصات', 'Oils and sauces', 'तेल और सॉस', 'තෙල් සහ සෝස්', 'எண்ணெய்கள் மற்றும் சாஸ்கள்', 'ዘይቶችና ሶሶች', 'Langis at sarsa', 'Minyak dan saus', 'ဆီနှင့် ဆော့စ်', 'Mafuta na michuzi', 'तेल र सस') },
+  { id: 'spices', name: 'بهارات', icon: '🧂', names: categoryNames(
+    'بهارات', 'Spices', 'मसाले', 'කුළුබඩු', 'மசாலா', 'ቅመሞች', 'Pampalasa', 'Rempah-rempah', 'ဟင်းခတ်အမွှေးအကြိုင်', 'Viungo', 'मसला') },
+  { id: 'frozen', name: 'مأكولات مجمدة', icon: '🧊', names: categoryNames(
+    'مأكولات مجمدة', 'Frozen foods', 'जमे हुए खाद्य पदार्थ', 'ශීත කළ ආහාර', 'உறைந்த உணவுகள்', 'የቀዘቀዙ ምግቦች', 'Frozen na pagkain', 'Makanan beku', 'အေးခဲအစားအစာ', 'Vyakula vilivyogandishwa', 'जमाइएका खाना') },
+  { id: 'chilled', name: 'مبردات', icon: '🧀', names: categoryNames(
+    'مبردات', 'Chilled foods', 'ठंडे उत्पाद', 'සිසිල් ආහාර', 'குளிரூட்டப்பட்ட உணவுகள்', 'የቀዘቀዙ ምርቶች', 'Pinalamig na pagkain', 'Makanan dingin', 'အအေးခန်းအစားအစာ', 'Vyakula vya baridi', 'चिसो खाना') },
+  { id: 'pickles', name: 'مخللات ومربى', icon: '🫙', names: categoryNames(
+    'مخللات ومربى', 'Pickles and jam', 'अचार और जैम', 'අච්චාරු සහ ජෑම්', 'ஊறுகாய் மற்றும் ஜாம்', 'ኮምጣጤና ጃም', 'Atsara at jam', 'Acar dan selai', 'ချဉ်ဖတ်နှင့် ယို', 'Achari na jamu', 'अचार र जाम') },
+  { id: 'baby', name: 'احتياجات الأطفال', icon: '🍼', names: categoryNames(
+    'احتياجات الأطفال', 'Baby needs', 'बच्चों की ज़रूरतें', 'ළමා අවශ්‍යතා', 'குழந்தைத் தேவைகள்', 'የሕፃናት ፍላጎቶች', 'Pangangailangan ng sanggol', 'Kebutuhan bayi', 'ကလေးအသုံးအဆောင်', 'Mahitaji ya watoto', 'बच्चाका आवश्यकताहरू') },
+  { id: 'cleaning', name: 'منظفات البيت والمطبخ', icon: '🧼', names: categoryNames(
+    'منظفات البيت والمطبخ', 'Home and kitchen cleaning', 'घर और रसोई की सफाई', 'නිවස හා මුළුතැන්ගෙයි පිරිසිදුකිරීම', 'வீடு மற்றும் சமையலறை சுத்தம்', 'የቤትና የወጥ ቤት ማጽጃ', 'Panlinis ng bahay at kusina', 'Pembersih rumah dan dapur', 'အိမ်နှင့် မီးဖိုချောင်သန့်ရှင်းရေး', 'Usafi wa nyumba na jikoni', 'घर र भान्सा सफाइ') },
+  { id: 'kitchen', name: 'احتياجات المطبخ', icon: '🍽️', names: categoryNames(
+    'احتياجات المطبخ', 'Kitchen needs', 'रसोई की ज़रूरतें', 'මුළුතැන්ගෙයි අවශ්‍යතා', 'சமையலறைத் தேவைகள்', 'የወጥ ቤት ፍላጎቶች', 'Pangangailangan sa kusina', 'Kebutuhan dapur', 'မီးဖိုချောင်သုံးပစ္စည်း', 'Mahitaji ya jikoni', 'भान्साका आवश्यकताहरू') },
+  { id: 'personal', name: 'أدوات صحية', icon: '🧴', names: categoryNames(
+    'أدوات صحية', 'Personal hygiene', 'व्यक्तिगत स्वच्छता', 'පුද්ගලික සනීපාරක්ෂාව', 'தனிப்பட்ட சுகாதாரம்', 'የግል ንጽህና', 'Personal na kalinisan', 'Kebersihan pribadi', 'ကိုယ်ရေးသန့်ရှင်းရေး', 'Usafi binafsi', 'व्यक्तिगत सरसफाइ') },
+  { id: 'produce', name: 'خضروات وفواكه', icon: '🥬', names: categoryNames(
+    'خضروات وفواكه', 'Vegetables and fruit', 'सब्ज़ियाँ और फल', 'එළවළු සහ පලතුරු', 'காய்கறிகள் மற்றும் பழங்கள்', 'አትክልትና ፍራፍሬ', 'Gulay at prutas', 'Sayur dan buah', 'ဟင်းသီးဟင်းရွက်နှင့် သစ်သီး', 'Mboga na matunda', 'तरकारी र फलफूल') },
 ];
 
 export const PANTRY_SEED = [
