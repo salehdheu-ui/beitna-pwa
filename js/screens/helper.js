@@ -12,6 +12,7 @@ import {
 import { toast, openSheet } from '../ui.js';
 import { t, LANGS, currentLang, setLang, applyLangToDocument, localizedText } from '../i18n.js';
 import { saveNotificationPrefs } from '../cloud.js';
+import { compressPantryImage, saveAndRelayPantryImage, hydratePantryImages } from '../local-images.js';
 
 const dirAttr = () => (document.documentElement.dir === 'rtl' ? 'rtl' : 'ltr');
 let pantryQuery = '';
@@ -195,6 +196,7 @@ export function helperScreen() {
         const next = document.querySelector('#helperPantrySearch');
         if (next) { next.focus({ preventScroll: true }); next.setSelectionRange(pos, pos); }
       });
+      hydratePantryImages(root);
     },
 
     topActions(act, rerender) {
@@ -222,6 +224,7 @@ function helperPantryGroup({ cat, items }, writable, searching, firstCategory) {
             ? `<button class="check ${item.stocked ? 'on' : ''}" data-pantry-tick="${item.id}"
                 aria-label="${esc(item.stocked ? t('available') : t('out_of_stock'))}">✓</button>`
             : `<span class="check ${item.stocked ? 'on' : ''}" aria-hidden="true">✓</span>`}
+          <img class="pantry-thumb" data-pantry-image="${item.id}" alt="" hidden>
           <div class="grow col">
             <div class="title">${esc(localizedText(item, 'name'))}</div>
             <div class="meta">${esc(item.stocked ? t('available') : t('out_of_stock'))}</div>
@@ -235,15 +238,35 @@ function addPantrySheet(rerender) {
     <h3>${esc(t('add_product'))}</h3>
     <div class="field"><label for="hpn">${esc(t('item_name'))}</label>
       <input class="input" id="hpn" dir="${dirAttr()}"></div>
+    <div class="field"><label for="hpp">${esc(t('add_photo'))}</label>
+      <input class="input" id="hpp" type="file" accept="image/*" capture="environment">
+      <div class="hint">${esc(t('photo_relay_hint'))}</div>
+      <img id="hppPreview" class="pantry-photo-preview" alt="" hidden>
+    </div>
     <button class="btn block" data-save>${esc(t('save'))}</button>
     <button class="btn ghost block mt-s" data-close>${esc(t('cancel'))}</button>
   `, {
     onMount(el, close) {
+      let imageData = '';
+      const photo = el.querySelector('#hpp');
+      const preview = el.querySelector('#hppPreview');
+      const save = el.querySelector('[data-save]');
+      photo.onchange = async () => {
+        const file = photo.files?.[0];
+        if (!file) { imageData = ''; preview.hidden = true; return; }
+        save.disabled = true;
+        try {
+          imageData = await compressPantryImage(file);
+          preview.src = imageData; preview.hidden = !imageData;
+        } catch { imageData = ''; preview.hidden = true; toast(t('photo_failed')); }
+        finally { save.disabled = false; }
+      };
       el.querySelector('[data-close]').onclick = close;
-      el.querySelector('[data-save]').onclick = () => {
+      save.onclick = async () => {
         const name = el.querySelector('#hpn').value.trim();
         if (!name) return toast(t('required'));
-        addPantryItem({ name, sourceLang: currentLang(), stocked: true });
+        const item = addPantryItem({ name, sourceLang: currentLang(), stocked: true });
+        if (item && imageData) await saveAndRelayPantryImage(item.id, imageData);
         helperOpenCat = 'canned';
         close(); toast(t('saved')); rerender();
       };

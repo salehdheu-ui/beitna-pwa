@@ -892,7 +892,9 @@ export function setPantryStock(id, stocked) {
     p.updatedAt = Date.now();
     item = p;
   });
-  if (item) push('save', 'pantry', item);
+  /* الحالة وحدها تتغيّر. إرسال المستند كاملًا كان يجعل الخادم يعتبر الاسم
+     معدّلًا، فيحذف ترجماته ثم يعود النص إلى لغة المصدر. */
+  if (item) push('patch', 'pantry', id, { stocked: item.stocked, updatedAt: item.updatedAt });
   return item;
 }
 
@@ -978,6 +980,6 @@ export function sendPantryItemToShopping(id) {
 export function resetPantryReview() {
   const t = Date.now();
   update((s) => { s.pantry.forEach((p) => { p.stocked = true; p.updatedAt = t; }); });
-  state.pantry.forEach((p) => push('save', 'pantry', p));
+  state.pantry.forEach((p) => push('patch', 'pantry', p.id, { stocked: true, updatedAt: t }));
 }
 

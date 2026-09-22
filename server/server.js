@@ -19,7 +19,7 @@ const SECRET_FILE = path.join(DATA_DIR, 'secret.key');
    بقيمة تتجاوز 30 يومًا حتى لا يعيد إعدادٌ خاطئ جلسات السنة القديمة. */
 const TOKEN_DAYS = Math.min(30, Math.max(1, Number(process.env.TOKEN_DAYS || 14)));
 const PUSH_SUBJECT = process.env.PUSH_SUBJECT || 'mailto:admin@beitna.local';
-const SERVER_VERSION = '1.13.0';
+const SERVER_VERSION = '1.14.0';
 
 /* لوحة الإدارة المنفصلة لها رمز مستقل تمامًا عن حسابات بيتنا.
 
@@ -145,6 +145,30 @@ const translator = createTranslator({
   timeoutMs: Math.min(10000, Math.max(1000, Number(process.env.TRANSLATION_TIMEOUT_MS || 5000))),
 });
 
+/* صور الاحتياجات ليست جزءًا من قاعدة البيانات إطلاقًا. تُضغط على الهاتف،
+   تمر في الذاكرة إلى مالك البيت، ثم تُحذف عند استلامه أو بعد سبعة أيام.
+   حدّ الحجم والعدد والذاكرة يمنع تراكمها حتى لو لم يفتح المالك التطبيق. */
+const IMAGE_RELAY_TTL = 7 * 86400000;
+const IMAGE_RELAY_MAX_BYTES = 24 * 1024 * 1024;
+const IMAGE_RELAY_MAX_ITEMS = 240;
+const IMAGE_ONE_MAX_BYTES = 220 * 1024;
+const pantryImageRelays = new Map();
+
+function prunePantryImageRelays() {
+  const t = now();
+  for (const [key, relay] of pantryImageRelays) {
+    if (relay.expiresAt <= t || relay.received.size >= relay.recipients.size) pantryImageRelays.delete(key);
+  }
+  const oldest = () => [...pantryImageRelays.entries()].sort((a, b) => a[1].createdAt - b[1].createdAt);
+  let bytes = [...pantryImageRelays.values()].reduce((sum, relay) => sum + relay.bytes, 0);
+  for (const [key, relay] of oldest()) {
+    if (pantryImageRelays.size <= IMAGE_RELAY_MAX_ITEMS && bytes <= IMAGE_RELAY_MAX_BYTES) break;
+    pantryImageRelays.delete(key); bytes -= relay.bytes;
+  }
+}
+
+setInterval(prunePantryImageRelays, 3600000).unref();
+
 /* أسماء قائمة الاحتياجات يكتبها المالك غالبًا بالعربية أو الإنجليزية،
    بينما العاملة يجب أن تراها باللغة المحفوظة في حسابها. نترجمها في
    الخلفية عند مزامنتها، ونحفظ النتيجة داخل المستند كي تصبح متاحة دون
@@ -168,17 +192,23 @@ function schedulePantryTranslations(hh, language) {
   if (!work.length) return;
 
   const job = (async () => {
-    for (let i = 0; i < work.length; i += 6) {
+    const bySource = new Map();
+    for (const entry of work) {
+      const list = bySource.get(entry.source) || [];
+      list.push(entry); bySource.set(entry.source, list);
+    }
+    for (const [source, entries] of bySource) {
       let changed = false;
-      await Promise.allSettled(work.slice(i, i + 6).map(async ({ doc, source, original }) => {
-        const translated = await translator.translateText(original, source, target);
+      const translated = await translator.translateTexts(entries.map((entry) => entry.original), source, target);
+      entries.forEach(({ doc, original }, index) => {
+        const value = translated[index];
         /* لو عُدّل الاسم أثناء انتظار المزوّد، لا نربط به ترجمة قديمة. */
-        if (!translated || doc.deleted || String(doc.name) !== original) return;
+        if (!value || doc.deleted || String(doc.name) !== original) return;
         doc.translations = { ...(doc.translations || {}) };
-        doc.translations[target] = { ...(doc.translations[target] || {}), name: translated };
+        doc.translations[target] = { ...(doc.translations[target] || {}), name: value };
         doc.updatedAt = Math.max(now(), Number(doc.updatedAt || 0) + 1);
         changed = true;
-      }));
+      });
       if (changed) { hh.updatedAt = now(); save(); }
     }
   })().finally(() => pantryTranslationJobs.delete(jobKey));
@@ -1364,6 +1394,57 @@ async function route(req, res, url) {
     m.perm = perm; m.isOwner = perm === 'owner'; m.role = roleLabel(perm); m.updatedAt = now();
     if (roleChanged) m.caps = {};
     hh.updatedAt = now(); save();
+    return send(res, 200, { ok: true });
+  }
+
+  /* ===== صور الاحتياجات: ترحيل مؤقت من هاتف العاملة إلى المالك ===== */
+  if (p.startsWith('/pantry-image/') && method === 'POST') {
+    if (capLevel(myCaps, 'pantry') !== 'write') return fail(res, 403, 'read-only');
+    const itemId = decodeURIComponent(p.slice('/pantry-image/'.length)).slice(0, 80);
+    if (!itemId) return fail(res, 400, 'bad-item');
+    const b = await readBody(req);
+    const dataUrl = String(b.dataUrl || '');
+    if (!/^data:image\/(?:jpeg|webp|png);base64,[a-z0-9+/=\r\n]+$/i.test(dataUrl)) {
+      return fail(res, 400, 'bad-image');
+    }
+    const bytes = Buffer.byteLength(dataUrl, 'utf8');
+    if (bytes > IMAGE_ONE_MAX_BYTES * 1.45) return fail(res, 413, 'image-too-large');
+    const recipients = new Set(Object.values(hh.members)
+      .filter((member) => !member.deleted && permOf(member) === 'owner')
+      .map((member) => member.uid));
+    if (!recipients.size) return fail(res, 409, 'no-owner');
+    const key = `${hh.id}:${itemId}`;
+    pantryImageRelays.set(key, {
+      key, householdId: hh.id, itemId, dataUrl, bytes,
+      createdAt: now(), expiresAt: now() + IMAGE_RELAY_TTL,
+      recipients, received: new Set(),
+    });
+    prunePantryImageRelays();
+    return send(res, 200, { ok: true, temporary: true });
+  }
+
+  if (p === '/pantry-images' && method === 'GET') {
+    if (myPerm !== 'owner') return fail(res, 403, 'owner-only');
+    prunePantryImageRelays();
+    const images = [...pantryImageRelays.values()]
+      .filter((relay) => relay.householdId === hh.id &&
+        relay.recipients.has(user.uid) && !relay.received.has(user.uid))
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .slice(0, 8)
+      .map((relay) => ({ itemId: relay.itemId, dataUrl: relay.dataUrl, createdAt: relay.createdAt }));
+    return send(res, 200, { images });
+  }
+
+  if (p === '/pantry-images/ack' && method === 'POST') {
+    if (myPerm !== 'owner') return fail(res, 403, 'owner-only');
+    const b = await readBody(req);
+    const ids = new Set((Array.isArray(b.itemIds) ? b.itemIds : []).slice(0, 20).map(String));
+    for (const relay of pantryImageRelays.values()) {
+      if (relay.householdId === hh.id && ids.has(String(relay.itemId)) && relay.recipients.has(user.uid)) {
+        relay.received.add(user.uid);
+      }
+    }
+    prunePantryImageRelays();
     return send(res, 200, { ok: true });
   }
 

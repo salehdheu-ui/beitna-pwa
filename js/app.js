@@ -30,6 +30,7 @@ import { helperScreen, langSheet } from './screens/helper.js';
 import { refreshPush } from './push.js';
 import { t, applyLangToDocument, currentLang, setLang, localizeMainUi, observeMainUi } from './i18n.js';
 import { diag } from './diag.js';
+import { flushPendingPantryImages, syncIncomingPantryImages } from './local-images.js';
 
 /* المسار القديم للوحة المدمجة لم يعد موجودًا. إذا بقي في نافذة أو اختصار
    من النسخة السابقة، نعيده للرئيسية بدل إبقاء المستخدم في صفحة مفقودة. */
@@ -341,6 +342,23 @@ function cloudBridge(hid) {
   };
 }
 
+let imageRelayTimer = 0;
+async function syncImageRelay() {
+  try {
+    await flushPendingPantryImages();
+    if (cloud.isOwner()) {
+      const received = await syncIncomingPantryImages();
+      if (received) scheduleRerender();
+    }
+  } catch { /* الشبكة أو الجلسة ستُعاد محاولتها في الدورة التالية */ }
+}
+
+function startImageRelay() {
+  clearInterval(imageRelayTimer);
+  syncImageRelay();
+  imageRelayTimer = setInterval(syncImageRelay, 20000);
+}
+
 function startCloudSession(hid) {
   setCloudUid(cloud.currentUid());
   setCloudBridge(cloudBridge(hid), hid);
@@ -394,6 +412,8 @@ function startCloudSession(hid) {
     },
   });
 
+  startImageRelay();
+
   cloud.recordSession();
   flushPendingUpload();
   /* الاشتراكات تنتهي أحيانًا من تلقائها — نجدّدها بصمت لمن فعّلها */
@@ -416,6 +436,7 @@ function flushPendingUpload() {
 cloud.setWriteErrorHandler?.((msg) => toast(msg, 4000));
 
 setLogoutHook(() => {
+  clearInterval(imageRelayTimer); imageRelayTimer = 0;
   cloud.stopSync();
   cloud.signOutCloud();
   setCloudBridge(null, null);

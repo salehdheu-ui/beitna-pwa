@@ -61,14 +61,16 @@ function createTranslator({
   enabled = true, timeoutMs = 5000,
 } = {}) {
   const inFlight = new Map();
-  let unavailableUntil = 0;
+  /* التعطّل يُعزل حسب زوج اللغتين. فشل لغة واحدة لا يوقف بقية اللغات. */
+  const unavailableUntil = new Map();
 
   async function translateChunk(text, source, target) {
     if (!text || source === target) return text;
     const key = cacheKey(source, target, text);
+    const pair = `${source}|${target}`;
     if (typeof cache[key]?.text === 'string') return cache[key].text;
     if (inFlight.has(key)) return inFlight.get(key);
-    if (Date.now() < unavailableUntil) throw new Error('translation-cooldown');
+    if (Date.now() < Number(unavailableUntil.get(pair) || 0)) throw new Error('translation-cooldown');
 
     const task = (async () => {
       const controller = new AbortController();
@@ -86,13 +88,14 @@ function createTranslator({
         }
         const translated = decodeEntities(body?.responseData?.translatedText).trim();
         if (!translated) throw new Error('translation-empty');
+        unavailableUntil.delete(pair);
         cache[key] = { text: translated, at: Date.now() };
         pruneCache(cache);
         return translated;
       } catch (error) {
         /* قاطع دائرة: عند تعطل الخدمة لا ننتظر المهلة من جديد لكل عنصر
            في دفعة أوفلاين كبيرة؛ نحفظ بقية العناصر بأصولها فورًا. */
-        unavailableUntil = Date.now() + FAILURE_COOLDOWN_MS;
+        unavailableUntil.set(pair, Date.now() + FAILURE_COOLDOWN_MS);
         throw error;
       } finally {
         clearTimeout(timer);
@@ -111,6 +114,43 @@ function createTranslator({
     const translated = [];
     for (const chunk of chunks) translated.push(await translateChunk(chunk, source, target));
     return translated.join(' ').trim();
+  }
+
+  /** يترجم عدة أسماء في طلبات مجمّعة دون تجاوز حدّ 500 بايت للمزوّد. */
+  async function translateTexts(values, source, target) {
+    const input = (values || []).map((value) => String(value || '').trim());
+    if (source === target) return input;
+    const output = new Array(input.length).fill(null);
+    const groups = [];
+    let group = [];
+    for (let i = 0; i < input.length; i++) {
+      if (!input[i]) { output[i] = ''; continue; }
+      const next = group.concat(i);
+      const joined = next.map((index) => input[index]).join('\n');
+      if (group.length && Buffer.byteLength(joined, 'utf8') > CHUNK_BYTES) {
+        groups.push(group); group = [i];
+      } else group = next;
+    }
+    if (group.length) groups.push(group);
+
+    for (const indices of groups) {
+      const joined = indices.map((index) => input[index]).join('\n');
+      try {
+        const translated = await translateChunk(joined, source, target);
+        const lines = translated.split(/\r?\n/).map((line) => line.trim());
+        if (lines.length === indices.length && lines.every(Boolean)) {
+          indices.forEach((index, at) => { output[index] = lines[at]; });
+          continue;
+        }
+        /* مزوّد غيّر فواصل الأسطر: نعود للطلبات المفردة لهذه الدفعة فقط. */
+        const singles = await Promise.allSettled(indices.map((index) =>
+          translateText(input[index], source, target)));
+        singles.forEach((result, at) => {
+          if (result.status === 'fulfilled' && result.value) output[indices[at]] = result.value;
+        });
+      } catch { /* تُترك القيم الفاشلة ناقصة وتُعاد محاولتها في المزامنة التالية */ }
+    }
+    return output;
   }
 
   async function translateDocument(col, patch, sourceHint, previous = null) {
@@ -136,7 +176,7 @@ function createTranslator({
     return { ...patch, sourceLang: source, translations };
   }
 
-  return { translateDocument, translateText };
+  return { translateDocument, translateText, translateTexts };
 }
 
 module.exports = { createTranslator, normalizeLang, FIELDS };

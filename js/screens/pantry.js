@@ -14,6 +14,7 @@ import {
 import { emptyState, toast, confirmDialog, openSheet } from '../ui.js';
 import { go } from '../router.js';
 import { currentLang, localizedText } from '../i18n.js';
+import { hydratePantryImages } from '../local-images.js';
 
 let openCat = null;      // القسم المفتوح
 let onlyNeeded = false;  // عرض الناقص فقط
@@ -166,6 +167,7 @@ export function pantryScreen() {
           if (n) { n.focus({ preventScroll: true }); n.setSelectionRange(pos, pos); }
         });
       }
+      hydratePantryImages(root);
     },
 
     topActions(act, rerender) {
@@ -217,6 +219,7 @@ function itemRow(p) {
     <div class="item" style="border-top:1px solid var(--line)">
       <button class="check ${p.stocked ? 'on' : ''}" data-tick="${p.id}"
               aria-label="${p.stocked ? 'متوفر' : 'نفد'}">✓</button>
+      <img class="pantry-thumb" data-pantry-image="${p.id}" alt="" hidden>
       <div class="grow col">
         <div class="title">${esc(localizedText(p, 'name'))}</div>
         ${p.stocked ? '' : '<div class="meta"><span class="badge warn">نفد</span></div>'}

@@ -401,6 +401,17 @@ html[data-theme="dark"] .badge.warn { color: var(--warning); }
 }
 .check.on { background: var(--emerald); border-color: var(--emerald); color: #fff; }
 
+.pantry-thumb {
+  width: 46px; height: 46px; object-fit: cover; flex: 0 0 auto;
+  border-radius: 11px; border: 1px solid var(--border); background: var(--surface-2);
+}
+.pantry-photo-preview {
+  display: block; width: 100%; max-height: 220px; object-fit: contain;
+  margin-top: 10px; border-radius: 14px; border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.pantry-photo-preview[hidden], .pantry-thumb[hidden] { display: none; }
+
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--soft); flex: 0 0 auto; }
 .dot.on { background: #22C55E; }
 

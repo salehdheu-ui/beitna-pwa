@@ -149,6 +149,9 @@ async function main() {
     method: 'POST', token: helper.token,
     body: { ops: [{ col: 'pantry', id: '9101', op: 'merge', data: { stocked: false } }] },
   })).data.applied, 1);
+  const afterToggle = await request('/sync?since=0', { token: helper.token });
+  assert.equal(afterToggle.data.cols.pantry.find((x) => x.id === 9101).translations.sw.name, 'sw:حليب',
+    'تغيير علامة المتوفر حذف ترجمة لغة العاملة');
   assert.equal((await request('/write', {
     method: 'POST', token: helper.token,
     body: { ops: [{ col: 'pantry', id: '9102', op: 'set', data: {
@@ -158,6 +161,21 @@ async function main() {
   const ownerPantrySync = await request('/sync?since=0', { token: owner.token });
   assert.equal(ownerPantrySync.data.cols.pantry.find((x) => x.id === 9101).stocked, false);
   assert.equal(ownerPantrySync.data.cols.pantry.find((x) => x.id === 9102).translations.ar.name, 'ar:mafuta');
+
+  /* الصورة تمر مؤقتًا إلى المالك، ولا تدخل قاعدة البيانات أو المزامنة. */
+  const tinyImage = 'data:image/jpeg;base64,' + Buffer.from('temporary-image').toString('base64');
+  assert.equal((await request('/pantry-image/9102', {
+    method: 'POST', token: helper.token, body: { dataUrl: tinyImage },
+  })).status, 200);
+  assert.equal((await request('/pantry-images', { token: helper.token })).status, 403);
+  const relayedImages = await request('/pantry-images', { token: owner.token });
+  assert.equal(relayedImages.data.images.length, 1);
+  assert.equal(relayedImages.data.images[0].itemId, '9102');
+  assert.equal(relayedImages.data.images[0].dataUrl, tinyImage);
+  assert.equal((await request('/pantry-images/ack', {
+    method: 'POST', token: owner.token, body: { itemIds: ['9102'] },
+  })).status, 200);
+  assert.equal((await request('/pantry-images', { token: owner.token })).data.images.length, 0);
 
   /* تخصيص المشتريات والأعطال للعاملة يعمل، لكن القدرات الحساسة تبقى ثابتة. */
   const limitedHelper = await request(`/member/${helper.uid}/caps`, {
@@ -265,6 +283,7 @@ async function main() {
   const local = JSON.parse(fs.readFileSync(path.join(dataDir, 'backups', backup.data.file), 'utf8'));
   const offsite = JSON.parse(fs.readFileSync(path.join(offsiteDir, backup.data.file), 'utf8'));
   assert.deepEqual(Object.keys(local.users).sort(), Object.keys(offsite.users).sort());
+  assert.equal(JSON.stringify(local).includes(tinyImage), false, 'تسرّبت صورة مؤقتة إلى النسخة الاحتياطية');
 
   /* اختبار استعادة فعلي: نتوقف، نتلف db.json، ثم يجب أن يقلع الخادم من
      أحدث نسخة ويقبل الجلسة والبيانات نفسها. */

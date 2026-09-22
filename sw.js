@@ -3,7 +3,7 @@
    يعمل بدون إنترنت، ويحدّث نفسه فورًا عند نشر نسخة جديدة.
    ============================================================ */
 
-const VERSION = 'beitna-v3.23.0';
+const VERSION = 'beitna-v3.24.0';
 const NET_TIMEOUT = 2500;
 
 /* لوحة الإدارة ليست جزءًا من الـ PWA إطلاقًا. يجب أن تمر ملفاتها إلى الشبكة
@@ -23,6 +23,7 @@ const CORE = [
   './js/router.js',
   './js/notify.js',
   './js/i18n.js',
+  './js/local-images.js',
   './js/push.js',
   './js/screens/helper.js',
   './js/cloud.js',

@@ -755,6 +755,19 @@ export async function removeMemberCloud(hid, uid) {
   }
 }
 
+/* صور الاحتياجات تمر مؤقتًا عبر ذاكرة الخادم ولا تدخل مستندات المزامنة. */
+export function relayPantryImage(itemId, dataUrl) {
+  return req('/pantry-image/' + encodeURIComponent(itemId), {
+    method: 'POST', body: { dataUrl }, timeout: 20000,
+  });
+}
+export function pullPantryImages() {
+  return req('/pantry-images', { timeout: 20000 });
+}
+export function ackPantryImages(itemIds) {
+  return req('/pantry-images/ack', { method: 'POST', body: { itemIds }, timeout: 12000 });
+}
+
 /* ---------- تفضيلات الإشعارات ---------- */
 export function saveNotificationPrefs(prefs) {
   if (!token) return;

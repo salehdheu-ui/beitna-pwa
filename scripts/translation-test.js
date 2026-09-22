@@ -16,7 +16,10 @@ async function main() {
     const target = pair.split('|')[1];
     return {
       ok: true,
-      async json() { return { responseStatus: 200, responseData: { translatedText: `${target}:${q}` } }; },
+      async json() {
+        const translatedText = q.split('\n').map((line) => `${target}:${line}`).join('\n');
+        return { responseStatus: 200, responseData: { translatedText } };
+      },
     };
   };
 
@@ -45,6 +48,10 @@ async function main() {
   }, 'sw');
   assert.equal(pantry.translations.ar.name, 'ar:mafuta');
   assert.equal(pantry.translations.en.name, 'en:mafuta');
+
+  const bulk = await translator.translateTexts(['حليب', 'تونة', 'سكر'], 'ar', 'sw');
+  assert.deepEqual(bulk, ['sw:حليب', 'sw:تونة', 'sw:سكر']);
+  assert.equal(calls.filter((x) => x.pair === 'ar|sw').length, 1, 'لم تُجمع أسماء المنتجات في طلب واحد');
 
   const unavailable = createTranslator({
     cache: {}, apiUrl: 'https://translation.test/get',

@@ -98,6 +98,7 @@ if (utilSource.includes("currentLang() === 'en'") && utilSource.includes('Intl.D
 const helperSource = read('js/screens/helper.js');
 const cloudSource = read('js/cloud.js');
 const serverSource = read('server/server.js');
+const localImagesSource = read('js/local-images.js');
 if (helperSource.includes("t('shopping_title')") && helperSource.includes("t('report_fault')"))
   ok('شاشة العاملة اليومية تستخدم قاموس اللغات');
 else bad('شاشة العاملة تحتوي نصوصًا غير موصولة بالقاموس');
@@ -110,6 +111,11 @@ if (helperSource.includes('data-pantry-tick') && helperSource.includes('data-hel
     helperSource.includes("t('needs_list')")) {
   ok('قائمة الاحتياجات مقسمة في شاشة العاملة والناقص ينتقل للمشتريات');
 } else bad('قائمة الاحتياجات غير مكتملة في شاشة العاملة');
+if (helperSource.includes('compressPantryImage') && helperSource.includes('saveAndRelayPantryImage') &&
+    localImagesSource.includes("const DB_NAME = 'beitna-local-images'") &&
+    serverSource.includes('pantryImageRelays') && serverSource.includes('IMAGE_RELAY_TTL')) {
+  ok('صور العاملة تُضغط وتُحفظ على الهاتف وتُرحّل مؤقتًا للمالك');
+} else bad('مسار صور الاحتياجات لا يحقق الحفظ المحلي والترحيل المؤقت');
 if (cloudSource.includes('localizedPush') || serverSource.includes('localizedPush'))
   ok('إشعارات العاملة السحابية تتبع لغة حسابها');
 else bad('إشعارات العاملة السحابية لا تتبع اللغة');
@@ -282,6 +288,10 @@ else bad('الأقسام الجديدة لا تتزامن بين الأجهزة'
 if (cloud.includes('translations: d.translations') && server.includes('schedulePantryTranslations')) {
   ok('محتوى قائمة الاحتياجات يُحفظ ويصل مترجمًا إلى لغة العاملة');
 } else bad('ترجمة محتوى قائمة الاحتياجات غير موصولة من الخادم إلى العاملة');
+if (store.includes("push('patch', 'pantry', id, { stocked:") &&
+    server.includes('translator.translateTexts')) {
+  ok('تغيير علامة المنتج يحفظ ترجماته، والأسماء تُترجم على دفعات لكل اللغات');
+} else bad('تغيير علامة المنتج قد يمحو الترجمة أو الترجمة ما زالت طلبًا لكل اسم');
 const pantryData = read('js/pantry-data.js');
 if ((pantryData.match(/names: categoryNames\(/g) || []).length === 12 &&
     pantryData.includes('{ ar, en, hi, si, ta, am, tl, id, my, sw, ne }')) {
