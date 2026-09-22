@@ -351,6 +351,7 @@ const MAPPERS = {
     category: d.category || '', priority: d.priority || 'عادي', note: d.note || '',
     sourceLang: d.sourceLang || '', translations: d.translations && typeof d.translations === 'object' ? d.translations : {},
     status: d.status || 'ناقص', owner: d.owner || '', ownerUid: d.ownerUid || '',
+    pantryId: d.pantryId == null ? null : Number(d.pantryId),
     price: d.price || '', priceValue: Number(d.priceValue) || 0,
     createdAt: Number(d.createdAt) || Date.now(), purchasedAt: d.purchasedAt || 0,
     createdBy: d.createdBy || '', claimedBy: d.claimedBy || '', claimedAt: Number(d.claimedAt) || 0,
@@ -766,6 +767,18 @@ export function pullPantryImages() {
 }
 export function ackPantryImages(itemIds) {
   return req('/pantry-images/ack', { method: 'POST', body: { itemIds }, timeout: 12000 });
+}
+
+export function relayFaultImage(itemId, dataUrl) {
+  return req('/fault-image/' + encodeURIComponent(itemId), {
+    method: 'POST', body: { dataUrl }, timeout: 20000,
+  });
+}
+export function pullFaultImages() {
+  return req('/fault-images', { timeout: 20000 });
+}
+export function ackFaultImages(itemIds) {
+  return req('/fault-images/ack', { method: 'POST', body: { itemIds }, timeout: 12000 });
 }
 
 /* ---------- تفضيلات الإشعارات ---------- */

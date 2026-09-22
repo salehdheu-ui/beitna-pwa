@@ -99,6 +99,7 @@ const helperSource = read('js/screens/helper.js');
 const cloudSource = read('js/cloud.js');
 const serverSource = read('server/server.js');
 const localImagesSource = read('js/local-images.js');
+const store = read('js/store.js');
 if (helperSource.includes("t('shopping_title')") && helperSource.includes("t('report_fault')"))
   ok('شاشة العاملة اليومية تستخدم قاموس اللغات');
 else bad('شاشة العاملة تحتوي نصوصًا غير موصولة بالقاموس');
@@ -116,6 +117,14 @@ if (helperSource.includes('compressPantryImage') && helperSource.includes('saveA
     serverSource.includes('pantryImageRelays') && serverSource.includes('IMAGE_RELAY_TTL')) {
   ok('صور العاملة تُضغط وتُحفظ على الهاتف وتُرحّل مؤقتًا للمالك');
 } else bad('مسار صور الاحتياجات لا يحقق الحفظ المحلي والترحيل المؤقت');
+if (helperSource.includes('saveAndRelayFaultImage') && helperSource.includes('id="fphoto"') &&
+    localImagesSource.includes('syncIncomingFaultImages') && serverSource.includes("kind: 'fault'")) {
+  ok('بلاغ العطل عند العاملة يقبل صورة محلية تُرحّل مؤقتًا للمالك');
+} else bad('صورة بلاغ العطل غير موصولة بالترحيل المحلي المؤقت');
+if (store.includes('pantryId: p.id') && store.includes('restoreLinkedPantry') &&
+    serverSource.includes('restorePantryFromShopping')) {
+  ok('شراء المنتج يعيده متوفرًا في قائمة الاحتياجات على كل الأجهزة');
+} else bad('شراء المنتج لا يعيد علامة المتوفر إلى قائمة الاحتياجات');
 if (cloudSource.includes('localizedPush') || serverSource.includes('localizedPush'))
   ok('إشعارات العاملة السحابية تتبع لغة حسابها');
 else bad('إشعارات العاملة السحابية لا تتبع اللغة');
@@ -268,7 +277,6 @@ if (/\.view\s*\{[^}]*overflow-x:\s*hidden/s.test(css) && /\.tabs\s*\{[^}]*max-wi
 
 /* ---------- إدارة قائمة الاحتياجات ---------- */
 console.log('قائمة الاحتياجات:');
-const store = read('js/store.js');
 const cloud = read('js/cloud.js');
 const server = read('server/server.js');
 const pantry = read('js/screens/pantry.js');

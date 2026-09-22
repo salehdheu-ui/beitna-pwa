@@ -162,6 +162,24 @@ async function main() {
   assert.equal(ownerPantrySync.data.cols.pantry.find((x) => x.id === 9101).stocked, false);
   assert.equal(ownerPantrySync.data.cols.pantry.find((x) => x.id === 9102).translations.ar.name, 'ar:mafuta');
 
+  /* شراء العنصر المرتبط يعيده متوفرًا في احتياجات المالك والعاملة. */
+  assert.equal((await request('/write', {
+    method: 'POST', token: owner.token,
+    body: { ops: [{ col: 'shopping', id: '9201', op: 'set', data: {
+      id: 9201, name: 'حليب', note: 'من قائمة الاحتياجات', pantryId: 9101, status: 'ناقص',
+    } }] },
+  })).data.applied, 1);
+  assert.equal((await request('/write', {
+    method: 'POST', token: owner.token,
+    body: { ops: [{ col: 'shopping', id: '9201', op: 'merge', act: 'done', data: {
+      status: 'تم الشراء',
+    } }] },
+  })).data.applied, 1);
+  const afterPurchase = await request('/sync?since=0', { token: helper.token });
+  const restoredPantry = afterPurchase.data.cols.pantry.find((x) => x.id === 9101);
+  assert.equal(restoredPantry.stocked, true, 'لم يعد المنتج متوفرًا بعد شرائه');
+  assert.equal(restoredPantry.translations.sw.name, 'sw:حليب', 'فُقدت الترجمة بعد إعادة المنتج متوفرًا');
+
   /* الصورة تمر مؤقتًا إلى المالك، ولا تدخل قاعدة البيانات أو المزامنة. */
   const tinyImage = 'data:image/jpeg;base64,' + Buffer.from('temporary-image').toString('base64');
   assert.equal((await request('/pantry-image/9102', {
@@ -176,6 +194,18 @@ async function main() {
     method: 'POST', token: owner.token, body: { itemIds: ['9102'] },
   })).status, 200);
   assert.equal((await request('/pantry-images', { token: owner.token })).data.images.length, 0);
+
+  assert.equal((await request('/fault-image/9301', {
+    method: 'POST', token: helper.token, body: { dataUrl: tinyImage },
+  })).status, 200);
+  assert.equal((await request('/fault-images', { token: helper.token })).status, 403);
+  const relayedFaultImages = await request('/fault-images', { token: owner.token });
+  assert.equal(relayedFaultImages.data.images.length, 1);
+  assert.equal(relayedFaultImages.data.images[0].itemId, '9301');
+  assert.equal((await request('/fault-images/ack', {
+    method: 'POST', token: owner.token, body: { itemIds: ['9301'] },
+  })).status, 200);
+  assert.equal((await request('/fault-images', { token: owner.token })).data.images.length, 0);
 
   /* تخصيص المشتريات والأعطال للعاملة يعمل، لكن القدرات الحساسة تبقى ثابتة. */
   const limitedHelper = await request(`/member/${helper.uid}/caps`, {

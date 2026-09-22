@@ -12,7 +12,9 @@ import {
 import { toast, openSheet } from '../ui.js';
 import { t, LANGS, currentLang, setLang, applyLangToDocument, localizedText } from '../i18n.js';
 import { saveNotificationPrefs } from '../cloud.js';
-import { compressPantryImage, saveAndRelayPantryImage, hydratePantryImages } from '../local-images.js';
+import {
+  compressPantryImage, saveAndRelayPantryImage, saveAndRelayFaultImage, hydratePantryImages,
+} from '../local-images.js';
 
 const dirAttr = () => (document.documentElement.dir === 'rtl' ? 'rtl' : 'ltr');
 let pantryQuery = '';
@@ -313,21 +315,41 @@ function addFaultSheet(rerender) {
       <input class="input" id="fp" dir="${dirAttr()}"></div>
     <div class="field"><label for="fn">${esc(t('fault_note'))}</label>
       <textarea class="input" id="fn" rows="3" dir="${dirAttr()}"></textarea></div>
+    <div class="field"><label for="fphoto">${esc(t('add_photo'))}</label>
+      <input class="input" id="fphoto" type="file" accept="image/*" capture="environment">
+      <div class="hint">${esc(t('photo_relay_hint'))}</div>
+      <img id="fphotoPreview" class="pantry-photo-preview" alt="" hidden>
+    </div>
     <button class="btn block" data-save>${esc(t('save'))}</button>
     <button class="btn ghost block mt-s" data-close>${esc(t('cancel'))}</button>
   `, {
     onMount(el, close) {
+      let imageData = '';
+      const photo = el.querySelector('#fphoto');
+      const preview = el.querySelector('#fphotoPreview');
+      const save = el.querySelector('[data-save]');
+      photo.onchange = async () => {
+        const file = photo.files?.[0];
+        if (!file) { imageData = ''; preview.hidden = true; return; }
+        save.disabled = true;
+        try {
+          imageData = await compressPantryImage(file);
+          preview.src = imageData; preview.hidden = !imageData;
+        } catch { imageData = ''; preview.hidden = true; toast(t('photo_failed')); }
+        finally { save.disabled = false; }
+      };
       el.querySelector('[data-close]').onclick = close;
-      el.querySelector('[data-save]').onclick = () => {
+      save.onclick = async () => {
         const title = el.querySelector('#ft').value.trim();
         if (!title) return toast(t('required'));
-        addFault({
+        const item = addFault({
           title,
           location: el.querySelector('#fp').value.trim(),
           note: el.querySelector('#fn').value.trim(),
           priority: 'متوسط',
           sourceLang: currentLang(),
         });
+        if (item && imageData) await saveAndRelayFaultImage(item.id, imageData);
         close(); toast(t('sent')); rerender();
       };
     },

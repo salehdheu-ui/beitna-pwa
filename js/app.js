@@ -30,7 +30,9 @@ import { helperScreen, langSheet } from './screens/helper.js';
 import { refreshPush } from './push.js';
 import { t, applyLangToDocument, currentLang, setLang, localizeMainUi, observeMainUi } from './i18n.js';
 import { diag } from './diag.js';
-import { flushPendingPantryImages, syncIncomingPantryImages } from './local-images.js';
+import {
+  flushPendingPantryImages, syncIncomingPantryImages, syncIncomingFaultImages,
+} from './local-images.js';
 
 /* المسار القديم للوحة المدمجة لم يعد موجودًا. إذا بقي في نافذة أو اختصار
    من النسخة السابقة، نعيده للرئيسية بدل إبقاء المستخدم في صفحة مفقودة. */
@@ -347,7 +349,7 @@ async function syncImageRelay() {
   try {
     await flushPendingPantryImages();
     if (cloud.isOwner()) {
-      const received = await syncIncomingPantryImages();
+      const received = await syncIncomingPantryImages() + await syncIncomingFaultImages();
       if (received) scheduleRerender();
     }
   } catch { /* الشبكة أو الجلسة ستُعاد محاولتها في الدورة التالية */ }

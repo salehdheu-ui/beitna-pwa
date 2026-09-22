@@ -19,7 +19,7 @@ const SECRET_FILE = path.join(DATA_DIR, 'secret.key');
    بقيمة تتجاوز 30 يومًا حتى لا يعيد إعدادٌ خاطئ جلسات السنة القديمة. */
 const TOKEN_DAYS = Math.min(30, Math.max(1, Number(process.env.TOKEN_DAYS || 14)));
 const PUSH_SUBJECT = process.env.PUSH_SUBJECT || 'mailto:admin@beitna.local';
-const SERVER_VERSION = '1.14.0';
+const SERVER_VERSION = '1.15.0';
 
 /* لوحة الإدارة المنفصلة لها رمز مستقل تمامًا عن حسابات بيتنا.
 
@@ -1413,9 +1413,9 @@ async function route(req, res, url) {
       .filter((member) => !member.deleted && permOf(member) === 'owner')
       .map((member) => member.uid));
     if (!recipients.size) return fail(res, 409, 'no-owner');
-    const key = `${hh.id}:${itemId}`;
+    const key = `${hh.id}:pantry:${itemId}`;
     pantryImageRelays.set(key, {
-      key, householdId: hh.id, itemId, dataUrl, bytes,
+      key, kind: 'pantry', householdId: hh.id, itemId, dataUrl, bytes,
       createdAt: now(), expiresAt: now() + IMAGE_RELAY_TTL,
       recipients, received: new Set(),
     });
@@ -1428,6 +1428,7 @@ async function route(req, res, url) {
     prunePantryImageRelays();
     const images = [...pantryImageRelays.values()]
       .filter((relay) => relay.householdId === hh.id &&
+        relay.kind === 'pantry' &&
         relay.recipients.has(user.uid) && !relay.received.has(user.uid))
       .sort((a, b) => a.createdAt - b.createdAt)
       .slice(0, 8)
@@ -1440,7 +1441,60 @@ async function route(req, res, url) {
     const b = await readBody(req);
     const ids = new Set((Array.isArray(b.itemIds) ? b.itemIds : []).slice(0, 20).map(String));
     for (const relay of pantryImageRelays.values()) {
-      if (relay.householdId === hh.id && ids.has(String(relay.itemId)) && relay.recipients.has(user.uid)) {
+      if (relay.kind === 'pantry' && relay.householdId === hh.id &&
+          ids.has(String(relay.itemId)) && relay.recipients.has(user.uid)) {
+        relay.received.add(user.uid);
+      }
+    }
+    prunePantryImageRelays();
+    return send(res, 200, { ok: true });
+  }
+
+  /* صورة بلاغ العطل تستخدم قناة النقل المؤقتة نفسها، ولا تدخل قاعدة البيانات. */
+  if (p.startsWith('/fault-image/') && method === 'POST') {
+    if (capLevel(myCaps, 'faults') !== 'write') return fail(res, 403, 'read-only');
+    const itemId = decodeURIComponent(p.slice('/fault-image/'.length)).slice(0, 80);
+    if (!itemId) return fail(res, 400, 'bad-item');
+    const b = await readBody(req);
+    const dataUrl = String(b.dataUrl || '');
+    if (!/^data:image\/(?:jpeg|webp|png);base64,[a-z0-9+/=\r\n]+$/i.test(dataUrl)) {
+      return fail(res, 400, 'bad-image');
+    }
+    const bytes = Buffer.byteLength(dataUrl, 'utf8');
+    if (bytes > IMAGE_ONE_MAX_BYTES * 1.45) return fail(res, 413, 'image-too-large');
+    const recipients = new Set(Object.values(hh.members)
+      .filter((member) => !member.deleted && permOf(member) === 'owner')
+      .map((member) => member.uid));
+    if (!recipients.size) return fail(res, 409, 'no-owner');
+    const key = `${hh.id}:fault:${itemId}`;
+    pantryImageRelays.set(key, {
+      key, kind: 'fault', householdId: hh.id, itemId, dataUrl, bytes,
+      createdAt: now(), expiresAt: now() + IMAGE_RELAY_TTL,
+      recipients, received: new Set(),
+    });
+    prunePantryImageRelays();
+    return send(res, 200, { ok: true, temporary: true });
+  }
+
+  if (p === '/fault-images' && method === 'GET') {
+    if (myPerm !== 'owner') return fail(res, 403, 'owner-only');
+    prunePantryImageRelays();
+    const images = [...pantryImageRelays.values()]
+      .filter((relay) => relay.kind === 'fault' && relay.householdId === hh.id &&
+        relay.recipients.has(user.uid) && !relay.received.has(user.uid))
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .slice(0, 8)
+      .map((relay) => ({ itemId: relay.itemId, dataUrl: relay.dataUrl, createdAt: relay.createdAt }));
+    return send(res, 200, { images });
+  }
+
+  if (p === '/fault-images/ack' && method === 'POST') {
+    if (myPerm !== 'owner') return fail(res, 403, 'owner-only');
+    const b = await readBody(req);
+    const ids = new Set((Array.isArray(b.itemIds) ? b.itemIds : []).slice(0, 20).map(String));
+    for (const relay of pantryImageRelays.values()) {
+      if (relay.kind === 'fault' && relay.householdId === hh.id &&
+          ids.has(String(relay.itemId)) && relay.recipients.has(user.uid)) {
         relay.received.add(user.uid);
       }
     }
@@ -1541,6 +1595,22 @@ function invalidateTranslations(col, patch, previous, sourceLang) {
   return { ...patch, sourceLang: normalizeLang(sourceLang), translations };
 }
 
+/** شراء عنصر أُرسل من قائمة الاحتياجات يعيده فورًا إلى «متوفر». */
+function restorePantryFromShopping(hh, shopping, at) {
+  if (!shopping || shopping.status !== 'تم الشراء') return false;
+  const pantryBucket = hh.cols.pantry || (hh.cols.pantry = {});
+  let pantry = shopping.pantryId == null ? null : pantryBucket[String(shopping.pantryId)];
+  /* العناصر القديمة لم تكن تحمل pantryId؛ نميّزها بالملاحظة التي يضيفها التطبيق. */
+  if ((!pantry || pantry.deleted) && shopping.note === 'من قائمة الاحتياجات') {
+    pantry = Object.values(pantryBucket).find((item) =>
+      item && !item.deleted && !item.stocked && item.name === shopping.name);
+  }
+  if (!pantry || pantry.deleted || pantry.stocked) return false;
+  pantry.stocked = true;
+  pantry.updatedAt = at;
+  return true;
+}
+
   /* ===== الكتابة: دفعة عمليات ===== */
   if (p === '/write' && method === 'POST') {
     const b = await readBody(req);
@@ -1609,6 +1679,11 @@ function invalidateTranslations(col, patch, previous, sourceLang) {
         const done = stampDoc(doc, prev, act, user.uid);
         bucket[id] = doc;
         if (done && done !== 'create') acts.push({ col, doc, act: done });
+      }
+      const current = bucket[id];
+      if (col === 'shopping' && current && !current.deleted && current.status === 'تم الشراء' &&
+          prev?.status !== 'تم الشراء' && restorePantryFromShopping(hh, current, t)) {
+        pantryTouched = true;
       }
       if (isNew && op.op !== 'delete') added.push({ col, data: bucket[id] });
       if (col === 'pantry' || col === 'pantryCategories') pantryTouched = true;

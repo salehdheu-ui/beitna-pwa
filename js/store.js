@@ -250,11 +250,31 @@ export function nameOfUid(uid) {
 
 const COL_OF = { shopping: 'shopping', faults: 'faults', occasions: 'occasions' };
 
+/** يعيد المنتج المرتبط بالمشتريات إلى «متوفر» فور تسجيل شرائه. */
+function restoreLinkedPantry(s, shopping, at = Date.now()) {
+  if (!shopping || shopping.status !== 'تم الشراء') return null;
+  let pantry = shopping.pantryId == null ? null
+    : s.pantry.find((item) => String(item.id) === String(shopping.pantryId));
+  /* توافق مع العناصر التي أُرسلت من قائمة الاحتياجات قبل إضافة الرابط الصريح. */
+  if (!pantry && shopping.note === 'من قائمة الاحتياجات') {
+    pantry = s.pantry.find((item) => !item.stocked && item.name === shopping.name);
+  }
+  if (!pantry || pantry.stocked) return null;
+  pantry.stocked = true;
+  pantry.updatedAt = at;
+  return pantry;
+}
+
+function pushRestoredPantry(item) {
+  if (item) push('patch', 'pantry', item.id, { stocked: true, updatedAt: item.updatedAt });
+}
+
 /** فعل موقَّع على عنصر: claim | unclaim | done | reopen */
 export function actOnItem(col, id, act, patch = {}) {
   if (!COL_OF[col]) return;
   const mine = myUid();
   const t = Date.now();
+  let restoredPantry = null;
   update((s) => {
     const it = s[col].find((x) => x.id === id);
     if (!it) return;
@@ -263,10 +283,14 @@ export function actOnItem(col, id, act, patch = {}) {
     if (act === 'unclaim') { it.claimedBy = ''; it.claimedAt = 0; }
     if (act === 'done') { it.doneBy = mine; it.doneAt = t; }
     if (act === 'reopen') { it.doneBy = ''; it.doneAt = 0; }
+    if (col === 'shopping' && (act === 'done' || patch.status === 'تم الشراء')) {
+      restoredPantry = restoreLinkedPantry(s, it, t);
+    }
     /* السجل المعروض قبل وصول ختم الخادم — يُستبدل بما يرسله عند المزامنة */
     it.trail = [...(it.trail || []), { at: t, by: mine, act, ...(patch.status ? { to: patch.status } : {}) }].slice(-24);
   });
   push('act', col, id, act, patch);
+  pushRestoredPantry(restoredPantry);
 }
 
 /** تعديل الحالة بأمان */
@@ -370,12 +394,12 @@ export function uploadLocalData() {
 /* ============================================================
    المشتريات
    ============================================================ */
-export function addShopping({ name, quantity = '', category = '', priority = 'عادي', note = '', price = '', sourceLang = '', translations = {} }) {
+export function addShopping({ name, quantity = '', category = '', priority = 'عادي', note = '', price = '', sourceLang = '', translations = {}, pantryId = null }) {
   let created;
   update((s) => {
     created = {
       id: newId(),
-      name, quantity, category, priority, note, sourceLang, translations,
+      name, quantity, category, priority, note, sourceLang, translations, pantryId,
       status: 'ناقص',
       owner: s.profile.name || 'أنا',
       ownerUid: cloudUid || 'local',
@@ -391,25 +415,32 @@ export function addShopping({ name, quantity = '', category = '', priority = 'ع
 }
 
 export function updateShopping(id, patch) {
+  let restoredPantry = null;
   update((s) => {
     const it = s.shopping.find((x) => x.id === id);
     if (!it) return;
     Object.assign(it, patch);
     if (patch.price !== undefined) it.priceValue = parseFloat(patch.price) || 0;
     if (patch.status) logActivity('تم تحديث عنصر مشتريات');
+    if (patch.status === 'تم الشراء') restoredPantry = restoreLinkedPantry(s, it);
     push('patch', 'shopping', id, { ...patch, priceValue: it.priceValue });
   });
+  pushRestoredPantry(restoredPantry);
 }
 
 export function setShoppingStatus(id, status) {
+  let restoredPantry = null;
+  let purchasedAt = 0;
   update((s) => {
     const it = s.shopping.find((x) => x.id === id);
     if (!it) return;
     it.status = status;
-    if (status === 'تم الشراء') it.purchasedAt = Date.now();
+    if (status === 'تم الشراء') it.purchasedAt = purchasedAt = Date.now();
+    restoredPantry = restoreLinkedPantry(s, it, purchasedAt || Date.now());
     logActivity(`${status}: ${it.name}`);
-    push('patch', 'shopping', id, { status });
+    push('patch', 'shopping', id, { status, ...(purchasedAt ? { purchasedAt } : {}) });
   });
+  pushRestoredPantry(restoredPantry);
 }
 
 export function deleteShopping(id) {
@@ -954,7 +985,7 @@ export function sendNeededToShopping() {
     if (pending.has(p.name)) continue;
     addShopping({
       name: p.name, category: '', note: 'من قائمة الاحتياجات',
-      sourceLang: p.sourceLang || 'ar', translations: p.translations || {},
+      sourceLang: p.sourceLang || 'ar', translations: p.translations || {}, pantryId: p.id,
     });
     added++;
   }
@@ -970,7 +1001,7 @@ export function sendPantryItemToShopping(id) {
   if (exists) return 0;
   addShopping({
     name: p.name, category: '', note: 'من قائمة الاحتياجات',
-    sourceLang: p.sourceLang || 'ar', translations: p.translations || {},
+    sourceLang: p.sourceLang || 'ar', translations: p.translations || {}, pantryId: p.id,
   });
   logActivity(`أُرسل ${p.name} من الاحتياجات إلى المشتريات`);
   return 1;

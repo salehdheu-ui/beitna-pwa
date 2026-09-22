@@ -8,6 +8,7 @@ import {
 import { emptyState, toast, confirmDialog, chipSelect, bindChips, openSheet, claimBar, trailCard, whoLine } from '../ui.js';
 import { go, back } from '../router.js';
 import { localizedText } from '../i18n.js';
+import { compressPantryImage, saveAndRelayFaultImage, hydrateFaultImages } from '../local-images.js';
 
 const FILTERS = ['الكل', 'الجديدة', 'قيد المتابعة', 'بانتظار فني', 'تم الإصلاح'];
 const FILTER_MAP = { 'الجديدة': 'جديد', 'قيد المتابعة': 'قيد المتابعة', 'بانتظار فني': 'بانتظار فني', 'تم الإصلاح': 'تم الإصلاح' };
@@ -47,6 +48,7 @@ export function faultsScreen() {
           : emptyState('🔧', 'لا توجد أعطال هنا', 'جرّب إضافة عطل جديد أو غيّر الفلتر')}
       </div>`,
     mount(root, rerender) {
+      hydrateFaultImages(root);
       root.addEventListener('click', (e) => {
         const f = e.target.closest('[data-filter]');
         if (f) { filter = f.dataset.filter; rerender(); return; }
@@ -60,14 +62,15 @@ export function faultsScreen() {
 function row(f) {
   return `
     <div class="item tap ${f.status === 'تم الإصلاح' ? 'done' : ''}" data-open="${f.id}">
-      <div class="avatar">${esc(locIcon(f.location))}</div>
+      <img class="pantry-thumb" data-fault-image="${f.id}" src="${esc(f.photoUrl || '')}"
+        ${f.photoUrl ? '' : 'hidden'} alt="">
+      <div class="avatar" data-fault-placeholder ${f.photoUrl ? 'hidden' : ''}>${esc(locIcon(f.location))}</div>
       <div class="grow col">
         <div class="title">${esc(localizedText(f, 'title'))}</div>
         <div class="meta">
           <span>${esc(f.location ? localizedText(f, 'location') : 'غير محدد')}</span>
           <span class="badge ${prioTone(f.priority)}">${esc(f.priority)}</span>
           <span class="badge ${statusTone(f.status)}">${esc(f.status)}</span>
-          ${f.photoUrl ? '<span>📷</span>' : ''}
         </div>
       </div>
       <span class="muted">‹</span>
@@ -101,8 +104,8 @@ export function faultFormScreen() {
         </div>
         <div class="field">
           <label for="photo">صورة العطل (اختياري)</label>
-          <input class="input" id="photo" type="file" accept="image/*">
-          <div class="hint">اضغط لاختيار صورة من المعرض — تُحفظ داخل جهازك فقط.</div>
+          <input class="input" id="photo" type="file" accept="image/*" capture="environment">
+          <div class="hint">تُحفظ في الهاتف وتُنقل مؤقتًا إلى المالك فقط.</div>
           <img id="preview" class="photo mt-s" hidden alt="معاينة صورة العطل">
         </div>
         <div class="field">
@@ -114,54 +117,40 @@ export function faultFormScreen() {
     mount(root) {
       const values = bindChips(root);
       let photoUrl = '';
+      const saveButton = root.querySelector('[data-save]');
 
       root.querySelector('#photo').addEventListener('change', async (e) => {
         const file = e.target.files?.[0];
         if (!file) return;
-        photoUrl = await downscale(file);
-        const img = root.querySelector('#preview');
-        img.src = photoUrl; img.hidden = false;
+        saveButton.disabled = true;
+        try {
+          photoUrl = await compressPantryImage(file);
+          const img = root.querySelector('#preview');
+          img.src = photoUrl; img.hidden = !photoUrl;
+        } catch {
+          photoUrl = '';
+          root.querySelector('#preview').hidden = true;
+          toast('تعذرت قراءة الصورة');
+        } finally { saveButton.disabled = false; }
       });
 
-      root.querySelector('[data-save]').onclick = () => {
+      saveButton.onclick = async () => {
         const title = root.querySelector('#title').value.trim();
         if (!title) { root.querySelector('#err').innerHTML = `<div class="err">اكتب عنوان العطل</div>`; return; }
-        addFault({
+        const item = addFault({
           title,
           location: values.location,
           priority: values.priority,
           note: root.querySelector('#note').value.trim(),
           estimatedCost: root.querySelector('#cost').value,
-          photoUrl,
         });
+        if (item && photoUrl) await saveAndRelayFaultImage(item.id, photoUrl);
         toast(`تم تسجيل عطل: ${title}`);
         go('/faults', { replace: true });
       };
       root.querySelector('#title')?.focus({ preventScroll: true });
     },
   };
-}
-
-/** تصغير الصورة قبل تخزينها محليًا */
-function downscale(file, max = 1000, quality = 0.72) {
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const img = new Image();
-      img.onload = () => {
-        const scale = Math.min(1, max / Math.max(img.width, img.height));
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.round(img.width * scale);
-        canvas.height = Math.round(img.height * scale);
-        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL('image/jpeg', quality));
-      };
-      img.onerror = () => resolve('');
-      img.src = reader.result;
-    };
-    reader.onerror = () => resolve('');
-    reader.readAsDataURL(file);
-  });
 }
 
 /* ============================ التفاصيل ============================ */
@@ -181,7 +170,8 @@ export function faultDetailsScreen({ id }) {
             <div class="muted small">${esc(f.location ? localizedText(f, 'location') : 'غير محدد')}</div>
           </div>
         </div>
-        ${f.photoUrl ? `<img class="photo mt" src="${f.photoUrl}" alt="صورة العطل">` : ''}
+        <img class="photo mt" data-fault-image="${f.id}" src="${esc(f.photoUrl || '')}"
+          ${f.photoUrl ? '' : 'hidden'} alt="صورة العطل">
         <hr class="divider">
         <div class="kv"><span class="k">الحالة</span><span class="v"><span class="badge ${statusTone(f.status)}">${esc(f.status)}</span></span></div>
         <div class="kv"><span class="k">الأولوية</span><span class="v"><span class="badge ${prioTone(f.priority)}">${esc(f.priority)}</span></span></div>
@@ -210,6 +200,7 @@ export function faultDetailsScreen({ id }) {
         <button class="btn danger-soft block" data-del>🗑️ حذف العطل</button>
       </div>`,
     mount(root, rerender) {
+      hydrateFaultImages(root);
       root.addEventListener('click', async (e) => {
         if (e.target.closest('[data-act="claim"]')) {
           actOnItem('faults', f.id, 'claim'); toast('تكفّلت به — يعرف البيت الآن 🙋'); rerender(); return;

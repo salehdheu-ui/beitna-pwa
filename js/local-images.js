@@ -1,9 +1,12 @@
 /* ============================================================
-   صور قائمة الاحتياجات — محلية على الهاتف، وترحيل مؤقت للمالك
-   لا تُضاف الصورة إلى مستند المنتج ولا إلى قاعدة بيانات الخادم.
+   صور الاحتياجات والأعطال — محلية على الهاتف، وترحيل مؤقت للمالك
+   لا تُضاف الصورة إلى مستند العنصر ولا إلى قاعدة بيانات الخادم.
    ============================================================ */
 
-import { relayPantryImage, pullPantryImages, ackPantryImages } from './cloud.js';
+import {
+  relayPantryImage, pullPantryImages, ackPantryImages,
+  relayFaultImage, pullFaultImages, ackFaultImages,
+} from './cloud.js';
 import { getHouseholdId } from './store.js';
 
 const DB_NAME = 'beitna-local-images';
@@ -40,24 +43,29 @@ async function transaction(mode, run) {
 }
 
 const activeHousehold = () => String(getHouseholdId() || 'local');
-const localKey = (id, householdId = activeHousehold()) => `${householdId}:${id}`;
+/* نحافظ على مفتاح صور الاحتياجات القديم حتى لا تختفي الصور الموجودة بعد التحديث. */
+const localKey = (kind, id, householdId = activeHousehold()) =>
+  kind === 'pantry' ? `${householdId}:${id}` : `${householdId}:${kind}:${id}`;
 
-async function putImage(id, dataUrl, pending, householdId = activeHousehold()) {
+async function putImage(kind, id, dataUrl, pending, householdId = activeHousehold()) {
   return transaction('readwrite', (store) => store.put({
-    id: localKey(id, householdId), itemId: String(id), householdId,
+    id: localKey(kind, id, householdId), kind, itemId: String(id), householdId,
     dataUrl, pending: !!pending, updatedAt: Date.now(),
   }));
 }
 
-export async function getPantryImage(id) {
+async function getLocalImage(kind, id) {
   const db = await openDb();
   if (!db) return null;
   return new Promise((resolve) => {
-    const req = db.transaction(STORE, 'readonly').objectStore(STORE).get(localKey(id));
+    const req = db.transaction(STORE, 'readonly').objectStore(STORE).get(localKey(kind, id));
     req.onsuccess = () => resolve(req.result || null);
     req.onerror = () => resolve(null);
   });
 }
+
+export const getPantryImage = (id) => getLocalImage('pantry', id);
+export const getFaultImage = (id) => getLocalImage('fault', id);
 
 async function allImages() {
   const db = await openDb();
@@ -105,9 +113,19 @@ export async function compressPantryImage(file) {
 export async function saveAndRelayPantryImage(id, dataUrl) {
   if (!dataUrl) return false;
   const householdId = activeHousehold();
-  await putImage(id, dataUrl, true, householdId);
+  await putImage('pantry', id, dataUrl, true, householdId);
   relayPantryImage(id, dataUrl)
-    .then(() => putImage(id, dataUrl, false, householdId))
+    .then(() => putImage('pantry', id, dataUrl, false, householdId))
+    .catch(() => { /* تبقى pending وتُرسل في الدورة التالية */ });
+  return true;
+}
+
+export async function saveAndRelayFaultImage(id, dataUrl) {
+  if (!dataUrl) return false;
+  const householdId = activeHousehold();
+  await putImage('fault', id, dataUrl, true, householdId);
+  relayFaultImage(id, dataUrl)
+    .then(() => putImage('fault', id, dataUrl, false, householdId))
     .catch(() => { /* تبقى pending وتُرسل في الدورة التالية */ });
   return true;
 }
@@ -120,8 +138,10 @@ export async function flushPendingPantryImages() {
   let sent = 0;
   for (const item of pending) {
     try {
-      await relayPantryImage(item.itemId, item.dataUrl);
-      await putImage(item.itemId, item.dataUrl, false, householdId);
+      const kind = item.kind || 'pantry';
+      const relay = kind === 'fault' ? relayFaultImage : relayPantryImage;
+      await relay(item.itemId, item.dataUrl);
+      await putImage(kind, item.itemId, item.dataUrl, false, householdId);
       sent++;
     } catch { break; }
   }
@@ -130,27 +150,45 @@ export async function flushPendingPantryImages() {
 
 /** المالك ينزّل الصور المؤقتة إلى هاتفه، ثم يؤكد ليحذفها الخادم. */
 export async function syncIncomingPantryImages() {
+  return syncIncomingImages('pantry', pullPantryImages, ackPantryImages);
+}
+
+export async function syncIncomingFaultImages() {
+  return syncIncomingImages('fault', pullFaultImages, ackFaultImages);
+}
+
+async function syncIncomingImages(kind, pull, ack) {
   if (!navigator.onLine) return 0;
   const householdId = activeHousehold();
-  const result = await pullPantryImages();
+  const result = await pull();
   const images = Array.isArray(result?.images) ? result.images : [];
   const saved = [];
   for (const image of images) {
     if (!image?.itemId || !image?.dataUrl) continue;
-    await putImage(image.itemId, image.dataUrl, false, householdId);
+    await putImage(kind, image.itemId, image.dataUrl, false, householdId);
     saved.push(String(image.itemId));
   }
-  if (saved.length) await ackPantryImages(saved);
+  if (saved.length) await ack(saved);
   return saved.length;
 }
 
 /** يملأ صور الصفوف بعد رسمها من IndexedDB المحلي. */
 export async function hydratePantryImages(root) {
-  const nodes = [...(root?.querySelectorAll?.('[data-pantry-image]') || [])];
+  return hydrateLocalImages(root, 'pantry', '[data-pantry-image]');
+}
+
+export async function hydrateFaultImages(root) {
+  return hydrateLocalImages(root, 'fault', '[data-fault-image]');
+}
+
+async function hydrateLocalImages(root, kind, selector) {
+  const nodes = [...(root?.querySelectorAll?.(selector) || [])];
   await Promise.all(nodes.map(async (node) => {
-    const image = await getPantryImage(node.dataset.pantryImage);
+    const id = kind === 'fault' ? node.dataset.faultImage : node.dataset.pantryImage;
+    const image = await getLocalImage(kind, id);
     if (!image?.dataUrl) return;
     node.src = image.dataUrl;
     node.hidden = false;
+    if (kind === 'fault') node.parentElement?.querySelector('[data-fault-placeholder]')?.setAttribute('hidden', '');
   }));
 }
