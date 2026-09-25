@@ -5,7 +5,7 @@
    تُرسل تلقائيًا أول ما يعود الاتصال.
    ============================================================ */
 
-import { t, localizedText } from './i18n.js';
+import { t, currentLang, localizedText } from './i18n.js';
 
 /* ============================================================
    عنوان الخادم
@@ -153,6 +153,7 @@ export function purgeLegacy() {
 export const isReady = () => ready;
 export const currentUid = () => me?.uid || null;
 export const currentEmail = () => me?.email || null;
+export const currentDisplayName = () => me?.displayName || null;
 
 /* ---------- تخزين محلي آمن ---------- */
 function lsGet(k, fallback = null) {
@@ -262,6 +263,13 @@ export function arabicError(e) {
   if (code.includes('no-subscription')) return 'لم تُفعّل الإشعارات الخلفية على هذا الجهاز بعد';
   if (code.includes('bad-subscription')) return 'بيانات الاشتراك غير صحيحة';
   if (code.includes('bad-recovery')) return t('err_bad_recovery');
+  if (code.includes('bad-reset-link')) return currentLang() === 'ar' ? 'رابط الاستعادة غير صالح أو انتهت صلاحيته' : 'The reset link is invalid or expired';
+  if (code.includes('mail-not-configured')) return currentLang() === 'ar' ? 'إرسال البريد غير مفعّل بعد؛ استخدم رمز الاسترداد' : 'Email recovery is not configured yet; use your recovery code';
+  if (code.includes('auth-not-configured')) return currentLang() === 'ar' ? 'طريقة الدخول هذه غير مفعّلة بعد' : 'This sign-in method is not configured yet';
+  if (code.includes('auth-link-required')) return currentLang() === 'ar' ? 'هذا البريد له حساب سابق؛ ادخل بكلمة المرور ثم اربط Google أو Apple من ملفك الشخصي' : 'This email already has an account. Sign in with your password, then link Google or Apple in your profile';
+  if (code.includes('auth-link-conflict')) return currentLang() === 'ar' ? 'حساب المزود مرتبط بحساب آخر في بيتنا' : 'This provider account is linked to another Beitna account';
+  if (code.includes('auth-cancelled')) return currentLang() === 'ar' ? 'أُلغيت عملية الدخول' : 'Sign-in was cancelled';
+  if (code.includes('auth-')) return currentLang() === 'ar' ? 'تعذّر الدخول بهذه الطريقة؛ حاول مرة أخرى' : 'Could not sign in this way; please try again';
   if (code.includes('backup-failed')) return 'تعذّرت النسخة الاحتياطية — راجع سجل الخادم';
   if (code.includes('not-a-member')) return t('err_not_member');
   return `${t('err_generic')}: ${code}`;
@@ -286,6 +294,31 @@ export async function signUp(email, password, displayName) {
   const session = keepSession(u);
   /* رمز الاسترداد يصل مرة واحدة فقط — نمرّره للواجهة لتعرضه */
   return { ...session, recoveryCode: u.recoveryCode };
+}
+
+export async function authProviders() {
+  const providers = await req('/auth/providers', { timeout: 10000 });
+  await detectApi();
+  return new URL(API).origin === location.origin ? providers
+    : { ...providers, google: false, apple: false };
+}
+
+export async function startExternalLogin(provider, { link = false } = {}) {
+  if (!['google', 'apple'].includes(provider)) throw new Error('auth-not-configured');
+  await detectApi();
+  if (new URL(API).origin !== location.origin) throw new Error('auth-origin-required');
+  const result = await req(`/auth/${provider}/start`, {
+    method: 'POST', auth: link, body: { link }, timeout: 10000,
+  });
+  if (!result.url) throw new Error('auth-provider-error');
+  location.assign(result.url);
+}
+
+export async function finishExternalLogin(ticket) {
+  const user = await req('/auth/ticket', {
+    method: 'POST', auth: false, body: { ticket }, timeout: 10000,
+  });
+  return keepSession(user);
 }
 
 /** يمسح كل ما خزّنته السحابة على هذا الجهاز — بما فيه ذاكرة أي بيت سابق */
@@ -657,6 +690,17 @@ export async function recoverAccount(email, code, password) {
   });
   keepSession(u);
   return u;
+}
+
+export const requestPasswordReset = (email) => req('/account/reset/request', {
+  method: 'POST', auth: false, body: { email }, timeout: 20000,
+});
+
+export async function confirmPasswordReset(code, password) {
+  const user = await req('/account/reset/confirm', {
+    method: 'POST', auth: false, body: { code, password }, timeout: 20000,
+  });
+  return keepSession(user);
 }
 
 /** يغيّر كلمة المرور — يتطلب الحالية، ويُسقط الجلسات الأخرى */

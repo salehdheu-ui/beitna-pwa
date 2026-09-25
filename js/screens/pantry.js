@@ -15,6 +15,7 @@ import { emptyState, toast, confirmDialog, openSheet } from '../ui.js';
 import { go } from '../router.js';
 import { currentLang, localizedText } from '../i18n.js';
 import { hydratePantryImages } from '../local-images.js';
+import { pantryIconFor } from '../pantry-icons.js';
 
 let openCat = null;      // القسم المفتوح
 let onlyNeeded = false;  // عرض الناقص فقط
@@ -39,8 +40,13 @@ export function pantryScreen() {
   const pct = all.length ? Math.round(((all.length - needed.length) / all.length) * 100) : 0;
 
   const groups = categories
-    .map((c) => ({ cat: c, items: all.filter((p) => p.cat === c.id && match(p)) }))
+    .map((c) => ({ cat: c, items: all.filter((p) => String(p.cat) === String(c.id) && match(p)) }))
     .filter((g) => g.items.length || (g.cat.custom && !q && !onlyNeeded));
+  const knownCats = new Set(categories.map((c) => String(c.id)));
+  const uncategorized = all.filter((p) => !knownCats.has(String(p.cat)) && match(p));
+  if (uncategorized.length) groups.push({
+    cat: { id: 'other', name: 'أصناف أخرى', icon: '📦' }, items: uncategorized,
+  });
 
   return {
     title: 'قائمة الاحتياجات',
@@ -219,6 +225,8 @@ function itemRow(p) {
     <div class="item" style="border-top:1px solid var(--line)">
       <button class="check ${p.stocked ? 'on' : ''}" data-tick="${p.id}"
               aria-label="${p.stocked ? 'متوفر' : 'نفد'}">✓</button>
+      ${pantryIconFor(p) ? `<span class="pantry-icon" data-pantry-icon role="img"
+        aria-label="${esc(localizedText(p, 'name'))}">${esc(pantryIconFor(p))}</span>` : ''}
       <img class="pantry-thumb" data-pantry-image="${p.id}" alt="" hidden>
       <div class="grow col">
         <div class="title">${esc(localizedText(p, 'name'))}</div>

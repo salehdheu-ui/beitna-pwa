@@ -3,7 +3,7 @@
    يعمل بدون إنترنت، ويحدّث نفسه فورًا عند نشر نسخة جديدة.
    ============================================================ */
 
-const VERSION = 'beitna-v3.26.0';
+const VERSION = 'beitna-v3.29.0';
 const NET_TIMEOUT = 2500;
 
 /* لوحة الإدارة ليست جزءًا من الـ PWA إطلاقًا. يجب أن تمر ملفاتها إلى الشبكة
@@ -24,6 +24,7 @@ const CORE = [
   './js/notify.js',
   './js/i18n.js',
   './js/local-images.js',
+  './js/pantry-icons.js',
   './js/push.js',
   './js/screens/helper.js',
   './js/cloud.js',
@@ -38,6 +39,7 @@ const CORE = [
   './js/pantry-data.js',
   './js/diag.js',
   './assets/icons/icon-192.png',
+  './assets/icons/notification-badge.png',
   './assets/icons/icon-512.png',
   './assets/icons/maskable-512.png',
   './assets/icons/apple-touch-icon.png',
@@ -213,10 +215,11 @@ self.addEventListener('push', (event) => {
   catch { payload = { body: (event.data && event.data.text && event.data.text()) || '' }; }
 
   const title = payload.title || 'Beitna';
+  const iconBase = self.registration.scope;
   event.waitUntil(self.registration.showNotification(title, {
     body: payload.body || '',
-    icon: 'assets/icons/icon-192.png',
-    badge: 'assets/icons/icon-192.png',
+    icon: new URL('assets/icons/icon-192.png', iconBase).href,
+    badge: new URL('assets/icons/notification-badge.png', iconBase).href,
     lang: payload.lang || 'ar',
     dir: payload.dir || (payload.lang === 'ar' ? 'rtl' : 'ltr'),
     tag: payload.tag || 'beitna-push',

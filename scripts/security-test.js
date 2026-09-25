@@ -82,6 +82,16 @@ async function signup(name) {
 async function main() {
   await waitForServer();
 
+  const authOptions = await request('/auth/providers');
+  assert.equal(authOptions.status, 200);
+  assert.equal(authOptions.data.google, false);
+  assert.equal(authOptions.data.apple, false);
+  assert.equal(authOptions.data.emailRecovery, false);
+  assert.equal((await request('/auth/google/start', { method: 'POST', body: {} })).status, 503);
+  assert.equal((await request('/account/reset/request', {
+    method: 'POST', body: { email: 'nobody@example.test' },
+  })).status, 503);
+
   const owner = await signup('owner');
   const created = await request('/household', {
     method: 'POST', token: owner.token, body: { name: 'بيت الاختبار', memberName: 'المالك' },

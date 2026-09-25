@@ -15,6 +15,7 @@ import {
   pendingWrites, apiBase, checkServer, currentEmail,
   deleteAccount, arabicError,
   changePassword, newRecoveryCode,
+  authProviders, startExternalLogin,
   listHouseholds, switchHousehold, getHelperCode, newHelperCode, revokeHelperCode,
   newInviteCode, revokeInviteCode,
   setMemberRole, currentPerm, isOwner as amOwner, joinHousehold, syncStats,
@@ -249,6 +250,11 @@ export function profileScreen() {
         </div>
       </div>
 
+      ${isCloud() ? `<div class="section">
+        <div class="section-title">طرق الدخول</div>
+        <div class="card" id="linkedProviders"><span class="muted small">جارٍ التحقق...</span></div>
+      </div>` : ''}
+
       <div class="section">
         <div class="section-title">إحصائياتي الفعلية</div>
         <div class="card">
@@ -261,6 +267,24 @@ export function profileScreen() {
         </div>
       </div>`,
     mount(root, rerender) {
+      const linkedBox = root.querySelector('#linkedProviders');
+      if (linkedBox) {
+        authProviders().then((options) => {
+          const linked = options.linked || [];
+          linkedBox.innerHTML = `
+            <p class="small muted" style="margin:0 0 10px">اربط حسابك الحالي حتى تتمكن من الدخول دون كلمة مرور. لا يُدمج أي حساب تلقائيًا لمجرد تطابق البريد.</p>
+            ${options.google ? `<button class="btn ghost block" data-link-provider="google">${linked.includes('google') ? '✓ Google مرتبط' : 'ربط Google'}</button>` : ''}
+            ${options.apple ? `<button class="btn ghost block mt-s" data-link-provider="apple">${linked.includes('apple') ? '✓ Apple مرتبط' : 'ربط Apple'}</button>` : ''}
+            ${!options.google && !options.apple ? '<span class="small muted">لم تُفعّل طرق الدخول الإضافية على الخادم بعد.</span>' : ''}`;
+        }).catch(() => { linkedBox.textContent = 'تعذّر فحص طرق الدخول الآن'; });
+        linkedBox.addEventListener('click', async (event) => {
+          const button = event.target.closest('[data-link-provider]');
+          if (!button) return;
+          button.disabled = true;
+          try { await startExternalLogin(button.dataset.linkProvider, { link: true }); }
+          catch (error) { button.disabled = false; toast(arabicError(error), 3500); }
+        });
+      }
       root.querySelector('[data-save]').onclick = () => {
         updateProfile({
           name: root.querySelector('#pname').value.trim() || 'مستخدم',

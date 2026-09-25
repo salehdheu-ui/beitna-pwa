@@ -10,6 +10,7 @@ import {
   setPantryStock, sendPantryItemToShopping, pantryCategoriesOf,
 } from '../store.js';
 import { toast, openSheet } from '../ui.js';
+import { pantryIconFor } from '../pantry-icons.js';
 import { t, LANGS, currentLang, setLang, applyLangToDocument, localizedText } from '../i18n.js';
 import { saveNotificationPrefs } from '../cloud.js';
 import {
@@ -227,6 +228,8 @@ function helperPantryGroup({ cat, items }, writable, searching, firstCategory) {
             ? `<button class="check ${item.stocked ? 'on' : ''}" data-pantry-tick="${item.id}"
                 aria-label="${esc(item.stocked ? t('available') : t('out_of_stock'))}">✓</button>`
             : `<span class="check ${item.stocked ? 'on' : ''}" aria-hidden="true">✓</span>`}
+          ${pantryIconFor(item) ? `<span class="pantry-icon" data-pantry-icon role="img"
+            aria-label="${esc(localizedText(item, 'name'))}">${esc(pantryIconFor(item))}</span>` : ''}
           <img class="pantry-thumb" data-pantry-image="${item.id}" alt="" hidden>
           <div class="grow col">
             <div class="title">${esc(localizedText(item, 'name'))}</div>

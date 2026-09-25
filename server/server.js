@@ -9,6 +9,8 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const push = require('./push.js');
+const identity = require('./identity.js');
+const mail = require('./mail.js');
 const { createTranslator, normalizeLang, FIELDS: TRANSLATION_FIELDS } = require('./translate.js');
 
 const PORT = Number(process.env.PORT || 3000);
@@ -19,7 +21,8 @@ const SECRET_FILE = path.join(DATA_DIR, 'secret.key');
    بقيمة تتجاوز 30 يومًا حتى لا يعيد إعدادٌ خاطئ جلسات السنة القديمة. */
 const TOKEN_DAYS = Math.min(30, Math.max(1, Number(process.env.TOKEN_DAYS || 14)));
 const PUSH_SUBJECT = process.env.PUSH_SUBJECT || 'mailto:admin@beitna.local';
-const SERVER_VERSION = '1.16.0';
+const SERVER_VERSION = '1.17.0';
+const OAUTH_COOKIE = '__Host-beitna-oauth';
 
 /* لوحة الإدارة المنفصلة لها رمز مستقل تمامًا عن حسابات بيتنا.
 
@@ -948,6 +951,76 @@ async function route(req, res, url) {
 
   if (p === '/health') return send(res, 200, { ok: true, version: SERVER_VERSION, at: now() });
 
+  /* ===== دخول Google وApple — يُظهر الزر فقط عند ضبط مفاتيح المزود ===== */
+  if (p === '/auth/providers' && method === 'GET') {
+    const signedIn = authUser(req);
+    return send(res, 200, { ...identity.enabled, emailRecovery: mail.enabled,
+      linked: Object.keys(signedIn?.providers || {}) });
+  }
+  const oauthStart = p.match(/^\/auth\/(google|apple)\/start$/);
+  if (oauthStart && method === 'POST') {
+    if (rateLimited('oauth-start:' + clientIp(req), 30, 3600000)) return fail(res, 429, 'too-many-requests');
+    const provider = oauthStart[1];
+    if (!identity.enabled[provider]) return fail(res, 503, 'auth-not-configured');
+    const body = await readBody(req);
+    const user = body.link ? authUser(req) : null;
+    if (body.link && !user) return fail(res, 401, 'no-user');
+    const loginUrl = identity.start(provider, user?.uid || null);
+    const state = new URL(loginUrl).searchParams.get('state');
+    res.setHeader('set-cookie', `${OAUTH_COOKIE}=${state}; Path=/; Max-Age=600; HttpOnly; Secure; SameSite=None`);
+    return send(res, 200, { url: loginUrl });
+  }
+  const oauthCallback = p.match(/^\/auth\/(google|apple)\/callback$/);
+  if (oauthCallback && ((oauthCallback[1] === 'google' && method === 'GET') ||
+      (oauthCallback[1] === 'apple' && method === 'POST'))) {
+    const provider = oauthCallback[1];
+    const values = provider === 'apple' ? await readFormBody(req) : url.searchParams;
+    try {
+      const state = values.get('state') || '';
+      if (!state || state !== oauthCookie(req)) throw new Error('auth-state-invalid');
+      if (values.get('error')) throw new Error('auth-cancelled');
+      const profile = await identity.complete(provider, state, values.get('code'));
+      const existing = Object.values(db.users).find((u) => u.providers?.[provider] === profile.sub);
+      if (profile.linkUid) {
+        const target = db.users[profile.linkUid];
+        if (!target || (existing && existing.uid !== target.uid)) throw new Error('auth-link-conflict');
+        target.providers = { ...(target.providers || {}), [provider]: profile.sub };
+        target.updatedAt = now(); save();
+        clearOauthCookie(res);
+        return authRedirect(res, `auth_linked=${provider}`);
+      }
+      let user = existing;
+      if (!user) {
+        const email = normEmail(profile.email);
+        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error('auth-email-missing');
+        /* لا ندمج حسابًا قديمًا لمجرد تطابق البريد: سجّل دخوله ثم اربط
+           المزود من الملف الشخصي. هكذا لا ينتقل البيت إلى شخص آخر. */
+        if (db.emails[email]) throw new Error('auth-link-required');
+        const uid = uid8();
+        user = db.users[uid] = {
+          uid, email, displayName: profile.name || email.split('@')[0],
+          pass: null, providers: { [provider]: profile.sub },
+          householdId: null, createdAt: now(), updatedAt: now(), prefs: {},
+        };
+        db.emails[email] = uid;
+        save();
+      }
+      return authRedirect(res, `auth_ticket=${identity.issueTicket(user.uid, state)}`);
+    } catch (error) {
+      const allowed = ['auth-cancelled', 'auth-link-conflict', 'auth-link-required', 'auth-email-missing'];
+      clearOauthCookie(res);
+      return authRedirect(res, `auth_error=${allowed.includes(error.message) ? error.message : 'auth-failed'}`);
+    }
+  }
+  if (p === '/auth/ticket' && method === 'POST') {
+    if (rateLimited('oauth-ticket:' + clientIp(req), 60, 3600000)) return fail(res, 429, 'too-many-requests');
+    const body = await readBody(req);
+    const uid = identity.takeTicket(body.ticket, oauthCookie(req));
+    if (!uid || !db.users[uid]) return fail(res, 401, 'auth-ticket-invalid');
+    clearOauthCookie(res);
+    return send(res, 200, publicUser(db.users[uid], signToken(uid)));
+  }
+
   /* المفتاح العام لـ VAPID — يحتاجه المتصفح قبل الاشتراك */
   if (p === '/push/key' && method === 'GET') return send(res, 200, { key: VAPID.publicKey });
 
@@ -1019,11 +1092,55 @@ async function route(req, res, url) {
     noteAttempt('rec:' + email, true);
 
     u.pass = hashPassword(password);
+    u.passwordReset = null;
     u.tokenEpoch = (u.tokenEpoch || 0) + 1;      // تسقط كل الجلسات القديمة
     u.updatedAt = now();
     const recoveryCode = issueRecoveryCode(u);   // الرمز يُستهلك ويُستبدل
     save();
     return send(res, 200, { ...publicUser(u, signToken(u.uid)), recoveryCode });
+  }
+
+  /* ===== استعادة أسهل: رابط واحد بالبريد، صالح لربع ساعة ومرة واحدة ===== */
+  if (p === '/account/reset/request' && method === 'POST') {
+    if (!mail.enabled) return fail(res, 503, 'mail-not-configured');
+    if (rateLimited('reset-mail-ip:' + clientIp(req), 8, 3600000)) return fail(res, 429, 'too-many-requests');
+    const body = await readBody(req);
+    const email = normEmail(body.email);
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return fail(res, 400, 'invalid-email');
+    if (rateLimited('reset-mail-email:' + email, 3, 3600000)) return fail(res, 429, 'too-many-requests');
+    const user = db.users[db.emails[email]];
+    if (user) {
+      const code = crypto.randomBytes(32).toString('base64url');
+      const link = `${identity.origin}/#reset=${code}`;
+      try {
+        await mail.sendPasswordReset(email, link);
+        user.passwordReset = { hash: crypto.createHash('sha256').update(code).digest('hex'), at: now() };
+        save();
+      } catch (error) { console.error('تعذّر إرسال بريد استعادة كلمة المرور', error.message); }
+    }
+    /* الرد نفسه للبريد المعروف والمجهول حتى لا يمكن حصر الحسابات. */
+    return send(res, 200, { ok: true });
+  }
+  if (p === '/account/reset/confirm' && method === 'POST') {
+    if (rateLimited('reset-confirm:' + clientIp(req), 12, 3600000)) return fail(res, 429, 'too-many-requests');
+    const body = await readBody(req);
+    const code = String(body.code || '');
+    const password = String(body.password || '');
+    if (password.length < 6) return fail(res, 400, 'weak-password');
+    if (!/^[A-Za-z0-9_-]{43}$/.test(code)) return fail(res, 401, 'bad-reset-link');
+    const digest = crypto.createHash('sha256').update(code).digest();
+    const user = Object.values(db.users).find((u) => {
+      if (!u.passwordReset || now() - u.passwordReset.at > 15 * 60000) return false;
+      try { return crypto.timingSafeEqual(digest, Buffer.from(u.passwordReset.hash, 'hex')); }
+      catch { return false; }
+    });
+    if (!user) return fail(res, 401, 'bad-reset-link');
+    user.pass = hashPassword(password);
+    user.passwordReset = null;
+    user.recovery = null;                 // الرمز القديم لا يعود طريقًا خلفيًا للحساب
+    user.tokenEpoch = (user.tokenEpoch || 0) + 1;
+    user.updatedAt = now(); save();
+    return send(res, 200, publicUser(user, signToken(user.uid)));
   }
 
   /* ===== لوحة الإدارة المستقلة — لا علاقة لها بحسابات أو أدوار أفراد البيت ===== */
@@ -1180,6 +1297,7 @@ async function route(req, res, url) {
     const next = String(b.password || '');
     if (next.length < 6) return fail(res, 400, 'weak-password');
     user.pass = hashPassword(next);
+    user.passwordReset = null;
     user.tokenEpoch = (user.tokenEpoch || 0) + 1;
     user.updatedAt = now();
     save();
@@ -1645,6 +1763,37 @@ function invalidateTranslations(col, patch, previous, sourceLang) {
     for (const field of changed) delete translations[lang][field];
   }
   return { ...patch, sourceLang: normalizeLang(sourceLang), translations };
+}
+
+function readFormBody(req) {
+  return new Promise((resolve, reject) => {
+    let size = 0; const chunks = [];
+    req.on('data', (chunk) => {
+      size += chunk.length;
+      if (size > 16384) { reject(new Error('too-large')); req.destroy(); return; }
+      chunks.push(chunk);
+    });
+    req.on('end', () => resolve(new URLSearchParams(Buffer.concat(chunks).toString('utf8'))));
+    req.on('error', reject);
+  });
+}
+
+function oauthCookie(req) {
+  const pair = String(req.headers.cookie || '').split(';').map((part) => part.trim())
+    .find((part) => part.startsWith(`${OAUTH_COOKIE}=`));
+  return pair ? pair.slice(OAUTH_COOKIE.length + 1) : '';
+}
+
+function clearOauthCookie(res) {
+  res.setHeader('set-cookie', `${OAUTH_COOKIE}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=None`);
+}
+
+function authRedirect(res, fragment) {
+  res.writeHead(303, {
+    location: `${identity.origin}/#${fragment}`,
+    'cache-control': 'no-store', 'referrer-policy': 'no-referrer',
+  });
+  res.end();
 }
 
 /** شراء عنصر أُرسل من قائمة الاحتياجات يعيده فورًا إلى «متوفر». */

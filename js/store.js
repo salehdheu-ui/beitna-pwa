@@ -428,6 +428,18 @@ export function updateShopping(id, patch) {
   pushRestoredPantry(restoredPantry);
 }
 
+/** يمسح بيانات البيت السابق بعد نجاح دخول حساب مختلف، دون إبطال جلسة
+    الحساب الجديد التي استلمناها للتو من الخادم. */
+export function prepareAccountSwitch() {
+  const settings = { ...state.settings };
+  state = blankState();
+  state.settings = settings;
+  setCloudBridge(null, null);
+  setCloudUid(null);
+  emit();
+  persistNow();
+}
+
 export function setShoppingStatus(id, status) {
   let restoredPantry = null;
   let purchasedAt = 0;

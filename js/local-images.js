@@ -211,6 +211,7 @@ async function hydrateLocalImages(root, kind, selector) {
     if (!image?.dataUrl) return;
     node.src = image.dataUrl;
     node.hidden = false;
+    if (kind === 'pantry') node.parentElement?.querySelector('[data-pantry-icon]')?.setAttribute('hidden', '');
     if (kind === 'fault') node.parentElement?.querySelector('[data-fault-placeholder]')?.setAttribute('hidden', '');
   }));
 }

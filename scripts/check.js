@@ -51,6 +51,20 @@ const uncached = modules.filter((m) => !listed.includes(m));
 if (uncached.length) bad('وحدات غير مخزّنة في CORE: ' + uncached.join(', '));
 else ok('كل وحدات js مخزّنة للعمل بلا إنترنت');
 
+/* شريط إشعارات أندرويد يحتاج علامة شفافة أحادية اللون؛ شعار التطبيق
+   الملوّن ذو الخلفية الكاملة يتحول فيه إلى مربع أبيض. */
+const badgeFile = path.join(ROOT, 'assets/icons/notification-badge.png');
+const notificationSource = read('js/notify.js');
+if (fs.existsSync(badgeFile)) {
+  const badge = fs.readFileSync(badgeFile);
+  if (badge.subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex')) &&
+      badge.readUInt32BE(16) === 96 && badge.readUInt32BE(20) === 96 && badge[25] === 6 &&
+      notificationSource.includes('badge: NOTIFICATION_BADGE') &&
+      sw.includes("badge: new URL('assets/icons/notification-badge.png'")) {
+    ok('الإشعارات المحلية والدفع تستخدم شعار البيت الشفاف بدل المربع');
+  } else bad('صورة رمز الإشعار أو ربطها غير صحيح');
+} else bad('رمز الإشعار الشفاف غير موجود');
+
 /* ---------- الترجمات ---------- */
 console.log('اللغات:');
 const i18nText = read('js/i18n.js');

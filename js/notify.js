@@ -11,6 +11,8 @@ import { startOfDay, todayStart } from './util.js';
 import { t, langInfo } from './i18n.js';
 
 const SENT_KEY = 'beitna:sent:v1';
+const NOTIFICATION_ICON = new URL('../assets/icons/icon-192.png', import.meta.url).href;
+const NOTIFICATION_BADGE = new URL('../assets/icons/notification-badge.png', import.meta.url).href;
 
 /* ---------- كشف البيئة ---------- */
 
@@ -87,8 +89,8 @@ export async function show(title, body, extra = {}) {
 
   const options = {
     body,
-    icon: 'assets/icons/icon-192.png',
-    badge: 'assets/icons/icon-192.png',
+    icon: NOTIFICATION_ICON,
+    badge: NOTIFICATION_BADGE,
     lang: langInfo().code,
     dir: langInfo().dir,
     tag: extra.tag || ('beitna-' + title),

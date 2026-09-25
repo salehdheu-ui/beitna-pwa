@@ -1,6 +1,6 @@
 FROM node:20-alpine
 WORKDIR /app
-COPY server.js push.js translate.js ./
+COPY server.js push.js translate.js identity.js mail.js ./
 ENV NODE_ENV=production
 ENV DATA_DIR=/data
 ENV PORT=3000

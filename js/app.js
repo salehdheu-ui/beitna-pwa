@@ -7,7 +7,7 @@ import { $, esc } from './util.js';
 import {
   getState, subscribe, update, applyRemote, setCloudBridge, setCloudUid,
   setLogoutHook, setupHousehold, signOut as signOutLocal, uploadLocalData,
-  sectionsOf, canSee, amOwner, persistNow,
+  sectionsOf, canSee, amOwner, persistNow, prepareAccountSwitch,
 } from './store.js';
 import * as cloud from './cloud.js';
 const amHelper = () => cloud.isHelper();
@@ -35,11 +35,47 @@ import {
   syncIncomingFaultImages,
 } from './local-images.js';
 
+/* لوحة المفاتيح تغيّر المساحة المرئية من دون تغيير ارتفاع صفحة الهاتف دائمًا.
+   نجعل النوافذ السفلية بارتفاع الجزء المرئي، ونمرّر الحقل المركّز عند الحاجة. */
+function syncVisualViewport() {
+  const viewport = window.visualViewport;
+  const height = viewport?.height || window.innerHeight;
+  const top = viewport?.offsetTop || 0;
+  document.documentElement.style.setProperty('--app-visual-height', `${height}px`);
+  document.documentElement.style.setProperty('--app-visual-top', `${top}px`);
+
+  const field = document.activeElement;
+  const editing = field && (field.tagName === 'TEXTAREA' || field.isContentEditable ||
+    (field.tagName === 'INPUT' && ['text', 'search', 'email', 'password', 'tel', 'url', 'number'].includes(field.type)));
+  document.body.classList.toggle('keyboard-open', !!editing && window.innerWidth < 960);
+  if (!editing) return;
+  const rect = field.getBoundingClientRect();
+  if (rect.bottom > top + height - 16 || rect.top < top + 8) {
+    field.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+  }
+}
+
+window.visualViewport?.addEventListener('resize', syncVisualViewport);
+window.visualViewport?.addEventListener('scroll', syncVisualViewport);
+window.addEventListener('resize', syncVisualViewport);
+document.addEventListener('focusin', () => {
+  syncVisualViewport();
+  setTimeout(syncVisualViewport, 180);
+});
+document.addEventListener('focusout', () => setTimeout(syncVisualViewport, 0));
+syncVisualViewport();
+
 /* المسار القديم للوحة المدمجة لم يعد موجودًا. إذا بقي في نافذة أو اختصار
    من النسخة السابقة، نعيده للرئيسية بدل إبقاء المستخدم في صفحة مفقودة. */
 if (/^#\/admin(?:\/|$)/.test(location.hash)) {
   history.replaceState(null, '', location.pathname + location.search + '#/home');
 }
+
+/* رابط البريد قد يُفتح في تبويب بيتنا الموجود أصلًا كتغيير fragment فقط؛
+   نعيد الإقلاع كي يلتقط الرمز ويزيله من العنوان فورًا. */
+window.addEventListener('hashchange', () => {
+  if (/^#(?:reset|auth_ticket|auth_error|auth_linked)=/.test(location.hash)) location.reload();
+});
 
 /* ============================================================
    مسارات الإنقاذ:
@@ -449,6 +485,8 @@ setLogoutHook(() => {
 
 /* ---------- الإقلاع ---------- */
 let booted = false;
+let authError = '';
+let linkedProvider = '';
 
 /** شبكة أمان: مهما حدث، لا تبقَ شاشة البداية عالقة */
 function failsafe() {
@@ -473,16 +511,45 @@ function showApp() {
       $('#shell').hidden = false;
       if (res?.cloud && res.hid) startCloudSession(res.hid);
       startApp();
+    }, {
+      initialMode: authError ? 'signin' : (cloud.currentUid() ? 'household' : 'welcome'),
+      initialError: authError,
     });
   }
+  if (linkedProvider) setTimeout(() => toast(`${linkedProvider === 'google' ? 'Google' : 'Apple'} مرتبط بحسابك ✓`), 400);
+  if (authError && s.onboarded) setTimeout(() => toast(cloud.arabicError({ code: authError }), 3500), 400);
 }
 
 async function boot() {
   applyLangToDocument();
   applyTheme();
   failsafe();
+  const fragment = new URLSearchParams(location.hash.slice(1));
+  const resetCode = fragment.get('reset');
+  const authTicket = fragment.get('auth_ticket');
+  authError = fragment.get('auth_error') || '';
+  linkedProvider = fragment.get('auth_linked') || '';
+  if (resetCode || authTicket || authError || linkedProvider) {
+    history.replaceState(null, '', location.pathname + location.search +
+      (linkedProvider ? '#/profile' : '#/home'));
+  }
   await cloud.initCloud();
   cloud.purgeLegacy?.();
+  if (resetCode) {
+    booted = true;
+    $('#app').hidden = false;
+    hideSplash();
+    renderAuth(() => location.reload(), { initialMode: 'reset', resetCode });
+    return;
+  }
+  if (authTicket) {
+    try {
+      await cloud.finishExternalLogin(authTicket);
+      cloud.stopSync();
+      prepareAccountSwitch();
+      if (await restoreCloud()) return;
+    } catch (error) { authError = String(error?.code || error?.message || 'auth-failed'); }
+  }
   const s = getState();
 
   /* ===== انتهت الجلسة (أو تغيّر الخادم): نعيده لشاشة الدخول بدل حالة معلّقة ===== */
