@@ -11,6 +11,7 @@ import {
 import { emptyState, toast, confirmDialog, openSheet, chipSelect, bindChips, claimBar, trailCard, whoLine } from '../ui.js';
 import { go, back } from '../router.js';
 import { localizedText } from '../i18n.js';
+import { hydrateShoppingImages } from '../local-images.js';
 
 const FILTERS = ['الكل', 'الناقصة', 'قيد الشراء', 'تم الشراء', 'المؤجلة'];
 const FILTER_MAP = { 'الناقصة': 'ناقص', 'قيد الشراء': 'قيد الشراء', 'تم الشراء': 'تم الشراء', 'المؤجلة': 'مؤجل' };
@@ -74,6 +75,7 @@ export function shoppingScreen() {
       </div>
     `,
     mount(root, rerender) {
+      hydrateShoppingImages(root);
       root.addEventListener('click', async (e) => {
         const f = e.target.closest('[data-filter]');
         if (f) { filter = f.dataset.filter; rerender(); return; }
@@ -122,6 +124,7 @@ function itemRow(i) {
   return `
     <div class="item ${done ? 'done' : ''}">
       <button class="check ${done ? 'on' : ''}" data-check="${i.id}" aria-label="تم الشراء">✓</button>
+      <img class="pantry-thumb" data-shopping-image="${i.id}" alt="" hidden>
       <div class="grow col" data-open="${i.id}" style="cursor:pointer">
         <div class="title">${esc(localizedText(i, 'name'))}</div>
         <div class="meta">
@@ -207,6 +210,7 @@ export function shoppingDetailsScreen({ id }) {
     html: `
       <div class="card">
         <div class="row" style="gap:14px">
+          <img class="pantry-thumb" data-shopping-image="${item.id}" alt="" hidden>
           <div class="avatar" style="width:54px;height:54px;border-radius:16px;background:var(--mint);display:grid;place-items:center;font-size:26px">${esc(catIcon(item.category))}</div>
           <div class="grow">
             <div style="font-size:19px;font-weight:800">${esc(localizedText(item, 'name'))}</div>
@@ -238,6 +242,7 @@ export function shoppingDetailsScreen({ id }) {
         <button class="btn danger-soft block" data-del>🗑️ حذف العنصر</button>
       </div>`,
     mount(root, rerender) {
+      hydrateShoppingImages(root);
       root.addEventListener('click', async (e) => {
         if (e.target.closest('[data-act="claim"]')) {
           actOnItem('shopping', item.id, 'claim');

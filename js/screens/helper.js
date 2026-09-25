@@ -1,19 +1,20 @@
 /* ============================================================
    واجهة العاملة المنزلية
-   شاشة واحدة مبسّطة بلغتها: ما ينقص البيت، وإضافة نقص،
+   شاشة واحدة مبسّطة بلغتها: ما ينقص البيت، وإضافة نقص مع صورة،
    والإبلاغ عن عطل. لا تذكيرات ولا أسعار ولا بيانات أفراد.
    ============================================================ */
 
 import { esc } from '../util.js';
 import {
   getState, addShopping, addFault, signOut, persistNow, canSee, canWrite,
-  setPantryStock, addPantryItem, sendPantryItemToShopping, pantryCategoriesOf,
+  setPantryStock, sendPantryItemToShopping, pantryCategoriesOf,
 } from '../store.js';
 import { toast, openSheet } from '../ui.js';
 import { t, LANGS, currentLang, setLang, applyLangToDocument, localizedText } from '../i18n.js';
 import { saveNotificationPrefs } from '../cloud.js';
 import {
-  compressPantryImage, saveAndRelayPantryImage, saveAndRelayFaultImage, hydratePantryImages,
+  compressPantryImage, saveAndRelayShoppingImage, saveAndRelayFaultImage,
+  hydratePantryImages, hydrateShoppingImages,
 } from '../local-images.js';
 
 const dirAttr = () => (document.documentElement.dir === 'rtl' ? 'rtl' : 'ltr');
@@ -106,7 +107,6 @@ export function helperScreen() {
       <div class="section">
         <div class="section-title">📋 ${esc(t('needs_list'))} (${(s.pantry || []).length})</div>
         <div class="card small muted" style="margin-bottom:10px">${esc(t('needs_hint'))}</div>
-        ${shoppingWritable ? `<button class="btn soft block" data-act="addpantry">＋ ${esc(t('add_product'))}</button>` : ''}
         <div class="search mt-s">
           <span>🔍</span>
           <input id="helperPantrySearch" placeholder="${esc(t('search_item'))}" value="${esc(pantryQuery)}" dir="${dirAttr()}">
@@ -131,6 +131,7 @@ export function helperScreen() {
             ${missing.map((i) => `
               <div class="item">
                 <span class="ic">${i.priority === 'ضروري' ? '🔴' : '🛒'}</span>
+                <img class="pantry-thumb" data-shopping-image="${i.id}" alt="" hidden>
                 <div class="grow col">
                   <div class="title">${esc(localizedText(i, 'name'))}</div>
                   <div class="meta">${esc(localizedText(i, 'quantity'))} ${
@@ -165,7 +166,6 @@ export function helperScreen() {
       root.addEventListener('click', (e) => {
         if (e.target.closest('[data-act="additem"]')) { addItemSheet(rerender); return; }
         if (e.target.closest('[data-act="addfault"]')) { addFaultSheet(rerender); return; }
-        if (e.target.closest('[data-act="addpantry"]')) { addPantrySheet(rerender); return; }
         const pantryCategory = e.target.closest('[data-helper-cat]');
         if (pantryCategory) {
           const id = pantryCategory.dataset.helperCat;
@@ -199,6 +199,7 @@ export function helperScreen() {
         if (next) { next.focus({ preventScroll: true }); next.setSelectionRange(pos, pos); }
       });
       hydratePantryImages(root);
+      hydrateShoppingImages(root);
     },
 
     topActions(act, rerender) {
@@ -235,23 +236,27 @@ function helperPantryGroup({ cat, items }, writable, searching, firstCategory) {
     </div>`;
 }
 
-function addPantrySheet(rerender) {
+function addItemSheet(rerender) {
   openSheet(`
-    <h3>${esc(t('add_product'))}</h3>
-    <div class="field"><label for="hpn">${esc(t('item_name'))}</label>
-      <input class="input" id="hpn" dir="${dirAttr()}"></div>
-    <div class="field"><label for="hpp">${esc(t('add_photo'))}</label>
-      <input class="input" id="hpp" type="file" accept="image/*" capture="environment">
+    <h3>${esc(t('add_item'))}</h3>
+    <div class="field"><label for="hn">${esc(t('item_name'))}</label>
+      <input class="input" id="hn" dir="${dirAttr()}"></div>
+    <div class="field"><label for="hq">${esc(t('item_qty'))}</label>
+      <input class="input" id="hq" dir="${dirAttr()}"></div>
+    <div class="field"><label for="hphoto">${esc(t('add_photo'))}</label>
+      <input class="input" id="hphoto" type="file" accept="image/*" capture="environment">
       <div class="hint">${esc(t('photo_relay_hint'))}</div>
-      <img id="hppPreview" class="pantry-photo-preview" alt="" hidden>
+      <img id="hphotoPreview" class="pantry-photo-preview" alt="" hidden>
     </div>
+    <label class="row" style="gap:8px;align-items:center;margin-bottom:14px">
+      <input type="checkbox" id="hu"> <span>${esc(t('urgent'))}</span></label>
     <button class="btn block" data-save>${esc(t('save'))}</button>
     <button class="btn ghost block mt-s" data-close>${esc(t('cancel'))}</button>
   `, {
     onMount(el, close) {
       let imageData = '';
-      const photo = el.querySelector('#hpp');
-      const preview = el.querySelector('#hppPreview');
+      const photo = el.querySelector('#hphoto');
+      const preview = el.querySelector('#hphotoPreview');
       const save = el.querySelector('[data-save]');
       photo.onchange = async () => {
         const file = photo.files?.[0];
@@ -265,41 +270,16 @@ function addPantrySheet(rerender) {
       };
       el.querySelector('[data-close]').onclick = close;
       save.onclick = async () => {
-        const name = el.querySelector('#hpn').value.trim();
-        if (!name) return toast(t('required'));
-        const item = addPantryItem({ name, sourceLang: currentLang(), stocked: true });
-        if (item && imageData) await saveAndRelayPantryImage(item.id, imageData);
-        helperOpenCat = 'canned';
-        close(); toast(t('saved')); rerender();
-      };
-      el.querySelector('#hpn').focus({ preventScroll: true });
-    },
-  });
-}
-
-function addItemSheet(rerender) {
-  openSheet(`
-    <h3>${esc(t('add_item'))}</h3>
-    <div class="field"><label for="hn">${esc(t('item_name'))}</label>
-      <input class="input" id="hn" dir="${dirAttr()}"></div>
-    <div class="field"><label for="hq">${esc(t('item_qty'))}</label>
-      <input class="input" id="hq" dir="${dirAttr()}"></div>
-    <label class="row" style="gap:8px;align-items:center;margin-bottom:14px">
-      <input type="checkbox" id="hu"> <span>${esc(t('urgent'))}</span></label>
-    <button class="btn block" data-save>${esc(t('save'))}</button>
-    <button class="btn ghost block mt-s" data-close>${esc(t('cancel'))}</button>
-  `, {
-    onMount(el, close) {
-      el.querySelector('[data-close]').onclick = close;
-      el.querySelector('[data-save]').onclick = () => {
         const name = el.querySelector('#hn').value.trim();
         if (!name) return toast(t('required'));
-        addShopping({
+        save.disabled = true;
+        const item = addShopping({
           name,
           quantity: el.querySelector('#hq').value.trim(),
           priority: el.querySelector('#hu').checked ? 'ضروري' : 'عادي',
           sourceLang: currentLang(),
         });
+        if (item && imageData) await saveAndRelayShoppingImage(item.id, imageData);
         close(); toast(t('saved')); rerender();
       };
     },

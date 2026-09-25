@@ -112,11 +112,12 @@ if (helperSource.includes('data-pantry-tick') && helperSource.includes('data-hel
     helperSource.includes("t('needs_list')")) {
   ok('قائمة الاحتياجات مقسمة في شاشة العاملة والناقص ينتقل للمشتريات');
 } else bad('قائمة الاحتياجات غير مكتملة في شاشة العاملة');
-if (helperSource.includes('compressPantryImage') && helperSource.includes('saveAndRelayPantryImage') &&
+if (helperSource.includes('compressPantryImage') && helperSource.includes('saveAndRelayShoppingImage') &&
     localImagesSource.includes("const DB_NAME = 'beitna-local-images'") &&
-    serverSource.includes('pantryImageRelays') && serverSource.includes('IMAGE_RELAY_TTL')) {
-  ok('صور العاملة تُضغط وتُحفظ على الهاتف وتُرحّل مؤقتًا للمالك');
-} else bad('مسار صور الاحتياجات لا يحقق الحفظ المحلي والترحيل المؤقت');
+    serverSource.includes('pantryImageRelays') && serverSource.includes('IMAGE_RELAY_TTL') &&
+    !helperSource.includes('data-act="addpantry"')) {
+  ok('العاملة تضيف النقص مع صورة اختيارية دون زر لإضافة منتج');
+} else bad('مسار صورة النقص أو منع إضافة المنتج غير مكتمل');
 if (helperSource.includes('saveAndRelayFaultImage') && helperSource.includes('id="fphoto"') &&
     localImagesSource.includes('syncIncomingFaultImages') && serverSource.includes("kind: 'fault'")) {
   ok('بلاغ العطل عند العاملة يقبل صورة محلية تُرحّل مؤقتًا للمالك');

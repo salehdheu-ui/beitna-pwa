@@ -128,8 +128,7 @@ async function main() {
   assert.equal(translatedItem.translations.ar.name, 'ar:maziwa');
   assert.equal(translatedItem.translations.en.quantity, 'en:pakiti mbili');
 
-  /* قائمة المالك تصل للعاملة بلغتها، والعاملة تستطيع تعليم الناقص
-     وإضافة منتج ما دامت صلاحية المشتريات على «تعديل». */
+  /* قائمة المالك تصل للعاملة بلغتها؛ العاملة تعلّم الناقص دون إضافة منتج. */
   const ownerPantry = await request('/write', {
     method: 'POST', token: owner.token,
     body: { ops: [{ col: 'pantry', id: '9101', op: 'set', data: {
@@ -152,15 +151,17 @@ async function main() {
   const afterToggle = await request('/sync?since=0', { token: helper.token });
   assert.equal(afterToggle.data.cols.pantry.find((x) => x.id === 9101).translations.sw.name, 'sw:حليب',
     'تغيير علامة المتوفر حذف ترجمة لغة العاملة');
-  assert.equal((await request('/write', {
+  const deniedNewPantry = await request('/write', {
     method: 'POST', token: helper.token,
     body: { ops: [{ col: 'pantry', id: '9102', op: 'set', data: {
       id: 9102, name: 'mafuta', sourceLang: 'sw', stocked: true,
     } }] },
-  })).data.applied, 1);
+  });
+  assert.equal(deniedNewPantry.data.applied, 0);
+  assert.equal(deniedNewPantry.data.denied, 1);
   const ownerPantrySync = await request('/sync?since=0', { token: owner.token });
   assert.equal(ownerPantrySync.data.cols.pantry.find((x) => x.id === 9101).stocked, false);
-  assert.equal(ownerPantrySync.data.cols.pantry.find((x) => x.id === 9102).translations.ar.name, 'ar:mafuta');
+  assert.equal(ownerPantrySync.data.cols.pantry.find((x) => x.id === 9102), undefined);
 
   /* شراء العنصر المرتبط يعيده متوفرًا في احتياجات المالك والعاملة. */
   assert.equal((await request('/write', {
@@ -182,18 +183,31 @@ async function main() {
 
   /* الصورة تمر مؤقتًا إلى المالك، ولا تدخل قاعدة البيانات أو المزامنة. */
   const tinyImage = 'data:image/jpeg;base64,' + Buffer.from('temporary-image').toString('base64');
-  assert.equal((await request('/pantry-image/9102', {
+  assert.equal((await request('/pantry-image/9101', {
     method: 'POST', token: helper.token, body: { dataUrl: tinyImage },
   })).status, 200);
   assert.equal((await request('/pantry-images', { token: helper.token })).status, 403);
   const relayedImages = await request('/pantry-images', { token: owner.token });
   assert.equal(relayedImages.data.images.length, 1);
-  assert.equal(relayedImages.data.images[0].itemId, '9102');
+  assert.equal(relayedImages.data.images[0].itemId, '9101');
   assert.equal(relayedImages.data.images[0].dataUrl, tinyImage);
   assert.equal((await request('/pantry-images/ack', {
-    method: 'POST', token: owner.token, body: { itemIds: ['9102'] },
+    method: 'POST', token: owner.token, body: { itemIds: ['9101'] },
   })).status, 200);
   assert.equal((await request('/pantry-images', { token: owner.token })).data.images.length, 0);
+
+  assert.equal((await request('/shopping-image/9001', {
+    method: 'POST', token: helper.token, body: { dataUrl: tinyImage },
+  })).status, 200);
+  assert.equal((await request('/shopping-images', { token: helper.token })).status, 403);
+  const relayedShoppingImages = await request('/shopping-images', { token: owner.token });
+  assert.equal(relayedShoppingImages.data.images.length, 1);
+  assert.equal(relayedShoppingImages.data.images[0].itemId, '9001');
+  assert.equal(relayedShoppingImages.data.images[0].dataUrl, tinyImage);
+  assert.equal((await request('/shopping-images/ack', {
+    method: 'POST', token: owner.token, body: { itemIds: ['9001'] },
+  })).status, 200);
+  assert.equal((await request('/shopping-images', { token: owner.token })).data.images.length, 0);
 
   assert.equal((await request('/fault-image/9301', {
     method: 'POST', token: helper.token, body: { dataUrl: tinyImage },
@@ -220,6 +234,9 @@ async function main() {
   assert.equal(limitedHelper.data.caps.faults, 'none');
   assert.equal(limitedHelper.data.caps.occasions, 'none');
   assert.equal(limitedHelper.data.caps.prices, false);
+  assert.equal((await request('/shopping-image/9002', {
+    method: 'POST', token: helper.token, body: { dataUrl: tinyImage },
+  })).status, 403);
   const blockedShopping = await request('/write', {
     method: 'POST', token: helper.token,
     body: { ops: [{ col: 'shopping', id: '9002', op: 'set', data: { name: 'blocked' } }] },

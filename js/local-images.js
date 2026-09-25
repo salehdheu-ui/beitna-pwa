@@ -5,6 +5,7 @@
 
 import {
   relayPantryImage, pullPantryImages, ackPantryImages,
+  relayShoppingImage, pullShoppingImages, ackShoppingImages,
   relayFaultImage, pullFaultImages, ackFaultImages,
 } from './cloud.js';
 import { getHouseholdId } from './store.js';
@@ -65,6 +66,7 @@ async function getLocalImage(kind, id) {
 }
 
 export const getPantryImage = (id) => getLocalImage('pantry', id);
+export const getShoppingImage = (id) => getLocalImage('shopping', id);
 export const getFaultImage = (id) => getLocalImage('fault', id);
 
 async function allImages() {
@@ -130,6 +132,16 @@ export async function saveAndRelayFaultImage(id, dataUrl) {
   return true;
 }
 
+export async function saveAndRelayShoppingImage(id, dataUrl) {
+  if (!dataUrl) return false;
+  const householdId = activeHousehold();
+  await putImage('shopping', id, dataUrl, true, householdId);
+  relayShoppingImage(id, dataUrl)
+    .then(() => putImage('shopping', id, dataUrl, false, householdId))
+    .catch(() => { /* تبقى pending وتُرسل في الدورة التالية */ });
+  return true;
+}
+
 export async function flushPendingPantryImages() {
   if (!navigator.onLine) return 0;
   const householdId = activeHousehold();
@@ -139,7 +151,8 @@ export async function flushPendingPantryImages() {
   for (const item of pending) {
     try {
       const kind = item.kind || 'pantry';
-      const relay = kind === 'fault' ? relayFaultImage : relayPantryImage;
+      const relay = kind === 'fault' ? relayFaultImage
+        : kind === 'shopping' ? relayShoppingImage : relayPantryImage;
       await relay(item.itemId, item.dataUrl);
       await putImage(kind, item.itemId, item.dataUrl, false, householdId);
       sent++;
@@ -155,6 +168,10 @@ export async function syncIncomingPantryImages() {
 
 export async function syncIncomingFaultImages() {
   return syncIncomingImages('fault', pullFaultImages, ackFaultImages);
+}
+
+export async function syncIncomingShoppingImages() {
+  return syncIncomingImages('shopping', pullShoppingImages, ackShoppingImages);
 }
 
 async function syncIncomingImages(kind, pull, ack) {
@@ -181,10 +198,15 @@ export async function hydrateFaultImages(root) {
   return hydrateLocalImages(root, 'fault', '[data-fault-image]');
 }
 
+export async function hydrateShoppingImages(root) {
+  return hydrateLocalImages(root, 'shopping', '[data-shopping-image]');
+}
+
 async function hydrateLocalImages(root, kind, selector) {
   const nodes = [...(root?.querySelectorAll?.(selector) || [])];
   await Promise.all(nodes.map(async (node) => {
-    const id = kind === 'fault' ? node.dataset.faultImage : node.dataset.pantryImage;
+    const id = kind === 'fault' ? node.dataset.faultImage
+      : kind === 'shopping' ? node.dataset.shoppingImage : node.dataset.pantryImage;
     const image = await getLocalImage(kind, id);
     if (!image?.dataUrl) return;
     node.src = image.dataUrl;

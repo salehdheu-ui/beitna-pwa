@@ -19,7 +19,7 @@ const SECRET_FILE = path.join(DATA_DIR, 'secret.key');
    بقيمة تتجاوز 30 يومًا حتى لا يعيد إعدادٌ خاطئ جلسات السنة القديمة. */
 const TOKEN_DAYS = Math.min(30, Math.max(1, Number(process.env.TOKEN_DAYS || 14)));
 const PUSH_SUBJECT = process.env.PUSH_SUBJECT || 'mailto:admin@beitna.local';
-const SERVER_VERSION = '1.15.0';
+const SERVER_VERSION = '1.16.0';
 
 /* لوحة الإدارة المنفصلة لها رمز مستقل تمامًا عن حسابات بيتنا.
 
@@ -1450,6 +1450,58 @@ async function route(req, res, url) {
     return send(res, 200, { ok: true });
   }
 
+  /* صورة النقص المضاف من شاشة العاملة تُرحّل للمالك دون تخزينها مع العنصر. */
+  if (p.startsWith('/shopping-image/') && method === 'POST') {
+    if (capLevel(myCaps, 'shopping') !== 'write') return fail(res, 403, 'read-only');
+    const itemId = decodeURIComponent(p.slice('/shopping-image/'.length)).slice(0, 80);
+    if (!itemId) return fail(res, 400, 'bad-item');
+    const b = await readBody(req);
+    const dataUrl = String(b.dataUrl || '');
+    if (!/^data:image\/(?:jpeg|webp|png);base64,[a-z0-9+/=\r\n]+$/i.test(dataUrl)) {
+      return fail(res, 400, 'bad-image');
+    }
+    const bytes = Buffer.byteLength(dataUrl, 'utf8');
+    if (bytes > IMAGE_ONE_MAX_BYTES * 1.45) return fail(res, 413, 'image-too-large');
+    const recipients = new Set(Object.values(hh.members)
+      .filter((member) => !member.deleted && permOf(member) === 'owner')
+      .map((member) => member.uid));
+    if (!recipients.size) return fail(res, 409, 'no-owner');
+    const key = `${hh.id}:shopping:${itemId}`;
+    pantryImageRelays.set(key, {
+      key, kind: 'shopping', householdId: hh.id, itemId, dataUrl, bytes,
+      createdAt: now(), expiresAt: now() + IMAGE_RELAY_TTL,
+      recipients, received: new Set(),
+    });
+    prunePantryImageRelays();
+    return send(res, 200, { ok: true, temporary: true });
+  }
+
+  if (p === '/shopping-images' && method === 'GET') {
+    if (myPerm !== 'owner') return fail(res, 403, 'owner-only');
+    prunePantryImageRelays();
+    const images = [...pantryImageRelays.values()]
+      .filter((relay) => relay.kind === 'shopping' && relay.householdId === hh.id &&
+        relay.recipients.has(user.uid) && !relay.received.has(user.uid))
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .slice(0, 8)
+      .map((relay) => ({ itemId: relay.itemId, dataUrl: relay.dataUrl, createdAt: relay.createdAt }));
+    return send(res, 200, { images });
+  }
+
+  if (p === '/shopping-images/ack' && method === 'POST') {
+    if (myPerm !== 'owner') return fail(res, 403, 'owner-only');
+    const b = await readBody(req);
+    const ids = new Set((Array.isArray(b.itemIds) ? b.itemIds : []).slice(0, 20).map(String));
+    for (const relay of pantryImageRelays.values()) {
+      if (relay.kind === 'shopping' && relay.householdId === hh.id &&
+          ids.has(String(relay.itemId)) && relay.recipients.has(user.uid)) {
+        relay.received.add(user.uid);
+      }
+    }
+    prunePantryImageRelays();
+    return send(res, 200, { ok: true });
+  }
+
   /* صورة بلاغ العطل تستخدم قناة النقل المؤقتة نفسها، ولا تدخل قاعدة البيانات. */
   if (p.startsWith('/fault-image/') && method === 'POST') {
     if (capLevel(myCaps, 'faults') !== 'write') return fail(res, 403, 'read-only');
@@ -1639,6 +1691,9 @@ function restorePantryFromShopping(hh, shopping, at) {
       const bucket = hh.cols[col] || (hh.cols[col] = {});
       const prev = bucket[id];
       const isNew = !prev;
+      if (myPerm === 'helper' && col === 'pantry' && (!prev || prev.deleted) && op.op !== 'delete') {
+        denied++; continue;
+      }
       if (op.op === 'delete') {
         const keepId = op.numericId ?? prev?.id ?? (Number(id) || id);
         bucket[id] = { ...(prev || {}), id: keepId, deleted: true, updatedAt: t };

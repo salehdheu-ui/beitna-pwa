@@ -31,7 +31,8 @@ import { refreshPush } from './push.js';
 import { t, applyLangToDocument, currentLang, setLang, localizeMainUi, observeMainUi } from './i18n.js';
 import { diag } from './diag.js';
 import {
-  flushPendingPantryImages, syncIncomingPantryImages, syncIncomingFaultImages,
+  flushPendingPantryImages, syncIncomingPantryImages, syncIncomingShoppingImages,
+  syncIncomingFaultImages,
 } from './local-images.js';
 
 /* المسار القديم للوحة المدمجة لم يعد موجودًا. إذا بقي في نافذة أو اختصار
@@ -349,7 +350,8 @@ async function syncImageRelay() {
   try {
     await flushPendingPantryImages();
     if (cloud.isOwner()) {
-      const received = await syncIncomingPantryImages() + await syncIncomingFaultImages();
+      const received = await syncIncomingPantryImages()
+        + await syncIncomingShoppingImages() + await syncIncomingFaultImages();
       if (received) scheduleRerender();
     }
   } catch { /* الشبكة أو الجلسة ستُعاد محاولتها في الدورة التالية */ }

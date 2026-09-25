@@ -769,6 +769,18 @@ export function ackPantryImages(itemIds) {
   return req('/pantry-images/ack', { method: 'POST', body: { itemIds }, timeout: 12000 });
 }
 
+export function relayShoppingImage(itemId, dataUrl) {
+  return req('/shopping-image/' + encodeURIComponent(itemId), {
+    method: 'POST', body: { dataUrl }, timeout: 20000,
+  });
+}
+export function pullShoppingImages() {
+  return req('/shopping-images', { timeout: 20000 });
+}
+export function ackShoppingImages(itemIds) {
+  return req('/shopping-images/ack', { method: 'POST', body: { itemIds }, timeout: 12000 });
+}
+
 export function relayFaultImage(itemId, dataUrl) {
   return req('/fault-image/' + encodeURIComponent(itemId), {
     method: 'POST', body: { dataUrl }, timeout: 20000,
