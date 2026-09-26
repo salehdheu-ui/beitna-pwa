@@ -508,16 +508,20 @@ function showApp() {
   const s = getState();
   $('#app').hidden = false;
   hideSplash();
-  if (s.onboarded) {
+  const invitation = cloud.pendingFamilyInvitation();
+  if (invitation && cloud.hasSession()) { location.replace('invite.html#' + invitation); return; }
+  if (s.onboarded && !invitation) {
     $('#shell').hidden = false;
     startApp();
   } else {
     renderAuth((res) => {
+      const pendingInvite = cloud.pendingFamilyInvitation();
+      if (pendingInvite) { location.replace('invite.html#' + pendingInvite); return; }
       $('#shell').hidden = false;
       if (res?.cloud && res.hid) startCloudSession(res.hid);
       startApp();
     }, {
-      initialMode: authError ? 'signin' : (cloud.currentUid() ? 'household' : 'welcome'),
+      initialMode: authError || invitation ? 'signin' : (cloud.currentUid() ? 'household' : 'welcome'),
       initialError: authError,
     });
   }
@@ -552,10 +556,15 @@ async function boot() {
       await cloud.finishExternalLogin(authTicket);
       cloud.stopSync();
       prepareAccountSwitch();
+      if (cloud.pendingFamilyInvitation()) {
+        location.replace('invite.html#' + cloud.pendingFamilyInvitation()); return;
+      }
       if (await restoreCloud()) return;
     } catch (error) { authError = String(error?.code || error?.message || 'auth-failed'); }
   }
   const s = getState();
+
+  if (cloud.pendingFamilyInvitation()) { showApp(); return; }
 
   /* ===== انتهت الجلسة (أو تغيّر الخادم): نعيده لشاشة الدخول بدل حالة معلّقة ===== */
   if (s.onboarded && s.household?.cloud && !cloud.hasSession?.()) {

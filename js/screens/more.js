@@ -18,6 +18,7 @@ import {
   authProviders, startExternalLogin,
   listHouseholds, switchHousehold, getHelperCode, newHelperCode, revokeHelperCode,
   newInviteCode, revokeInviteCode,
+  listEmailInvitations, createEmailInvitation, cancelEmailInvitation,
   setMemberRole, currentPerm, isOwner as amOwner, joinHousehold, syncStats,
 } from '../cloud.js';
 import { diag, upMinutes } from '../diag.js';
@@ -308,7 +309,7 @@ export function householdScreen() {
     html: `
       <div class="card">
         ${cloudHouse ? `
-        <div class="tiny muted center" style="margin-bottom:8px">كود دعوة العائلة</div>
+        <div class="tiny muted center" style="margin-bottom:8px">الطريقة الأولى: كود دعوة العائلة</div>
         <div class="invite-code" id="code" dir="ltr">${esc(familyCode || '—')}</div>
         <p class="tiny muted center mt-s">${familyCode ? 'شارك هذا الكود كاملًا مع أفراد عائلتك. يدخل كل فرد بحسابه الخاص ثم يختار الانضمام بكود.' : amOwner() ? 'كود الدعوة غير مفعّل. اضغط توليد كود جديد لدعوة العائلة.' : 'اطلب كود الدعوة من مالك البيت.'}</p>
         <div class="row" style="gap:8px">
@@ -321,6 +322,20 @@ export function householdScreen() {
         <p class="small muted">هذا البيت محفوظ على جهازك فقط؛ لا يمكن الانضمام إليه من جهاز آخر بكود محلي. اربطه بحساب أولًا ليُنشأ كود دعوة صالح، مع الاحتفاظ ببياناتك.</p>
         <button class="btn block" data-act="link">ربط البيت بحساب وتفعيل الدعوات</button>`}
       </div>
+
+      ${cloudHouse && amOwner() ? `
+      <div class="card mt">
+        <h3>الطريقة الثانية: الدعوة بالإيميل</h3>
+        <p class="small muted">الدعوة مخصصة للبريد الذي تكتبه، ولا ينضم الفرد إلا بعد قبولها بحسابه.</p>
+        <p class="small muted" id="emailInviteDelivery">جارٍ التحقق من إرسال البريد...</p>
+        <form id="emailInviteForm">
+          <div class="field"><label for="familyEmail">بريد فرد العائلة</label>
+            <input class="input" id="familyEmail" type="email" dir="ltr" autocomplete="email" maxlength="254" placeholder="name@example.com" required></div>
+          <button class="btn block" type="submit">إنشاء الدعوة</button>
+        </form>
+        <div id="emailInviteResult" role="status" aria-live="polite"></div>
+        <div id="emailInviteList" class="mt"></div>
+      </div>` : ''}
 
       ${amOwner() && isCloud() ? `
       <div class="card mt" id="helperCard">
@@ -359,6 +374,55 @@ export function householdScreen() {
         ${cloudHouse ? '<button class="btn ghost block mt" data-act="join-family">لدي كود دعوة لبيت آخر</button>' : ''}
       </div>`,
     mount(root, rerender) {
+      const emailForm = root.querySelector('#emailInviteForm');
+      let lastInviteLink = '';
+      const refreshInvites = async () => {
+        if (!emailForm) return;
+        try {
+          const result = await listEmailInvitations();
+          root.querySelector('#emailInviteDelivery').textContent = result.emailDelivery
+            ? 'ستُرسل الدعوة إلى البريد، ويمكنك أيضًا نسخ رابطها. صلاحيتها ٧ أيام.'
+            : 'إرسال البريد غير مفعّل حاليًا. أنشئ رابطًا مخصصًا لهذا البريد وانسخه لإرساله بنفسك. صلاحيته ٧ أيام.';
+          root.querySelector('#emailInviteList').innerHTML = result.invitations.map((inv) => `
+            <div class="row mt-s" style="gap:8px"><div class="grow"><bdi>${esc(inv.email)}</bdi>
+              <div class="tiny muted">تنتهي ${esc(new Date(inv.expiresAt).toLocaleDateString('ar-OM'))}</div></div>
+              <button class="btn ghost sm" data-cancel-invite="${esc(inv.id)}">إلغاء</button></div>`).join('');
+        } catch (error) { root.querySelector('#emailInviteDelivery').textContent = arabicError(error); }
+      };
+      if (emailForm) {
+        refreshInvites();
+        emailForm.addEventListener('submit', async (event) => {
+          event.preventDefault();
+          const button = emailForm.querySelector('button');
+          const output = root.querySelector('#emailInviteResult');
+          button.disabled = true; lastInviteLink = ''; output.textContent = 'جارٍ إنشاء الدعوة...';
+          try {
+            const result = await createEmailInvitation(root.querySelector('#familyEmail').value.trim());
+            lastInviteLink = result.link;
+            const note = result.delivery === 'email' ? 'أُرسلت الدعوة بالبريد.'
+              : result.delivery === 'mail-failed' ? 'تعذّر إرسال البريد. الدعوة جاهزة؛ انسخ الرابط وأرسله بنفسك.'
+                : 'الدعوة جاهزة، ولم تُرسل رسالة بريد. انسخ الرابط وأرسله للشخص المقصود.';
+            output.innerHTML = `<p class="small">${esc(note)}</p><label class="small" for="familyInviteLink">رابط الدعوة — للبريد المحدد فقط</label>
+              <input class="input" id="familyInviteLink" dir="ltr" readonly value="${esc(result.link)}">
+              <button class="btn soft block mt-s" data-copy-email-invite>نسخ رابط الدعوة</button>`;
+            await refreshInvites();
+          } catch (error) { output.textContent = arabicError(error); }
+          finally { button.disabled = false; }
+        });
+        root.addEventListener('click', async (event) => {
+          if (event.target.closest('[data-copy-email-invite]')) {
+            try { await navigator.clipboard.writeText(lastInviteLink); toast('تم نسخ رابط الدعوة'); }
+            catch { root.querySelector('#familyInviteLink')?.select(); toast('انسخ الرابط المحدد يدويًا'); }
+          }
+          const cancel = event.target.closest('[data-cancel-invite]');
+          if (cancel) {
+            cancel.disabled = true;
+            try { await cancelEmailInvitation(cancel.dataset.cancelInvite); lastInviteLink = '';
+              root.querySelector('#emailInviteResult').textContent = ''; await refreshInvites(); toast('أُلغيت الدعوة'); }
+            catch (error) { toast(arabicError(error)); cancel.disabled = false; }
+          }
+        });
+      }
       const hbox = root.querySelector('#hcode');
       if (hbox) {
         getHelperCode()

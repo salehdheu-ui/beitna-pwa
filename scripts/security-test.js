@@ -314,6 +314,69 @@ async function main() {
   })).status, 404);
   assert.equal((await request('/household/helper-code', { method: 'DELETE', token: owner.token })).status, 200);
 
+  /* الدعوة بالإيميل لا تعتمد على معرفة العنوان وحده: رابط + حساب مطابق + قبول. */
+  for (const route of ['/household/email-invitations', '/invitations/inspect', '/invitations/accept']) {
+    assert.equal((await request(route, { method: 'POST', body: {} })).status, 401);
+  }
+  for (const member of [helper, formerOwner]) {
+    assert.equal((await request('/household/email-invitations', { token: member.token })).status, 403);
+    assert.equal((await request('/household/email-invitations', {
+      method: 'POST', token: member.token, body: { email: outsider.email },
+    })).status, 403);
+  }
+  assert.equal((await request('/household/email-invitations', {
+    method: 'POST', token: owner.token, body: { email: 'invalid' },
+  })).status, 400);
+  assert.equal((await request('/household/email-invitations', {
+    method: 'POST', token: owner.token, body: { email: owner.email },
+  })).status, 409);
+  const emailInvite = await request('/household/email-invitations', {
+    method: 'POST', token: owner.token, body: { email: outsider.email.toUpperCase() },
+  });
+  assert.equal(emailInvite.status, 200);
+  assert.equal(emailInvite.data.delivery, 'manual', 'لا ندّعي إرسال بريد عند غياب خدمة البريد');
+  const inviteToken = new URL(emailInvite.data.link).hash.slice(1);
+  assert.equal(inviteToken.length, 43);
+  assert.equal(fs.readFileSync(path.join(dataDir, 'db.json'), 'utf8').includes(inviteToken), false);
+  const inviteList = await request('/household/email-invitations', { token: owner.token });
+  assert.equal(inviteList.data.invitations[0].email, outsider.email);
+  assert.equal('hash' in inviteList.data.invitations[0], false);
+  assert.equal((await request('/invitations/inspect', {
+    method: 'POST', token: formerOwner.token, body: { token: inviteToken },
+  })).status, 403);
+  assert.equal((await request('/invitations/accept', {
+    method: 'POST', token: formerOwner.token, body: { token: inviteToken },
+  })).status, 403);
+  assert.equal((await request('/household/email-invitations/' + emailInvite.data.id, {
+    method: 'DELETE', token: formerOwner.token,
+  })).status, 403);
+  assert.equal((await request('/invitations/inspect', {
+    method: 'POST', token: outsider.token, body: { token: inviteToken },
+  })).status, 200);
+  assert.equal((await request('/households', { token: outsider.token })).data.households.length, 0);
+  const ownHouse = await request('/household', { method: 'POST', token: outsider.token,
+    body: { name: 'بيت خاص', memberName: 'مدعو' } });
+  assert.equal((await request('/invitations/accept', {
+    method: 'POST', token: outsider.token, body: { token: inviteToken },
+  })).status, 200);
+  const housesAfterInvite = await request('/households', { token: outsider.token });
+  assert.equal(housesAfterInvite.data.households.length, 2);
+  assert.equal(housesAfterInvite.data.households.find((h) => h.id === created.data.id).perm, 'member');
+  assert.equal((await request('/me', { token: outsider.token })).data.householdId, ownHouse.data.id,
+    'قبول الدعوة لا يبدّل البيت النشط في أجهزة المستخدم الأخرى');
+  assert.equal((await request('/invitations/accept', {
+    method: 'POST', token: outsider.token, body: { token: inviteToken },
+  })).status, 410);
+  const cancelInvite = await request('/household/email-invitations', {
+    method: 'POST', token: owner.token, body: { email: 'future@example.test' },
+  });
+  assert.equal(cancelInvite.status, 200, 'يمكن دعوة بريد قبل إنشاء حسابه');
+  assert.equal((await request('/household/email-invitations/' + cancelInvite.data.id, {
+    method: 'DELETE', token: owner.token,
+  })).status, 200);
+  assert.equal((await request('/invitations/inspect', { method: 'POST', token: outsider.token,
+    body: { token: new URL(cancelInvite.data.link).hash.slice(1) } })).status, 410);
+
   /* حذف العاملة من المالك يحذف حسابها كله ويسقط جلستها فورًا، بخلاف
      العضو العادي الذي يمكنه إعادة الانضمام بحسابه نفسه. */
   const deletedHelper = await request(`/member/${helper.uid}`, {

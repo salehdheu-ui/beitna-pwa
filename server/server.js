@@ -21,7 +21,7 @@ const SECRET_FILE = path.join(DATA_DIR, 'secret.key');
    بقيمة تتجاوز 30 يومًا حتى لا يعيد إعدادٌ خاطئ جلسات السنة القديمة. */
 const TOKEN_DAYS = Math.min(30, Math.max(1, Number(process.env.TOKEN_DAYS || 14)));
 const PUSH_SUBJECT = process.env.PUSH_SUBJECT || 'mailto:admin@beitna.local';
-const SERVER_VERSION = '1.18.2';
+const SERVER_VERSION = '1.19.0';
 const OAUTH_COOKIE = '__Host-beitna-oauth';
 
 /* لوحة الإدارة المنفصلة لها رمز مستقل تمامًا عن حسابات بيتنا.
@@ -291,6 +291,23 @@ setInterval(() => backupNow('دوري'), Math.max(1, BACKUP_HOURS) * 3600000).un
 
 /* ---------- أدوات ---------- */
 const now = () => Date.now();
+const EMAIL_INVITE_TTL = 7 * 24 * 3600000;
+const inviteHash = (token) => crypto.createHash('sha256').update(token).digest('hex');
+function activeEmailInvites(hh) {
+  return (Array.isArray(hh.emailInvites) ? hh.emailInvites : []).filter((inv) => {
+    const issuer = hh.members[inv.issuedBy];
+    return inv.expiresAt > now() && issuer && !issuer.deleted && permOf(issuer) === 'owner';
+  });
+}
+function findEmailInvite(token) {
+  if (typeof token !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(token)) return null;
+  const hash = inviteHash(token);
+  for (const hh of Object.values(db.households)) {
+    const invitation = activeEmailInvites(hh).find((inv) => inv.hash === hash);
+    if (invitation) return { hh, invitation };
+  }
+  return null;
+}
 const uid8 = () => crypto.randomBytes(12).toString('hex');
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
@@ -1281,6 +1298,31 @@ async function route(req, res, url) {
   const user = authUser(req);
   if (!user) return fail(res, 401, 'no-user');
 
+  // حيازة الرابط والبريد المطابق لازمان؛ البريد وحده لا يثبت ملكيته.
+  if (['/invitations/inspect', '/invitations/accept'].includes(p) && method === 'POST') {
+    if (sensitiveLimited(req, user, 'email-invite-use', 40)) return fail(res, 429, 'too-many-requests');
+    const body = await readBody(req);
+    const match = findEmailInvite(body.token);
+    if (!match) return fail(res, 410, 'invitation-expired');
+    const { hh: invitedHouse, invitation } = match;
+    if (normEmail(user.email) !== invitation.email) return fail(res, 403, 'invitation-email-mismatch');
+    if (p === '/invitations/inspect') return send(res, 200, {
+      householdName: invitedHouse.name, expiresAt: invitation.expiresAt,
+    });
+    const existing = invitedHouse.members[user.uid];
+    if (!existing || existing.deleted) {
+      invitedHouse.members[user.uid] = { uid: user.uid, name: user.displayName || 'عضو',
+        email: user.email, role: roleLabel('member'), perm: 'member', isOwner: false,
+        joinedAt: now(), updatedAt: now(), deleted: false };
+    }
+    invitedHouse.emailInvites = (invitedHouse.emailInvites || []).filter((inv) => inv.id !== invitation.id);
+    invitedHouse.updatedAt = now();
+    // لا نبدّل بيتًا نشطًا في أجهزة أخرى بمجرد قبول الدعوة.
+    if (!myHousehold(user)) { user.householdId = invitedHouse.id; user.updatedAt = now(); }
+    save(); flush();
+    return send(res, 200, { ok: true, householdName: invitedHouse.name });
+  }
+
   if (p === '/me' && method === 'GET') {
     const hh = myHousehold(user);
     const caps = hh ? capsOf(hh.members[user.uid]) : null;
@@ -1554,6 +1596,43 @@ async function route(req, res, url) {
   }
 
   /* ===== كود دعوة الأسرة: تدوير أو إلغاء — من المالك فقط ===== */
+  if (p === '/household/email-invitations' && method === 'GET') {
+    if (!isOwner) return fail(res, 403, 'owner-only');
+    return send(res, 200, { emailDelivery: mail.enabled,
+      invitations: activeEmailInvites(hh).map(({ id, email, expiresAt }) => ({ id, email, expiresAt })) });
+  }
+  if (p === '/household/email-invitations' && method === 'POST') {
+    if (!isOwner) return fail(res, 403, 'owner-only');
+    if (sensitiveLimited(req, user, 'email-invite-send', 10)) return fail(res, 429, 'too-many-requests');
+    const body = await readBody(req);
+    const email = normEmail(body.email);
+    if (email.length > 254 || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return fail(res, 400, 'invalid-email');
+    if (Object.values(hh.members).some((m) => !m.deleted && normEmail(m.email) === email)) {
+      return fail(res, 409, 'already-household-member');
+    }
+    hh.emailInvites = activeEmailInvites(hh);
+    if (hh.emailInvites.length >= 50) return fail(res, 429, 'too-many-invitations');
+    const token = crypto.randomBytes(32).toString('base64url');
+    const invitation = { id: uid8(), hash: inviteHash(token), email,
+      issuedBy: user.uid, expiresAt: now() + EMAIL_INVITE_TTL };
+    const link = `${identity.origin}/invite.html#${token}`;
+    hh.emailInvites.push(invitation);
+    save(); flush();
+    let delivery = 'manual';
+    if (mail.enabled) {
+      try { await mail.sendHouseholdInvitation(email, link, hh.name); delivery = 'email'; }
+      catch { delivery = 'mail-failed'; }
+    }
+    return send(res, 200, { id: invitation.id, link, delivery, expiresAt: invitation.expiresAt });
+  }
+  const cancelEmailInvite = p.match(/^\/household\/email-invitations\/([a-f0-9]{24})$/);
+  if (cancelEmailInvite && method === 'DELETE') {
+    if (!isOwner) return fail(res, 403, 'owner-only');
+    hh.emailInvites = activeEmailInvites(hh).filter((inv) => inv.id !== cancelEmailInvite[1]);
+    save(); flush();
+    return send(res, 200, { ok: true });
+  }
+
   if (p === '/household/invite-code' && method === 'POST') {
     if (!isOwner) return fail(res, 403, 'owner-only');
     if (sensitiveLimited(req, user, 'rotate-invite', 10)) return fail(res, 429, 'too-many-requests');

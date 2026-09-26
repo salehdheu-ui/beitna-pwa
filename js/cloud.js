@@ -241,6 +241,10 @@ export async function amAdmin() {
 /* ---------- رسائل الأخطاء ---------- */
 export function arabicError(e) {
   const code = String(e?.code || e?.message || '');
+  if (code.includes('invitation-expired')) return 'الدعوة منتهية أو ملغاة أو مستخدمة. اطلب دعوة جديدة من المالك.';
+  if (code.includes('invitation-email-mismatch')) return 'هذه الدعوة لبريد آخر. ادخل بالحساب الذي أُرسلت إليه الدعوة.';
+  if (code.includes('already-household-member')) return 'هذا البريد عضو في البيت بالفعل.';
+  if (code.includes('too-many-invitations')) return 'ألغِ بعض الدعوات المعلقة قبل إضافة دعوات جديدة.';
   /* رسالة واحدة للبريد وكلمة المرور معًا: التفريق بينهما يكشف من يملك
      حسابًا عندنا لمن يجرّب البُرد واحدًا واحدًا. */
   if (code.includes('invalid-credentials')) return t('err_credentials');
@@ -762,6 +766,18 @@ export function newHelperCode() { return req('/household/helper-code', { method:
 export function revokeHelperCode() { return req('/household/helper-code', { method: 'DELETE', timeout: 12000 }); }
 export function newInviteCode() { return req('/household/invite-code', { method: 'POST', timeout: 12000 }); }
 export function revokeInviteCode() { return req('/household/invite-code', { method: 'DELETE', timeout: 12000 }); }
+
+export const listEmailInvitations = () => req('/household/email-invitations');
+export const createEmailInvitation = (email) => req('/household/email-invitations', { method: 'POST', body: { email }, timeout: 20000 });
+export const cancelEmailInvitation = (id) => req('/household/email-invitations/' + encodeURIComponent(id), { method: 'DELETE' });
+export const inspectEmailInvitation = (token) => req('/invitations/inspect', { method: 'POST', body: { token } });
+export const acceptEmailInvitation = (token) => req('/invitations/accept', { method: 'POST', body: { token } });
+export function pendingFamilyInvitation() {
+  try {
+    const value = sessionStorage.getItem('beitna:family-invite') || '';
+    return /^[A-Za-z0-9_-]{43}$/.test(value) ? value : '';
+  } catch { return ''; }
+}
 
 /** تغيير دور عضو — للمالك فقط */
 export function setMemberRole(uid, perm) {

@@ -50,7 +50,7 @@ else ok(listed.length + ' ملفًا في CORE كلها موجودة');
 /* كل وحدة js يجب أن تكون مخزّنة وإلا انكسر العمل بلا إنترنت */
 const modules = fs.readdirSync(path.join(ROOT, 'js'))
   /* admin-app مستقل عن الـ PWA ولا يجب أن يدخل ذاكرة التطبيق الرئيسي */
-  .filter((f) => f.endsWith('.js') && f !== 'admin-app.js').map((f) => 'js/' + f)
+  .filter((f) => f.endsWith('.js') && !['admin-app.js', 'invite-app.js'].includes(f)).map((f) => 'js/' + f)
   .concat(fs.readdirSync(path.join(ROOT, 'js/screens'))
     .filter((f) => f.endsWith('.js')).map((f) => 'js/screens/' + f));
 const uncached = modules.filter((m) => !listed.includes(m));
@@ -463,7 +463,7 @@ for (const f of screenFiles) {
 if (inlineHandler.length) bad('معالج مضمَّن داخل HTML — يمنعه CSP فيتعطّل الزر: ' + inlineHandler.join('، '));
 else ok('لا معالج مضمَّن داخل HTML');
 
-for (const page of ['index.html', 'admin.html']) {
+for (const page of ['index.html', 'admin.html', 'invite.html']) {
   const html = read(page);
   const m = html.match(/http-equiv="Content-Security-Policy" content="([^"]*)"/);
   if (!m) { bad(page + ': لا سياسة محتوى'); continue; }

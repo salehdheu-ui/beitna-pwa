@@ -16,6 +16,7 @@ const rsa = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
 const appleKey = crypto.generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
 const jwk = { ...rsa.publicKey.export({ format: 'jwk' }), kid: 'test-key', alg: 'RS256', use: 'sig' };
 const sent = [];
+let failNextMail = false;
 let nonce = '';
 let oauthCookie = '';
 
@@ -23,6 +24,7 @@ process.env.PORT = String(port);
 process.env.DATA_DIR = path.join(temp, 'data');
 process.env.OFFSITE_BACKUP_DIR = path.join(temp, 'offsite');
 process.env.TRANSLATION_ENABLED = '0';
+process.env.TOKEN_DAYS = '14';
 process.env.PUBLIC_ORIGIN = base;
 process.env.GOOGLE_CLIENT_ID = 'google-test-client';
 process.env.GOOGLE_CLIENT_SECRET = 'google-test-secret';
@@ -55,6 +57,7 @@ global.fetch = async (url, options = {}) => {
   const target = String(url);
   if (target.endsWith('/oauth2/v3/certs') || target.endsWith('/auth/keys')) return json({ keys: [jwk] });
   if (target === 'https://api.resend.com/emails') {
+    if (failNextMail) { failNextMail = false; return new Response('', { status: 503 }); }
     sent.push(JSON.parse(options.body));
     return json({ id: 'fake-mail' });
   }
@@ -210,7 +213,38 @@ async function main() {
   } })).status, 200);
   assert.equal((await request('/me', { token: owner.data.token })).status, 401,
     'Old sessions must be revoked after reset');
+
+  const inviterToken = changed.data.token;
+  const inviteHouse = await request('/household', { method: 'POST', token: inviterToken,
+    body: { name: 'العائلة', memberName: 'المالك' } });
+  assert.equal(inviteHouse.status, 200);
+  const invite = await request('/household/email-invitations', { method: 'POST', token: inviterToken,
+    body: { email: 'invited@example.test' } });
+  assert.equal(invite.status, 200);
+  assert.equal(invite.data.delivery, 'email');
+  assert.deepEqual(sent.at(-1).to, ['invited@example.test']);
+  assert.ok(sent.at(-1).text.includes(invite.data.link));
+  const invited = await request('/signup', { method: 'POST', body: {
+    email: 'invited@example.test', password: 'Invited-password-123', displayName: 'مدعو',
+  } });
+  assert.equal(invited.status, 200);
+  const inviteToken = new URL(invite.data.link).hash.slice(1);
+  const originalNow = Date.now;
+  try {
+    Date.now = () => originalNow() + 8 * 24 * 3600000;
+    assert.equal((await request('/invitations/accept', { method: 'POST', token: invited.data.token,
+      body: { token: inviteToken } })).status, 410, 'Invitation must expire after seven days');
+  } finally { Date.now = originalNow; }
+  failNextMail = true;
+  const fallbackInvite = await request('/household/email-invitations', { method: 'POST', token: inviterToken,
+    body: { email: 'invited@example.test' } });
+  assert.equal(fallbackInvite.data.delivery, 'mail-failed');
+  const fallbackToken = new URL(fallbackInvite.data.link).hash.slice(1);
+  assert.equal((await request('/invitations/accept', { method: 'POST', token: invited.data.token,
+    body: { token: fallbackToken } })).status, 200);
+  assert.equal((await request('/me', { token: invited.data.token })).data.householdId, inviteHouse.data.id);
   console.log('  [ok] Google, Apple disabled, explicit linking, email reset and session revocation');
+  console.log('  [ok] Email invitation delivery, expiration, manual fallback and first household');
 }
 
 main().then(() => finish(0), (error) => {

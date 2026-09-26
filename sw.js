@@ -3,12 +3,13 @@
    يعمل بدون إنترنت، ويحدّث نفسه فورًا عند نشر نسخة جديدة.
    ============================================================ */
 
-const VERSION = 'beitna-v3.29.3';
+const VERSION = 'beitna-v3.30.0';
 const NET_TIMEOUT = 2500;
 
 /* لوحة الإدارة ليست جزءًا من الـ PWA إطلاقًا. يجب أن تمر ملفاتها إلى الشبكة
    مباشرة، وإلا يعامل طلب admin.html كتصفّح داخل التطبيق ويعيد index.html. */
 const ADMIN_PATHS = new Set(['/admin.html', '/css/admin.css', '/js/admin-app.js']);
+const INVITE_PATHS = new Set(['/invite.html', '/css/invite.css', '/js/invite-app.js']);
 
 const CORE = [
   './',
@@ -143,6 +144,7 @@ self.addEventListener('fetch', (event) => {
 
   /* لا نعترض لوحة الإدارة ولا ملفاتها، حتى في طلبات التنقّل. */
   if (url.origin === location.origin && ADMIN_PATHS.has(url.pathname)) return;
+  if (url.origin === location.origin && INVITE_PATHS.has(url.pathname)) return;
 
   /* طلبات الخادم (/api) لا تُخزَّن إطلاقًا — التطبيق يدير العمل بدون إنترنت بنفسه */
   if (url.origin === location.origin && url.pathname.startsWith('/api')) return;

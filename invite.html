@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="robots" content="noindex,nofollow">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'">
+  <title>دعوة العائلة — بيتنا</title>
+  <link rel="icon" href="assets/icons/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/invite.css">
+</head>
+<body>
+  <main>
+    <img class="brand" src="assets/icons/icon-192.png" alt="بيتنا" width="64" height="64">
+    <h1>دعوة للانضمام إلى العائلة</h1>
+    <p id="inviteStatus" role="status" aria-live="polite">جارٍ التحقق من الدعوة...</p>
+    <p id="signedInEmail" dir="ltr"></p>
+    <button id="acceptInvite" hidden>قبول الدعوة والانضمام</button>
+    <a id="signIn" href="./" hidden>تسجيل الدخول أو إنشاء حساب</a>
+    <button id="differentAccount" class="secondary" hidden>الدخول بحساب آخر</button>
+    <a id="openHouseholds" href="./#/houses" hidden>فتح بيتنا واختيار البيت</a>
+    <button id="cancelInvite" class="secondary">ليس الآن</button>
+  </main>
+  <script type="module" src="js/invite-app.js"></script>
+</body>
+</html>

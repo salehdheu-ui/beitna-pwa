@@ -1,7 +1,7 @@
 /* شاشة الدخول — حساب مشترك في السحابة أو وضع محلي */
 
 import { $, esc } from '../util.js';
-import { setupHousehold, seedDemo } from '../store.js';
+import { setupHousehold, seedDemo, getState, prepareAccountSwitch } from '../store.js';
 import { toast, openSheet } from '../ui.js';
 import * as cloud from '../cloud.js';
 import { langSheet } from './helper.js';
@@ -295,6 +295,7 @@ export function renderAuth(onDone, { initialMode = 'welcome', resetCode = '', in
         if (!(await cloud.initCloud())) throw new Error('network');
         const user = await cloud.signIn(email, pass);
         pendingName = user.displayName || email.split('@')[0];
+        if (cloud.pendingFamilyInvitation()) return finish({ cloud: true, invitation: true });
         const hid = await cloud.loadHouseholdId();
         setBusy(false);
         if (hid) return finishCloud(hid);
@@ -320,6 +321,7 @@ export function renderAuth(onDone, { initialMode = 'welcome', resetCode = '', in
         setBusy(false);
         /* يُعرض مرة واحدة فقط — الخادم لا يحفظه نصًا ولا يرسل بريدًا */
         if (created?.recoveryCode) await showRecoveryCode(created.recoveryCode, false, !providers.emailRecovery);
+        if (cloud.pendingFamilyInvitation()) return finish({ cloud: true, invitation: true });
         mode = 'household'; draw();
       } catch (ex) {
         setBusy(false); err(cloud.arabicError(ex));
@@ -403,6 +405,7 @@ export function renderAuth(onDone, { initialMode = 'welcome', resetCode = '', in
   }
 
   function finish(result) {
+    if (result?.invitation && getState().household?.cloud) prepareAccountSwitch();
     root.hidden = true;
     root.onclick = null;
     onDone(result);
