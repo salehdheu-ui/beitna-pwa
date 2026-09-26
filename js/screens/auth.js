@@ -52,7 +52,7 @@ export function renderAuth(onDone, { initialMode = 'welcome', resetCode = '', in
 
   const providerButtons = () => `
     ${providers.google ? `<div class="auth-providers">
-      ${providers.google ? `<button class="btn ghost block" data-oauth="google">G&nbsp; ${esc(currentLang() === 'ar' ? 'الدخول عبر Google' : 'Continue with Google')}</button>` : ''}
+      <button type="button" class="google-signin" data-oauth="google" aria-label="${esc(currentLang() === 'ar' ? 'الدخول عبر Google' : 'Continue with Google')}" title="${esc(currentLang() === 'ar' ? 'الدخول عبر Google' : 'Continue with Google')}"><img src="assets/icons/google-signin.svg" width="48" height="48" alt="" aria-hidden="true"></button>
     </div>` : ''}`;
 
   const shell = (inner) => `

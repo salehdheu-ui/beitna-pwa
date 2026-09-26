@@ -514,6 +514,11 @@ html[data-theme="dark"] .chip-opt.active { color: #7FE3C4; }
 .auth-switch { text-align: center; margin-top: 16px; font-size: 13.5px; color: var(--text-soft); }
 .auth-switch button { color: var(--emerald); font-weight: 800; }
 .auth-providers { display: grid; gap: 8px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+.google-signin { display: grid; place-items: center; justify-self: center; width: 48px; height: 48px; padding: 0; border: 0; border-radius: 50%; background: #fff; cursor: pointer; }
+.google-signin img { display: block; width: 48px; height: 48px; }
+.google-signin:focus-visible { outline: 3px solid var(--emerald); outline-offset: 3px; }
+.google-signin:hover { box-shadow: 0 1px 5px #0002; }
+.google-signin:disabled { opacity: .55; cursor: wait; }
 .legal { text-align: center; font-size: 11.5px; color: var(--text-soft); margin-top: 18px; line-height: 1.7; }
 
 .invite-code {

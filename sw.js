@@ -3,7 +3,7 @@
    يعمل بدون إنترنت، ويحدّث نفسه فورًا عند نشر نسخة جديدة.
    ============================================================ */
 
-const VERSION = 'beitna-v3.29.1';
+const VERSION = 'beitna-v3.29.2';
 const NET_TIMEOUT = 2500;
 
 /* لوحة الإدارة ليست جزءًا من الـ PWA إطلاقًا. يجب أن تمر ملفاتها إلى الشبكة
@@ -44,6 +44,7 @@ const CORE = [
   './assets/icons/maskable-512.png',
   './assets/icons/apple-touch-icon.png',
   './assets/icons/favicon.svg',
+  './assets/icons/google-signin.svg',
 ];
 
 self.addEventListener('install', (event) => {

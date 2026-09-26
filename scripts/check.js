@@ -17,6 +17,12 @@ let failed = 0;
 const ok = (m) => console.log('  [ok] ' + m);
 const bad = (m) => { failed++; console.error('  [!!] ' + m); };
 
+const googleButton = read('js/screens/auth.js').match(/<button[^>]*data-oauth="google"[^>]*>[\s\S]*?<\/button>/)?.[0] || '';
+if (googleButton.includes('aria-label=') && googleButton.includes('assets/icons/google-signin.svg') &&
+    !googleButton.replace(/<[^>]+>/g, '').trim() && read('sw.js').includes('./assets/icons/google-signin.svg')) {
+  ok('زر Google يعرض الشعار فقط مع وصف لقارئ الشاشة وتخزين محلي');
+} else bad('زر Google يجب أن يعرض الشعار فقط مع وصف قابل للوصول');
+
 /* ---------- Service Worker ---------- */
 const sw = read('sw.js');
 console.log('Service Worker:');
