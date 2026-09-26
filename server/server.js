@@ -21,7 +21,7 @@ const SECRET_FILE = path.join(DATA_DIR, 'secret.key');
    بقيمة تتجاوز 30 يومًا حتى لا يعيد إعدادٌ خاطئ جلسات السنة القديمة. */
 const TOKEN_DAYS = Math.min(30, Math.max(1, Number(process.env.TOKEN_DAYS || 14)));
 const PUSH_SUBJECT = process.env.PUSH_SUBJECT || 'mailto:admin@beitna.local';
-const SERVER_VERSION = '1.18.1';
+const SERVER_VERSION = '1.18.2';
 const OAUTH_COOKIE = '__Host-beitna-oauth';
 
 /* لوحة الإدارة المنفصلة لها رمز مستقل تمامًا عن حسابات بيتنا.
@@ -337,6 +337,18 @@ function issueRecoveryCode(user) {
   user.recovery = hashPassword(normCode(code));
   user.recoveryAt = Date.now();
   return code;
+}
+
+/** اختلاف تنسيق النسخ ولوحة المفاتيح لا يغيّر رمز الدعوة أو صلاحياته. */
+function normalizeInviteCode(value) {
+  if (typeof value !== 'string' || value.length > 200) return '';
+  const code = value.normalize('NFKC')
+    .replace(/[\u0660-\u0669]/g, (digit) => String(digit.charCodeAt(0) - 0x660))
+    .replace(/[\u06f0-\u06f9]/g, (digit) => String(digit.charCodeAt(0) - 0x6f0))
+    .replace(/[\u2010-\u2015\u2212]/g, '-')
+    .replace(/[\s\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/g, '')
+    .toUpperCase();
+  return /^(BEITNA|AMEL)-[A-Z0-9]{6}$/.test(code) ? code : '';
 }
 
 /** رابط استعادة عشوائي لا يُحفظ نصه؛ لا تتغير كلمة المرور قبل استخدامه. */
@@ -1451,9 +1463,11 @@ async function route(req, res, url) {
   /* ===== الانضمام بكود ===== */
   if (p === '/household/join' && method === 'POST') {
     /* كود الدعوة قصير — بلا حدّ يمكن تخمينه والدخول على بيت غريب */
-    if (rateLimited('join:' + clientIp(req), 10, 3600000)) return fail(res, 429, 'too-many-requests');
+    /* كل حساب له حدّه، مع حد عام للشبكة؛ لا تستنفد أسرة كاملة حد فرد واحد. */
+    if (rateLimited('join:user:' + user.uid, 10, 3600000) ||
+        rateLimited('join:ip:' + clientIp(req), 60, 3600000)) return fail(res, 429, 'too-many-requests');
     const b = await readBody(req);
-    const code = String(b.code || '').trim().toUpperCase();
+    const code = normalizeInviteCode(b.code);
     const asHelper = !!db.helperCodes[code];
     const hid = db.codes[code] || db.helperCodes[code];
     const hh = hid ? db.households[hid] : null;

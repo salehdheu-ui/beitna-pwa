@@ -7,6 +7,12 @@ import * as cloud from '../cloud.js';
 import { langSheet } from './helper.js';
 import { applyLangToDocument, currentLang, t } from '../i18n.js';
 
+// ربط بيت محلي وافق صاحبه على رفعه يجب ألا يمسح عناصره قبل بدء المزامنة.
+function hasPendingLocalUpload() {
+  try { return localStorage.getItem('beitna:pending-upload') === '1'; }
+  catch { return false; }
+}
+
 /** يعرض رمز الاسترداد ويُلزم المستخدم بتأكيد حفظه */
 function showRecoveryCode(code, replaced = false, requireBackup = true) {
   return new Promise((resolve) => {
@@ -350,7 +356,7 @@ export function renderAuth(onDone, { initialMode = 'welcome', resetCode = '', in
         const hh = await cloud.createHousehold(hname, pendingName || t('user_default'));
         setupHousehold({
           householdName: hh.name, memberName: pendingName, email: cloud.currentEmail() || '',
-          inviteCode: hh.inviteCode, isOwner: true, cloud: true, resetData: true,
+          inviteCode: hh.inviteCode, isOwner: true, cloud: true, resetData: !hasPendingLocalUpload(),
         });
         setBusy(false);
         toast(t('home_created'));
@@ -370,7 +376,7 @@ export function renderAuth(onDone, { initialMode = 'welcome', resetCode = '', in
         const hh = await cloud.joinHousehold(code, pendingName || t('user_default'));
         setupHousehold({
           householdName: hh.name, memberName: pendingName, email: cloud.currentEmail() || '',
-          inviteCode: hh.inviteCode, isOwner: false, cloud: true, resetData: true,
+          inviteCode: hh.inviteCode, isOwner: false, cloud: true, resetData: !hasPendingLocalUpload(),
         });
         setBusy(false);
         toast(t('joined_home'));
@@ -388,7 +394,7 @@ export function renderAuth(onDone, { initialMode = 'welcome', resetCode = '', in
       setupHousehold({
         householdName: hh?.name || t('app_name'), memberName: pendingName,
         email: cloud.currentEmail() || '', inviteCode: hh?.inviteCode || '',
-        isOwner: false, cloud: true, resetData: true,
+        isOwner: false, cloud: true, resetData: !hasPendingLocalUpload(),
       });
     }
     /* اختيار العاملة قبل الدخول يصبح تفضيل حساب دائمًا بعد نجاح الجلسة. */

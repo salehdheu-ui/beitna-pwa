@@ -332,7 +332,8 @@ export function setupHousehold({ householdName, memberName, email = '', joinCode
     s.household.name = householdName || `بيت ${memberName}`;
     /* كود الانضمام ليس بالضرورة كود الأسرة (قد يكون كود العاملة).
        في الوضع السحابي لا نخترع ولا نحفظ أي كود لم يُعده الخادم. */
-    s.household.inviteCode = cloud ? (inviteCode || '') : (inviteCode || joinCode || generateInviteCode());
+    // البيت المحلي لا يملك كودًا مسجلًا بالخادم؛ لا نعرض دعوة لا تعمل.
+    s.household.inviteCode = cloud ? (inviteCode || '') : '';
     s.household.createdAt = Date.now();
     s.household.cloud = cloud;
     if (!cloud) {
@@ -380,11 +381,11 @@ export function signOut({ keepData = false } = {}) {
  * يرفع كل ما على هذا الجهاز إلى البيت السحابي الحالي.
  * يُستدعى بعد ربط جهاز كان يعمل بلا حساب. يرجع عدد ما رُفع.
  */
-export function uploadLocalData() {
+export function uploadLocalData(localState = state) {
   if (mode !== 'cloud' || !bridge) return 0;
   let n = 0;
   for (const col of ['categories', 'shopping', 'faults', 'occasions', 'favoriteLists', 'pantry', 'pantryCategories']) {
-    for (const item of state[col] || []) {
+    for (const item of localState[col] || []) {
       try { bridge.save(col, item); n++; } catch (e) { console.warn('تعذّر رفع عنصر', e); }
     }
   }

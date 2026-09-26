@@ -99,6 +99,9 @@ async function main() {
   assert.equal(created.status, 200);
   const firstFamilyCode = created.data.inviteCode;
   assert.match(firstFamilyCode, /^BEITNA-/);
+  const copiedCode = (code) => '\u200f ' + code.toLowerCase()
+    .replace('-', ' \u2013 ')
+    .replace(/[0-9]/g, (digit) => String.fromCharCode(0x660 + Number(digit))) + ' \u200e';
 
   const helperCodeRes = await request('/household/helper-code', { method: 'POST', token: owner.token });
   assert.equal(helperCodeRes.status, 200);
@@ -106,7 +109,7 @@ async function main() {
 
   const helper = await signup('helper');
   const helperJoin = await request('/household/join', {
-    method: 'POST', token: helper.token, body: { code: firstHelperCode, memberName: 'العاملة' },
+    method: 'POST', token: helper.token, body: { code: copiedCode(firstHelperCode), memberName: 'العاملة' },
   });
   assert.equal(helperJoin.status, 200);
   assert.equal(helperJoin.data.perm, 'helper');
@@ -270,8 +273,9 @@ async function main() {
 
   const formerOwner = await signup('former-owner');
   const memberJoin = await request('/household/join', {
-    method: 'POST', token: formerOwner.token, body: { code: firstFamilyCode, memberName: 'عضو' },
+    method: 'POST', token: formerOwner.token, body: { code: copiedCode(firstFamilyCode), memberName: 'عضو' },
   });
+  assert.equal(memberJoin.status, 200, 'الكود المنسوخ بمسافات وشرطة وأرقام عربية يجب أن يعمل');
   assert.equal(memberJoin.data.perm, 'member');
   assert.equal(memberJoin.data.inviteCode, null);
   assert.equal((await request(`/member/${formerOwner.uid}/role`, {
@@ -401,6 +405,27 @@ async function main() {
   const restored = await request('/me', { token: owner.token });
   assert.equal(restored.status, 200, 'فشلت الاستعادة من قاعدة تالفة');
   assert.equal(restored.data.household.name, 'بيت الاختبار');
+
+  /* محاولات فرد لا تمنع بقية الأسرة المتصلة بالشبكة نفسها. */
+  const freshInvite = await request('/household/invite-code', { method: 'POST', token: owner.token });
+  assert.equal(freshInvite.status, 200);
+  const liveCode = freshInvite.data.inviteCode;
+  for (let attempt = 0; attempt < 10; attempt++) {
+    assert.equal((await request('/household/join', {
+      method: 'POST', token: passwordChanged.data.token, body: { code: 'NOT-A-CODE' },
+    })).status, 404);
+  }
+  assert.equal((await request('/household/join', {
+    method: 'POST', token: passwordChanged.data.token, body: { code: liveCode },
+  })).status, 429, 'يجب استمرار الحماية من تخمين الأكواد لكل حساب');
+  for (const formatted of [liveCode, copiedCode(liveCode),
+    liveCode.replace('-', '\u2011').replace(/[0-9]/g, (digit) => String.fromCharCode(0x6f0 + Number(digit)))]) {
+    const ownerRejoin = await request('/household/join', {
+      method: 'POST', token: owner.token, body: { code: formatted },
+    });
+    assert.equal(ownerRejoin.status, 200, 'محاولات حساب آخر بالشبكة نفسها لا تمنع الكود الصحيح');
+    assert.equal(ownerRejoin.data.perm, 'owner', 'إعادة إدخال الكود لا تخفض صلاحية المالك');
+  }
 
   console.log('  [ok] الترجمة، الصلاحيات، الدعوات، الجلسات، والنسخ الاحتياطي اجتازت الاختبار التكاملي');
 }

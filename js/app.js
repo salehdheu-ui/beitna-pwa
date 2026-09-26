@@ -400,6 +400,11 @@ function startImageRelay() {
 }
 
 function startCloudSession(hid) {
+  // احتفظ بعناصر البيت المحلي قبل أن تستبدلها أول استجابة مزامنة.
+  let localUpload = null;
+  try {
+    if (localStorage.getItem('beitna:pending-upload') === '1') localUpload = structuredClone(getState());
+  } catch { /* لا توجد رفعة محلية معلّقة */ }
   setCloudUid(cloud.currentUid());
   setCloudBridge(cloudBridge(hid), hid);
 
@@ -455,20 +460,20 @@ function startCloudSession(hid) {
   startImageRelay();
 
   cloud.recordSession();
-  flushPendingUpload();
+  flushPendingUpload(localUpload);
   /* الاشتراكات تنتهي أحيانًا من تلقائها — نجدّدها بصمت لمن فعّلها */
   refreshPush();
 }
 
 /** يرفع بيانات جهاز كان يعمل بلا حساب، بعد ربطه بحساب سحابي */
-function flushPendingUpload() {
+function flushPendingUpload(localUpload) {
   let pending = false;
   try { pending = localStorage.getItem('beitna:pending-upload') === '1'; } catch { /* تجاهل */ }
-  if (!pending) return;
-  try { localStorage.removeItem('beitna:pending-upload'); } catch { /* تجاهل */ }
+  if (!pending || !localUpload) return;
   /* نمهل المزامنة الأولى حتى لا تُطمَس الرفعة بردّ الخادم */
   setTimeout(() => {
-    const n = uploadLocalData();
+    const n = uploadLocalData(localUpload);
+    try { localStorage.removeItem('beitna:pending-upload'); } catch { /* تجاهل */ }
     if (n) toast(`رُفع ${n} عنصرًا من هذا الجهاز إلى بيتك ✓`, 4000);
   }, 2500);
 }

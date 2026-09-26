@@ -5,7 +5,7 @@ import {
   getState, updateProfile, addMember, removeMember, addCategory, removeCategory,
   setNotification, setDarkMode, profileStats, archiveItems, signOut, resetAll,
   uploadLocalData, persistNow,
-  generateInviteCode, update, isCloud, CURRENCY,
+  update, isCloud, CURRENCY,
 } from '../store.js';
 import { emptyState, toast, confirmDialog, openSheet, switchEl, iosInstallSheet } from '../ui.js';
 import { go } from '../router.js';
@@ -300,20 +300,26 @@ export function profileScreen() {
 /* ============================ أفراد البيت ============================ */
 export function householdScreen() {
   const s = getState();
+  const cloudHouse = isCloud();
+  const familyCode = cloudHouse ? s.household.inviteCode || '' : '';
   return {
     title: 'أفراد البيت',
     back: true,
     html: `
       <div class="card">
-        <div class="tiny muted center" style="margin-bottom:8px">كود الدعوة</div>
-        <div class="invite-code" id="code">${esc(s.household.inviteCode || '—')}</div>
-        <p class="tiny muted center mt-s">شارك هذا الكود مع أفراد عائلتك للانضمام إلى البيت</p>
+        ${cloudHouse ? `
+        <div class="tiny muted center" style="margin-bottom:8px">كود دعوة العائلة</div>
+        <div class="invite-code" id="code" dir="ltr">${esc(familyCode || '—')}</div>
+        <p class="tiny muted center mt-s">${familyCode ? 'شارك هذا الكود كاملًا مع أفراد عائلتك. يدخل كل فرد بحسابه الخاص ثم يختار الانضمام بكود.' : amOwner() ? 'كود الدعوة غير مفعّل. اضغط توليد كود جديد لدعوة العائلة.' : 'اطلب كود الدعوة من مالك البيت.'}</p>
         <div class="row" style="gap:8px">
-          <button class="btn soft grow" data-act="copy">📋 نسخ</button>
-          <button class="btn ghost grow" data-act="share">📤 مشاركة</button>
+          <button class="btn soft grow" data-act="copy" ${familyCode ? '' : 'disabled'}>📋 نسخ</button>
+          <button class="btn ghost grow" data-act="share" ${familyCode ? '' : 'disabled'}>📤 مشاركة</button>
           ${amOwner() ? `<button class="icon-btn" data-act="regen" title="توليد كود جديد">🔄</button>` : ''}
           ${amOwner() && isCloud() && s.household.inviteCode ? `<button class="icon-btn" data-act="revoke" title="إلغاء كود الدعوة">✕</button>` : ''}
-        </div>
+        </div>` : `
+        <div class="strong">دعوة العائلة تحتاج حسابًا</div>
+        <p class="small muted">هذا البيت محفوظ على جهازك فقط؛ لا يمكن الانضمام إليه من جهاز آخر بكود محلي. اربطه بحساب أولًا ليُنشأ كود دعوة صالح، مع الاحتفاظ ببياناتك.</p>
+        <button class="btn block" data-act="link">ربط البيت بحساب وتفعيل الدعوات</button>`}
       </div>
 
       ${amOwner() && isCloud() ? `
@@ -348,8 +354,9 @@ export function householdScreen() {
             </div>`).join('')}
         </div>
         ${isCloud()
-          ? `<div class="card mt small muted">لإضافة فرد جديد: أرسل له كود الدعوة أعلاه، ويدخله عند إنشاء حسابه — سينضم للبيت مباشرة وتتزامن بياناته لحظيًا.</div>`
-          : `<button class="btn ghost block mt">＋ إضافة عضو جديد</button>`}
+          ? `<div class="card mt small muted">على جهاز الفرد الجديد: يسجّل الدخول بحسابه ثم يختار «لدي كود دعوة». وإذا لديه بيت بالفعل: المزيد ← بيوتي ← الانضمام إلى بيت.</div>`
+          : `<button class="btn ghost block mt" data-act="add-local-member">＋ إضافة اسم عضو على هذا الجهاز فقط</button>`}
+        ${cloudHouse ? '<button class="btn ghost block mt" data-act="join-family">لدي كود دعوة لبيت آخر</button>' : ''}
       </div>`,
     mount(root, rerender) {
       const hbox = root.querySelector('#hcode');
@@ -361,6 +368,9 @@ export function householdScreen() {
 
       root.addEventListener('click', async (e) => {
         const act = e.target.closest('[data-act]')?.dataset.act;
+
+        if (act === 'link') { linkDeviceToAccount(); return; }
+        if (act === 'join-family') { go('/join-house'); return; }
 
         if (act === 'hnew') {
           const ok = await confirmDialog({
@@ -393,19 +403,25 @@ export function householdScreen() {
         }
 
         if (act === 'copy') {
-          await navigator.clipboard.writeText(getState().household.inviteCode);
-          toast('تم نسخ الكود ✓');
+          const code = isCloud() && getState().household.inviteCode;
+          if (!code) return toast('اربط البيت بحساب وفعّل كود الدعوة أولًا');
+          try { await navigator.clipboard.writeText(code); toast('تم نسخ الكود ✓'); }
+          catch { toast('تعذّر النسخ؛ انسخ الكود الظاهر يدويًا'); }
+          return;
         }
         if (act === 'share') {
-          const text = `انضم إلى بيتنا 🏡\nكود الدعوة: ${getState().household.inviteCode}\n${location.origin}${location.pathname}`;
+          const code = isCloud() && getState().household.inviteCode;
+          if (!code) return toast('اربط البيت بحساب وفعّل كود الدعوة أولًا');
+          const text = `انضم إلى بيتنا 🏡\nكود الدعوة: ${code}\nسجّل الدخول بحسابك، ثم اختر الانضمام بكود. إذا لديك بيت: المزيد ← بيوتي ← الانضمام إلى بيت.\n${location.origin}${location.pathname}`;
           try { navigator.share ? await navigator.share({ text }) : await navigator.clipboard.writeText(text); }
           catch { /* أُلغيت */ }
         }
         if (act === 'regen') {
+          if (!isCloud()) return toast('اربط البيت بحساب أولًا');
           const ok = await confirmDialog({ title: 'كود جديد', message: 'سيتم توليد كود دعوة جديد. الكود القديم لن يعمل.', confirmText: 'توليد' });
           if (!ok) return;
           try {
-            const code = isCloud() ? (await newInviteCode()).inviteCode : generateInviteCode();
+            const code = (await newInviteCode()).inviteCode;
             update((s) => { s.household.inviteCode = code; });
             rerender(); toast('تم توليد كود جديد ✓');
           } catch (ex) { toast(arabicError(ex), 3500); }
@@ -447,7 +463,7 @@ export function householdScreen() {
           return;
         }
 
-        if (e.target.closest('.btn.ghost.block')) {
+        if (act === 'add-local-member' && !isCloud()) {
           openSheet(`
             <h3>إضافة عضو جديد</h3>
             <div class="field"><label for="mn">اسم العضو</label><input class="input" id="mn" placeholder="سارة"></div>
