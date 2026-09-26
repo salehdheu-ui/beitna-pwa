@@ -48,12 +48,11 @@ export function renderAuth(onDone, { initialMode = 'welcome', resetCode = '', in
   let mode = initialMode;   // welcome | signin | signup | recoverEmail | recover | reset | household | join | localSetup
   let busy = false;
   let pendingName = cloud.currentDisplayName() || '';
-  let providers = { google: false, apple: false, emailRecovery: false };
+  let providers = { google: false, emailRecovery: false };
 
   const providerButtons = () => `
-    ${providers.google || providers.apple ? `<div class="auth-providers">
+    ${providers.google ? `<div class="auth-providers">
       ${providers.google ? `<button class="btn ghost block" data-oauth="google">G&nbsp; ${esc(currentLang() === 'ar' ? 'الدخول عبر Google' : 'Continue with Google')}</button>` : ''}
-      ${providers.apple ? `<button class="btn ghost block" data-oauth="apple">${esc(currentLang() === 'ar' ? 'الدخول عبر Apple' : 'Continue with Apple')}</button>` : ''}
     </div>` : ''}`;
 
   const shell = (inner) => `

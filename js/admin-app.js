@@ -104,7 +104,7 @@ function render(stats) {
 
 function renderAccount(account) {
   selectedAccount = account;
-  const methods = [account.hasPassword ? 'كلمة مرور' : null, ...account.providers.map((p) => p === 'google' ? 'Google' : 'Apple')].filter(Boolean);
+  const methods = [account.hasPassword ? 'كلمة مرور' : null, ...account.providers.filter((p) => p === 'google').map(() => 'Google')].filter(Boolean);
   $('#accountResult').innerHTML = `<div class="account-summary"><h3>${esc(account.displayName || 'حساب بلا اسم')}</h3><div class="account-email">${esc(account.email)}</div>
     <div class="account-meta">${methods.map((m) => `<span class="chip">${esc(m)}</span>`).join('')}<span class="chip">${account.hasHousehold ? 'مرتبط ببيت' : 'بلا بيت'}</span></div>
     <p class="muted">تاريخ التسجيل: ${account.createdAt ? esc(new Date(account.createdAt).toLocaleDateString('ar-OM')) : '—'}${account.resetPendingUntil ? '<br>يوجد رابط استعادة لم تنتهِ صلاحيته؛ إصدار رابط جديد يلغي السابق.' : ''}</p>

@@ -274,8 +274,7 @@ export function profileScreen() {
           linkedBox.innerHTML = `
             <p class="small muted" style="margin:0 0 10px">اربط حسابك الحالي حتى تتمكن من الدخول دون كلمة مرور. لا يُدمج أي حساب تلقائيًا لمجرد تطابق البريد.</p>
             ${options.google ? `<button class="btn ghost block" data-link-provider="google">${linked.includes('google') ? '✓ Google مرتبط' : 'ربط Google'}</button>` : ''}
-            ${options.apple ? `<button class="btn ghost block mt-s" data-link-provider="apple">${linked.includes('apple') ? '✓ Apple مرتبط' : 'ربط Apple'}</button>` : ''}
-            ${!options.google && !options.apple ? '<span class="small muted">لم تُفعّل طرق الدخول الإضافية على الخادم بعد.</span>' : ''}`;
+            ${!options.google ? '<span class="small muted">لم تُفعّل طرق الدخول الإضافية على الخادم بعد.</span>' : ''}`;
         }).catch(() => { linkedBox.textContent = 'تعذّر فحص طرق الدخول الآن'; });
         linkedBox.addEventListener('click', async (event) => {
           const button = event.target.closest('[data-link-provider]');

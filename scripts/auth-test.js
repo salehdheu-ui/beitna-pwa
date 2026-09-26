@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Integration test with local fake Google, Apple, and email responses.
+/* Integration test with local fake Google and email responses, plus Apple removal.
    No credentials, user mail, or production data are involved. */
 'use strict';
 
@@ -134,7 +134,13 @@ async function main() {
   }
   const providers = await request('/auth/providers');
   assert.deepEqual({ google: providers.data.google, apple: providers.data.apple,
-    emailRecovery: providers.data.emailRecovery }, { google: true, apple: true, emailRecovery: true });
+    emailRecovery: providers.data.emailRecovery }, { google: true, apple: false, emailRecovery: true });
+  // Even legacy Apple environment settings above cannot re-enable the removed provider.
+  assert.equal((await request('/auth/apple/start', { method: 'POST', body: {} })).status, 410);
+  assert.equal((await request('/auth/apple/callback?state=old&code=old', { redirect: 'manual' })).status, 410);
+  assert.equal((await request('/auth/apple/callback', { method: 'POST', form: true,
+    body: { state: 'old', code: 'old' }, redirect: 'manual' })).status, 410);
+  assert.throws(() => require('../server/identity.js').start('apple'), /auth-not-configured/);
 
   const owner = await request('/signup', { method: 'POST', body: {
     email: 'owner@example.test', password: 'Old-password-123', displayName: 'Owner',
@@ -182,13 +188,6 @@ async function main() {
   session = await request('/auth/ticket', { method: 'POST', body: { ticket }, cookie: oauthCookie });
   assert.equal(session.data.uid, owner.data.uid);
 
-  state = await start('apple');
-  result = await callback('apple', state, 'apple-new');
-  ticket = new URL(result.location).hash.replace('#auth_ticket=', '');
-  session = await request('/auth/ticket', { method: 'POST', body: { ticket }, cookie: oauthCookie });
-  assert.equal(session.status, 200);
-  assert.equal(session.data.email, 'apple@example.test');
-
   const unknown = await request('/account/reset/request', { method: 'POST', body: { email: 'unknown@example.test' } });
   const known = await request('/account/reset/request', { method: 'POST', body: { email: 'owner@example.test' } });
   assert.deepEqual(unknown.data, known.data, 'Do not reveal registered emails');
@@ -211,7 +210,7 @@ async function main() {
   } })).status, 200);
   assert.equal((await request('/me', { token: owner.data.token })).status, 401,
     'Old sessions must be revoked after reset');
-  console.log('  [ok] Google, Apple, explicit linking, email reset and session revocation');
+  console.log('  [ok] Google, Apple disabled, explicit linking, email reset and session revocation');
 }
 
 main().then(() => finish(0), (error) => {

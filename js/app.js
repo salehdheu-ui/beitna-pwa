@@ -516,7 +516,7 @@ function showApp() {
       initialError: authError,
     });
   }
-  if (linkedProvider) setTimeout(() => toast(`${linkedProvider === 'google' ? 'Google' : 'Apple'} مرتبط بحسابك ✓`), 400);
+  if (linkedProvider === 'google') setTimeout(() => toast('Google مرتبط بحسابك ✓'), 400);
   if (authError && s.onboarded) setTimeout(() => toast(cloud.arabicError({ code: authError }), 3500), 400);
 }
 

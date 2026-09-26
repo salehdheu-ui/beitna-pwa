@@ -266,7 +266,7 @@ export function arabicError(e) {
   if (code.includes('bad-reset-link')) return currentLang() === 'ar' ? 'رابط الاستعادة غير صالح أو انتهت صلاحيته' : 'The reset link is invalid or expired';
   if (code.includes('mail-not-configured')) return currentLang() === 'ar' ? 'إرسال البريد غير مفعّل بعد؛ استخدم رمز الاسترداد' : 'Email recovery is not configured yet; use your recovery code';
   if (code.includes('auth-not-configured')) return currentLang() === 'ar' ? 'طريقة الدخول هذه غير مفعّلة بعد' : 'This sign-in method is not configured yet';
-  if (code.includes('auth-link-required')) return currentLang() === 'ar' ? 'هذا البريد له حساب سابق؛ ادخل بكلمة المرور ثم اربط Google أو Apple من ملفك الشخصي' : 'This email already has an account. Sign in with your password, then link Google or Apple in your profile';
+  if (code.includes('auth-link-required')) return currentLang() === 'ar' ? 'هذا البريد له حساب سابق؛ ادخل بكلمة المرور ثم اربط Google من ملفك الشخصي' : 'This email already has an account. Sign in with your password, then link Google in your profile';
   if (code.includes('auth-link-conflict')) return currentLang() === 'ar' ? 'حساب المزود مرتبط بحساب آخر في بيتنا' : 'This provider account is linked to another Beitna account';
   if (code.includes('auth-cancelled')) return currentLang() === 'ar' ? 'أُلغيت عملية الدخول' : 'Sign-in was cancelled';
   if (code.includes('auth-')) return currentLang() === 'ar' ? 'تعذّر الدخول بهذه الطريقة؛ حاول مرة أخرى' : 'Could not sign in this way; please try again';
@@ -304,7 +304,7 @@ export async function authProviders() {
 }
 
 export async function startExternalLogin(provider, { link = false } = {}) {
-  if (!['google', 'apple'].includes(provider)) throw new Error('auth-not-configured');
+  if (provider !== 'google') throw new Error('auth-not-configured');
   await detectApi();
   if (new URL(API).origin !== location.origin) throw new Error('auth-origin-required');
   const result = await req(`/auth/${provider}/start`, {

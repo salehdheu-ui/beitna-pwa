@@ -21,7 +21,7 @@ const SECRET_FILE = path.join(DATA_DIR, 'secret.key');
    بقيمة تتجاوز 30 يومًا حتى لا يعيد إعدادٌ خاطئ جلسات السنة القديمة. */
 const TOKEN_DAYS = Math.min(30, Math.max(1, Number(process.env.TOKEN_DAYS || 14)));
 const PUSH_SUBJECT = process.env.PUSH_SUBJECT || 'mailto:admin@beitna.local';
-const SERVER_VERSION = '1.18.0';
+const SERVER_VERSION = '1.18.1';
 const OAUTH_COOKIE = '__Host-beitna-oauth';
 
 /* لوحة الإدارة المنفصلة لها رمز مستقل تمامًا عن حسابات بيتنا.
@@ -970,13 +970,14 @@ async function route(req, res, url) {
 
   if (p === '/health') return send(res, 200, { ok: true, version: SERVER_VERSION, at: now() });
 
-  /* ===== دخول Google وApple — يُظهر الزر فقط عند ضبط مفاتيح المزود ===== */
+  /* ===== دخول Google — يُظهر الزر فقط عند ضبط مفاتيح المزود ===== */
   if (p === '/auth/providers' && method === 'GET') {
     const signedIn = authUser(req);
     return send(res, 200, { ...identity.enabled, emailRecovery: mail.enabled,
       linked: Object.keys(signedIn?.providers || {}) });
   }
-  const oauthStart = p.match(/^\/auth\/(google|apple)\/start$/);
+  if (/^\/auth\/apple\/(start|callback)$/.test(p)) return fail(res, 410, 'auth-not-configured');
+  const oauthStart = p.match(/^\/auth\/(google)\/start$/);
   if (oauthStart && method === 'POST') {
     if (rateLimited('oauth-start:' + clientIp(req), 30, 3600000)) return fail(res, 429, 'too-many-requests');
     const provider = oauthStart[1];
@@ -989,11 +990,10 @@ async function route(req, res, url) {
     res.setHeader('set-cookie', `${OAUTH_COOKIE}=${state}; Path=/; Max-Age=600; HttpOnly; Secure; SameSite=None`);
     return send(res, 200, { url: loginUrl });
   }
-  const oauthCallback = p.match(/^\/auth\/(google|apple)\/callback$/);
-  if (oauthCallback && ((oauthCallback[1] === 'google' && method === 'GET') ||
-      (oauthCallback[1] === 'apple' && method === 'POST'))) {
+  const oauthCallback = p.match(/^\/auth\/(google)\/callback$/);
+  if (oauthCallback && method === 'GET') {
     const provider = oauthCallback[1];
-    const values = provider === 'apple' ? await readFormBody(req) : url.searchParams;
+    const values = url.searchParams;
     try {
       const state = values.get('state') || '';
       if (!state || state !== oauthCookie(req)) throw new Error('auth-state-invalid');
