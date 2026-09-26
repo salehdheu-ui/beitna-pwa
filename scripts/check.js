@@ -342,6 +342,13 @@ if (adminJs.includes("request('/admin/stats')") && adminJs.includes("request('/a
 if (server.includes('signupsDaily') && server.includes('pushDevices') && server.includes('membersTotal')) {
   ok('مؤشرات النشاط والأجهزة والأعضاء متوفرة من الخادم');
 } else bad('مؤشرات لوحة الإدارة ناقصة من الخادم');
+if (adminJs.includes("request('/admin/account/lookup'") && server.includes("p === '/admin/account/reset'") &&
+    server.includes('validAdminPanelCode(body.adminCode)') && adminHtml.includes('manualResetLink')) {
+  ok('استرداد الحساب من الإدارة يتطلب تحققًا إضافيًا ويعرض رابطًا مؤقتًا');
+} else bad('إدارة استرداد الحساب غير مكتملة');
+if (server.includes("p === '/admin/account/revoke'") && server.includes("p === '/admin/activity'") &&
+    server.includes('db.adminAudit.slice(-100)')) ok('إنهاء الجلسات وسجل الإجراءات الإداري المحدود موصولان');
+else bad('ضوابط الإجراءات الإدارية ناقصة');
 
 console.log('ترجمة محتوى العاملة:');
 const translationSource = read('server/translate.js');

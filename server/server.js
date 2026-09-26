@@ -21,7 +21,7 @@ const SECRET_FILE = path.join(DATA_DIR, 'secret.key');
    بقيمة تتجاوز 30 يومًا حتى لا يعيد إعدادٌ خاطئ جلسات السنة القديمة. */
 const TOKEN_DAYS = Math.min(30, Math.max(1, Number(process.env.TOKEN_DAYS || 14)));
 const PUSH_SUBJECT = process.env.PUSH_SUBJECT || 'mailto:admin@beitna.local';
-const SERVER_VERSION = '1.17.0';
+const SERVER_VERSION = '1.18.0';
 const OAUTH_COOKIE = '__Host-beitna-oauth';
 
 /* لوحة الإدارة المنفصلة لها رمز مستقل تمامًا عن حسابات بيتنا.
@@ -72,10 +72,11 @@ fs.mkdirSync(BACKUP_DIR, { recursive: true });
 if (OFFSITE_BACKUP_DIR) fs.mkdirSync(OFFSITE_BACKUP_DIR, { recursive: true });
 else console.warn('⚠️  OFFSITE_BACKUP_DIR غير مضبوط — النسخ الاحتياطية محلية فقط.');
 
-const blank = () => ({ users: {}, emails: {}, households: {}, codes: {}, helperCodes: {}, translationCache: {} });
+const blank = () => ({ users: {}, emails: {}, households: {}, codes: {}, helperCodes: {}, translationCache: {}, adminAudit: [] });
 
 const fillMissing = (o) => {
-  for (const k of Object.keys(blank())) if (!o[k]) o[k] = {};
+  for (const k of Object.keys(blank())) if (!o[k]) o[k] = k === 'adminAudit' ? [] : {};
+  if (!Array.isArray(o.adminAudit)) o.adminAudit = [];
   return o;
 };
 
@@ -336,6 +337,24 @@ function issueRecoveryCode(user) {
   user.recovery = hashPassword(normCode(code));
   user.recoveryAt = Date.now();
   return code;
+}
+
+/** رابط استعادة عشوائي لا يُحفظ نصه؛ لا تتغير كلمة المرور قبل استخدامه. */
+function createPasswordReset() {
+  const code = crypto.randomBytes(32).toString('base64url');
+  const at = now();
+  return { record: { hash: crypto.createHash('sha256').update(code).digest('hex'), at },
+    link: `${identity.origin}/#reset=${code}`, expiresAt: at + 15 * 60000 };
+}
+
+function maskedEmail(email) {
+  const [name, domain] = String(email || '').split('@');
+  return name && domain ? `${name[0]}***@${domain}` : 'حساب محذوف';
+}
+
+function recordAdminAction(action, user, delivery = null) {
+  db.adminAudit.push({ action, targetUid: user.uid, target: maskedEmail(user.email), delivery, at: now() });
+  db.adminAudit = db.adminAudit.slice(-100);
 }
 
 const b64 = (s) => Buffer.from(s).toString('base64url');
@@ -1110,13 +1129,14 @@ async function route(req, res, url) {
     if (rateLimited('reset-mail-email:' + email, 3, 3600000)) return fail(res, 429, 'too-many-requests');
     const user = db.users[db.emails[email]];
     if (user) {
-      const code = crypto.randomBytes(32).toString('base64url');
-      const link = `${identity.origin}/#reset=${code}`;
+      const { link, record } = createPasswordReset();
       try {
         await mail.sendPasswordReset(email, link);
-        user.passwordReset = { hash: crypto.createHash('sha256').update(code).digest('hex'), at: now() };
+        user.passwordReset = record;
         save();
-      } catch (error) { console.error('تعذّر إرسال بريد استعادة كلمة المرور', error.message); }
+      } catch (error) {
+        console.error('تعذّر إرسال بريد استعادة كلمة المرور', error.message);
+      }
     }
     /* الرد نفسه للبريد المعروف والمجهول حتى لا يمكن حصر الحسابات. */
     return send(res, 200, { ok: true });
@@ -1168,6 +1188,81 @@ async function route(req, res, url) {
     const file = backupNow('لوحة الإدارة', true);
     if (!file) return fail(res, 500, 'backup-failed');
     return send(res, 200, { ok: true, file: path.basename(file) });
+  }
+
+  /* البحث دقيق بالبريد: لا قائمة شاملة بأسماء وبيانات جميع أفراد البيوت. */
+  if (p === '/admin/account/lookup' && method === 'POST') {
+    if (!authAdminPanel(req)) return fail(res, 401, 'admin-session-required');
+    if (rateLimited('admin-lookup:' + clientIp(req), 60, 3600000)) return fail(res, 429, 'too-many-requests');
+    const body = await readBody(req);
+    const email = normEmail(body.email);
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return fail(res, 400, 'invalid-email');
+    const target = db.users[db.emails[email]];
+    if (!target) return fail(res, 404, 'account-not-found');
+    return send(res, 200, {
+      email: target.email, displayName: target.displayName || '',
+      hasPassword: !!target.pass, providers: Object.keys(target.providers || {}),
+      hasHousehold: !!(target.householdId && db.households[target.householdId]),
+      createdAt: target.createdAt || null, updatedAt: target.updatedAt || null,
+      resetPendingUntil: target.passwordReset && now() - target.passwordReset.at < 15 * 60000
+        ? target.passwordReset.at + 15 * 60000 : null,
+      emailDelivery: mail.enabled,
+    });
+  }
+
+  if (p === '/admin/account/reset' && method === 'POST') {
+    if (!authAdminPanel(req)) return fail(res, 401, 'admin-session-required');
+    const key = 'admin-account-reset:' + clientIp(req);
+    if (tooMany(key) || rateLimited(key, 12, 3600000)) return fail(res, 429, 'too-many-requests');
+    const body = await readBody(req);
+    if (!validAdminPanelCode(body.adminCode)) {
+      noteAttempt(key, false);
+      return fail(res, 401, 'wrong-admin-code');
+    }
+    noteAttempt(key, true);
+    const email = normEmail(body.email);
+    const target = db.users[db.emails[email]];
+    if (!target) return fail(res, 404, 'account-not-found');
+    const delivery = body.delivery === 'email' ? 'email' : 'manual';
+    if (delivery === 'email' && !mail.enabled) return fail(res, 503, 'mail-not-configured');
+    const reset = createPasswordReset();
+    if (delivery === 'email') {
+      try { await mail.sendPasswordReset(target.email, reset.link); }
+      catch (error) {
+        console.error('تعذّر إرسال رابط استعادة إداري', error.message);
+        return fail(res, 502, 'mail-send-failed');
+      }
+    }
+    target.passwordReset = reset.record;
+    recordAdminAction('password-reset-issued', target, delivery);
+    save(); flush();
+    return send(res, 200, { ok: true, delivery, expiresAt: reset.expiresAt,
+      ...(delivery === 'manual' ? { link: reset.link } : {}) });
+  }
+
+  if (p === '/admin/account/revoke' && method === 'POST') {
+    if (!authAdminPanel(req)) return fail(res, 401, 'admin-session-required');
+    const key = 'admin-account-revoke:' + clientIp(req);
+    if (tooMany(key) || rateLimited(key, 12, 3600000)) return fail(res, 429, 'too-many-requests');
+    const body = await readBody(req);
+    if (!validAdminPanelCode(body.adminCode)) {
+      noteAttempt(key, false);
+      return fail(res, 401, 'wrong-admin-code');
+    }
+    noteAttempt(key, true);
+    const target = db.users[db.emails[normEmail(body.email)]];
+    if (!target) return fail(res, 404, 'account-not-found');
+    target.tokenEpoch = (target.tokenEpoch || 0) + 1;
+    target.passwordReset = null;
+    target.updatedAt = now();
+    recordAdminAction('sessions-revoked', target);
+    save(); flush();
+    return send(res, 200, { ok: true });
+  }
+
+  if (p === '/admin/activity' && method === 'GET') {
+    if (!authAdminPanel(req)) return fail(res, 401, 'admin-session-required');
+    return send(res, 200, { actions: db.adminAudit.slice(-12).reverse() });
   }
 
   /* ===== كل ما بعده يحتاج تسجيل دخول ===== */

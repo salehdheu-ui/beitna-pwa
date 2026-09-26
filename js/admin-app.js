@@ -4,6 +4,9 @@ const $ = (s) => document.querySelector(s);
 
 let token = sessionStorage.getItem(TOKEN_KEY) || '';
 let toastTimer = 0;
+let selectedAccount = null;
+let accountAction = 'reset';
+let resetLinkExpiresAt = 0;
 
 const esc = (value) => String(value ?? '').replace(/[&<>'"]/g, (c) => ({
   '&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;',
@@ -34,6 +37,10 @@ function messageOf(error) {
     return 'اللوحة مغلقة: لم يُضبط ADMIN_PANEL_CODE_HASH على الخادم بعد';
   }
   if (error?.code === 'wrong-admin-code') return 'رمز لوحة الإدارة غير صحيح';
+  if (error?.code === 'account-not-found') return 'لا يوجد حساب بهذا البريد؛ تحقق من كتابته كاملًا';
+  if (error?.code === 'invalid-email') return 'أدخل بريدًا إلكترونيًا صحيحًا';
+  if (error?.code === 'mail-not-configured') return 'إرسال البريد غير مفعّل؛ اختر عرض رابط الاستعادة';
+  if (error?.code === 'mail-send-failed') return 'تعذّر إرسال البريد؛ لم تُلغَ وصلة الاستعادة السابقة';
   if (error?.code === 'too-many-requests') return 'محاولات كثيرة — انتظر قليلًا ثم أعد المحاولة';
   if (error?.code === 'admin-session-required' || error?.status === 401) return 'انتهت جلسة الإدارة — أدخل الرمز من جديد';
   if (error?.code === 'backup-failed') return 'تعذّر إنشاء النسخة الاحتياطية';
@@ -57,11 +64,12 @@ function trend(days = []) {
 }
 
 function render(stats) {
+  selectedAccount = null;
   const activity = stats.users ? Math.round(stats.activeUsers30d / stats.users * 100) : 0;
   const collections = COLLECTIONS.map(([key,icon,label]) => [icon,label,Number(stats.items?.[key] || 0)]);
   const maxItems = Math.max(1, ...collections.map((x) => x[2]));
   $('#dashboardRoot').innerHTML = `
-    <section class="page-head"><div><h1>نظرة عامة على النظام</h1><p>بيانات مجمّعة لا تحتوي أسماء المستخدمين أو محتوى بيوتهم.</p></div>
+    <section class="page-head"><div><h1>نظرة عامة على النظام</h1><p>مؤشرات عامة وأدوات استرداد الحسابات، دون الاطلاع على محتوى البيوت.</p></div>
       <div class="actions"><button class="secondary" data-refresh>↻ تحديث</button><button class="primary" data-backup>🗄️ نسخة احتياطية</button></div></section>
     <section class="kpis">
       ${kpi('👥','إجمالي المستخدمين',nf(stats.users),`+${nf(stats.usersNew7d)} خلال ٧ أيام`)}
@@ -84,11 +92,54 @@ function render(stats) {
         <div class="facts"><div class="fact"><span>مدة عمل الخادم</span><b>${age(stats.uptimeSec)}</b></div><div class="fact"><span>حجم قاعدة البيانات</span><b>${bytes(stats.dbBytes)}</b></div><div class="fact"><span>عدد النسخ الاحتياطية</span><b>${nf(stats.backups)}</b></div><div class="fact"><span>آخر نسخة</span><b>${stats.lastBackupAt ? new Date(stats.lastBackupAt).toLocaleString('ar-OM') : '—'}</b></div></div>
         <button class="secondary" style="width:100%;margin-top:12px" data-health>🔌 فحص الخادم</button>
       </article>
+    </section>
+    <section class="management-grid">
+      <article class="panel"><div class="panel-head"><div><h2>إدارة الحسابات والاسترداد</h2><small>بحث دقيق بالبريد، دون الاطلاع على محتوى البيت</small></div></div>
+        <form id="accountSearchForm" class="account-search"><div><label for="accountEmail">بريد صاحب الحساب</label><input id="accountEmail" type="email" inputmode="email" autocomplete="off" placeholder="name@example.com" required></div><button class="secondary" type="submit">بحث</button></form>
+        <div id="accountResult" class="account-result" aria-live="polite"><p class="muted">يمكنك إنشاء رابط مؤقت ليختار صاحب الحساب كلمة مرور جديدة، أو إنهاء جلساته عند الاشتباه بوصول غير مصرح.</p></div>
+      </article>
+      <article class="panel"><div class="panel-head"><div><h2>آخر إجراءات الإدارة</h2><small>سجل مختصر بلا كلمات مرور أو روابط استعادة</small></div></div><div id="adminActivity" class="audit-list"><p class="muted">جارٍ تحميل السجل...</p></div></article>
     </section>`;
 }
 
+function renderAccount(account) {
+  selectedAccount = account;
+  const methods = [account.hasPassword ? 'كلمة مرور' : null, ...account.providers.map((p) => p === 'google' ? 'Google' : 'Apple')].filter(Boolean);
+  $('#accountResult').innerHTML = `<div class="account-summary"><h3>${esc(account.displayName || 'حساب بلا اسم')}</h3><div class="account-email">${esc(account.email)}</div>
+    <div class="account-meta">${methods.map((m) => `<span class="chip">${esc(m)}</span>`).join('')}<span class="chip">${account.hasHousehold ? 'مرتبط ببيت' : 'بلا بيت'}</span></div>
+    <p class="muted">تاريخ التسجيل: ${account.createdAt ? esc(new Date(account.createdAt).toLocaleDateString('ar-OM')) : '—'}${account.resetPendingUntil ? '<br>يوجد رابط استعادة لم تنتهِ صلاحيته؛ إصدار رابط جديد يلغي السابق.' : ''}</p>
+    <div class="account-buttons"><button class="primary" data-account-action="reset">رابط إعادة تعيين كلمة المرور</button><button class="secondary danger-button" data-account-action="revoke">إنهاء الجلسات</button></div></div>`;
+}
+
+async function loadActivity() {
+  const root = $('#adminActivity');
+  if (!root) return;
+  try {
+    const data = await request('/admin/activity');
+    root.innerHTML = data.actions.length ? data.actions.map((entry) => `<div class="audit-entry"><b>${entry.action === 'sessions-revoked' ? 'إنهاء جلسات الحساب' : entry.delivery === 'email' ? 'إرسال رابط استعادة بالبريد' : 'إنشاء رابط استعادة يدوي'}</b><small><bdi>${esc(entry.target)}</bdi> · ${esc(new Date(entry.at).toLocaleString('ar-OM'))}</small></div>`).join('') : '<p class="muted">لا توجد إجراءات مسجلة بعد.</p>';
+  } catch { root.innerHTML = '<p class="muted">تعذّر تحميل سجل الإجراءات.</p>'; }
+}
+
+function openAccountAction(action) {
+  if (!selectedAccount) return;
+  accountAction = action;
+  const reset = action === 'reset';
+  $('#actionTitle').textContent = reset ? 'إعادة تعيين كلمة المرور' : 'إنهاء جلسات الحساب';
+  $('#actionDescription').textContent = reset
+    ? `الحساب: ${selectedAccount.email}. سيختار صاحب الحساب كلمته الجديدة عبر رابط صالح لمدة ١٥ دقيقة ولمرة واحدة. كلمة المرور الحالية والجلسات تبقى كما هي حتى استخدام الرابط.`
+    : `الحساب: ${selectedAccount.email}. سيتم تسجيل خروجه من جميع الأجهزة وإلغاء روابط الاستعادة الحالية، دون حذف حسابه أو بيانات بيته.`;
+  $('#accountActionForm').hidden = false; $('#actionResult').hidden = true; $('#actionError').hidden = true;
+  $('#actionAdminCode').value = ''; $('#manualResetLink').value = '';
+  $('#deliveryField').hidden = !reset || !selectedAccount.emailDelivery;
+  $('#actionDelivery').value = selectedAccount.emailDelivery ? 'email' : 'manual';
+  $('#actionSubmit').textContent = reset ? 'إنشاء رابط الاستعادة' : 'تأكيد إنهاء الجلسات';
+  $('#actionSubmit').disabled = false;
+  $('#accountDialog').showModal(); $('#actionAdminCode').focus();
+}
 function showLogin(message = '') {
   token = ''; sessionStorage.removeItem(TOKEN_KEY);
+  selectedAccount = null;
+  if ($('#accountDialog').open) $('#accountDialog').close();
   $('#dashboardView').hidden = true; $('#loginView').hidden = false;
   $('#adminCode').value = '';
   const err = $('#loginError'); err.textContent = message; err.hidden = !message;
@@ -97,7 +148,7 @@ function showLogin(message = '') {
 
 async function loadDashboard() {
   $('#dashboardRoot').innerHTML = '<div class="loading"><div><div class="spinner"></div>جارٍ تحميل بيانات النظام...</div></div>';
-  try { render(await request('/admin/stats')); }
+  try { render(await request('/admin/stats')); await loadActivity(); }
   catch (error) { showLogin(messageOf(error)); }
 }
 
@@ -120,7 +171,60 @@ $('#toggleCode').addEventListener('click', () => {
 });
 $('#logoutBtn').addEventListener('click', () => showLogin());
 
+$('#dashboardRoot').addEventListener('submit', async (event) => {
+  if (event.target.id !== 'accountSearchForm') return;
+  event.preventDefault();
+  const button = event.target.querySelector('button');
+  const email = $('#accountEmail').value.trim();
+  selectedAccount = null; button.disabled = true;
+  $('#accountResult').textContent = 'جارٍ البحث...';
+  try { renderAccount(await request('/admin/account/lookup', { method:'POST', body:JSON.stringify({ email }) })); }
+  catch (error) {
+    $('#accountResult').textContent = messageOf(error);
+    if (error.code === 'admin-session-required') showLogin(messageOf(error));
+  } finally { button.disabled = false; }
+});
+
+$('#accountActionForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (!selectedAccount) return;
+  const button = $('#actionSubmit'); button.disabled = true; $('#actionError').hidden = true;
+  const adminCode = $('#actionAdminCode').value;
+  $('#actionAdminCode').value = '';
+  try {
+    const result = await request(`/admin/account/${accountAction}`, { method:'POST', body:JSON.stringify({
+      email:selectedAccount.email, adminCode,
+      delivery:selectedAccount.emailDelivery ? $('#actionDelivery').value : 'manual',
+    }) });
+    $('#accountActionForm').hidden = true; $('#actionResult').hidden = false;
+    $('#manualLinkBox').hidden = !result.link;
+    $('#manualResetLink').value = result.link || '';
+    resetLinkExpiresAt = result.expiresAt || 0;
+    $('#actionResultText').textContent = accountAction === 'revoke'
+      ? 'تم إنهاء جلسات الحساب وإلغاء روابط الاستعادة الحالية. بيانات البيت لم تتغير.'
+      : result.delivery === 'email' ? 'أُرسل رابط الاستعادة إلى بريد صاحب الحساب.'
+        : 'تم إنشاء الرابط. سلّمه لصاحب الحساب بعد التحقق من هويته. عند استخدامه تُلغى جميع الجلسات القديمة.';
+    renderAccount({ ...selectedAccount, resetPendingUntil: accountAction === 'reset' ? result.expiresAt : null });
+    await loadActivity();
+  } catch (error) {
+    $('#actionError').textContent = messageOf(error); $('#actionError').hidden = false;
+    if (error.code === 'admin-session-required') showLogin(messageOf(error));
+  } finally { button.disabled = false; }
+});
+
+for (const id of ['closeAction','doneAction']) $('#' + id).addEventListener('click', () => $('#accountDialog').close());
+$('#accountDialog').addEventListener('close', () => {
+  $('#actionAdminCode').value = ''; $('#manualResetLink').value = ''; resetLinkExpiresAt = 0;
+});
+$('#copyResetLink').addEventListener('click', async () => {
+  if (!$('#manualResetLink').value || Date.now() >= resetLinkExpiresAt) return toast('انتهت صلاحية الرابط؛ أنشئ رابطًا جديدًا');
+  try { await navigator.clipboard.writeText($('#manualResetLink').value); toast('نُسخ الرابط — أرسله لصاحب الحساب فقط'); }
+  catch { $('#manualResetLink').focus(); $('#manualResetLink').select(); toast('حدد الرابط وانسخه يدويًا'); }
+});
+
 $('#dashboardRoot').addEventListener('click', async (event) => {
+  const accountButton = event.target.closest('[data-account-action]');
+  if (accountButton) { openAccountAction(accountButton.dataset.accountAction); return; }
   if (event.target.closest('[data-refresh]')) { await loadDashboard(); return; }
   const backup = event.target.closest('[data-backup]');
   if (backup) {

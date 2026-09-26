@@ -52,6 +52,25 @@
     </main>
   </div>
 
+  <dialog id="accountDialog" class="admin-dialog" aria-labelledby="actionTitle">
+    <div class="dialog-head"><h2 id="actionTitle">إدارة الحساب</h2><button type="button" id="closeAction" aria-label="إغلاق">✕</button></div>
+    <p id="actionDescription" class="muted"></p>
+    <form id="accountActionForm">
+      <label for="actionAdminCode">أعد إدخال رمز لوحة الإدارة للتأكيد</label>
+      <input id="actionAdminCode" type="password" autocomplete="off" autocapitalize="characters" required>
+      <div id="deliveryField" hidden><label for="actionDelivery">طريقة تسليم الرابط</label>
+        <select id="actionDelivery"><option value="manual">عرض رابط لنسخه ومشاركته بأمان</option><option value="email">إرساله إلى بريد الحساب</option></select></div>
+      <div id="actionError" class="error" role="alert" hidden></div>
+      <button id="actionSubmit" class="primary" type="submit">تأكيد</button>
+    </form>
+    <div id="actionResult" hidden><p id="actionResultText"></p>
+      <div id="manualLinkBox" hidden><label for="manualResetLink">رابط الاستعادة — يظهر الآن فقط وينتهي بعد ١٥ دقيقة</label>
+        <input id="manualResetLink" type="text" readonly dir="ltr"><button id="copyResetLink" class="secondary" type="button">نسخ الرابط</button>
+        <p class="warning">أي شخص يملك هذا الرابط يستطيع تعيين كلمة مرور جديدة. شاركه مع صاحب الحساب فقط عبر قناة موثوقة.</p></div>
+      <button id="doneAction" class="primary" type="button">تم</button>
+    </div>
+  </dialog>
+
   <div id="toast" class="toast" hidden></div>
   <script type="module" src="js/admin-app.js"></script>
 </body>

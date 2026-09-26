@@ -335,6 +335,55 @@ async function main() {
   /* النسخة اليدوية يجب أن تُكتب محليًا وخارجيًا وأن تكون JSON صالحًا. */
   const adminLogin = await request('/admin/login', { method: 'POST', body: { code: adminCode } });
   assert.equal(adminLogin.status, 200);
+  const adminToken = adminLogin.data.token;
+  assert.equal((await request('/admin/account/lookup', { method:'POST', body:{ email:outsider.email } })).status, 401);
+  assert.equal((await request('/admin/account/lookup', { method:'POST', token:owner.token, body:{ email:outsider.email } })).status, 401);
+  for (const action of ['reset','revoke']) {
+    assert.equal((await request(`/admin/account/${action}`, { method:'POST', token:owner.token,
+      body:{ email:outsider.email, adminCode } })).status, 401, 'جلسة المستخدم لا تمنح إدارة الحسابات');
+  }
+  const lookup = await request('/admin/account/lookup', { method:'POST', adminToken, body:{ email:outsider.email } });
+  assert.equal(lookup.status, 200);
+  assert.equal(lookup.data.email, outsider.email);
+  assert.equal(lookup.data.hasPassword, true);
+  assert.equal(lookup.data.emailDelivery, false);
+  assert.equal('pass' in lookup.data, false);
+  assert.equal((await request('/admin/account/lookup', { method:'POST', adminToken, body:{ email:'absent@example.test' } })).status, 404);
+  assert.equal((await request('/admin/account/reset', { method:'POST', adminToken,
+    body:{ email:outsider.email, adminCode:'wrong', delivery:'manual' } })).status, 401);
+  assert.equal((await request('/admin/account/reset', { method:'POST', adminToken,
+    body:{ email:outsider.email, adminCode, delivery:'email' } })).status, 503);
+  const adminReset = await request('/admin/account/reset', { method:'POST', adminToken,
+    body:{ email:outsider.email, adminCode, delivery:'manual' } });
+  assert.equal(adminReset.status, 200);
+  assert.ok(adminReset.data.expiresAt > Date.now());
+  const resetCode = new URL(adminReset.data.link).hash.slice('#reset='.length);
+  assert.match(resetCode, /^[A-Za-z0-9_-]{43}$/);
+  assert.equal((await request('/me', { token:outsider.token })).status, 200,
+    'إصدار الرابط وحده يجب ألا يغيّر الحساب أو يطرد صاحبه');
+  assert.equal(fs.readFileSync(path.join(dataDir, 'db.json'), 'utf8').includes(resetCode), false,
+    'رمز الاستعادة يجب ألا يُحفظ نصًا');
+  const resetDone = await request('/account/reset/confirm', { method:'POST',
+    body:{ code:resetCode, password:'Admin-recovered-456' } });
+  assert.equal(resetDone.status, 200);
+  assert.equal((await request('/me', { token:outsider.token })).status, 401);
+  assert.equal((await request('/account/reset/confirm', { method:'POST',
+    body:{ code:resetCode, password:'Other-pass-789' } })).status, 401);
+  const recoveredLogin = await request('/login', { method:'POST',
+    body:{ email:outsider.email, password:'Admin-recovered-456' } });
+  assert.equal(recoveredLogin.status, 200);
+  assert.equal((await request('/admin/account/revoke', { method:'POST', adminToken,
+    body:{ email:outsider.email, adminCode:'wrong' } })).status, 401);
+  assert.equal((await request('/admin/account/revoke', { method:'POST', adminToken,
+    body:{ email:outsider.email, adminCode } })).status, 200);
+  assert.equal((await request('/me', { token:recoveredLogin.data.token })).status, 401);
+  assert.equal((await request('/admin/activity')).status, 401);
+  const audit = await request('/admin/activity', { adminToken });
+  assert.equal(audit.status, 200);
+  assert.equal(audit.data.actions[0].action, 'sessions-revoked');
+  assert.equal(audit.data.actions[1].action, 'password-reset-issued');
+  assert.equal(JSON.stringify(audit.data).includes(resetCode), false);
+  assert.equal(JSON.stringify(audit.data).includes(outsider.email), false);
   const backup = await request('/admin/backup', { method: 'POST', adminToken: adminLogin.data.token });
   assert.equal(backup.status, 200, JSON.stringify(backup.data));
   const local = JSON.parse(fs.readFileSync(path.join(dataDir, 'backups', backup.data.file), 'utf8'));
